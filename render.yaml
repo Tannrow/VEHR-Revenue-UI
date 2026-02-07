@@ -50,7 +50,7 @@ services:
     autoDeploy: true
     rootDir: frontend
     buildCommand: npm ci && npm run build
-    startCommand: npm run start
+    startCommand: npx next start -p $PORT
     healthCheckPath: /
     domains:
       - the-trapp-house.com
