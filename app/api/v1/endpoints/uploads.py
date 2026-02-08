@@ -1,7 +1,6 @@
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,7 +23,7 @@ router = APIRouter(tags=["Uploads"])
 
 class PresignUploadRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
-    content_type: Literal["application/pdf", "image/png", "image/jpeg"]
+    content_type: str = Field(min_length=1, max_length=120)
 
 
 class PresignUploadResponse(BaseModel):
@@ -52,6 +51,20 @@ def _build_upload_key(filename: str, organization_id: str) -> str:
     return f"uploads/orgs/{organization_id}/{now:%Y/%m}/{uuid4()}_{safe_name}"
 
 
+def _normalize_content_type(content_type: str) -> str:
+    normalized = content_type.strip().lower()
+    if not normalized:
+        return "application/octet-stream"
+    if any(ch in normalized for ch in ("\n", "\r", ";")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid content_type",
+        )
+    if "/" not in normalized:
+        return "application/octet-stream"
+    return normalized
+
+
 @router.post("/uploads/presign", response_model=PresignUploadResponse)
 def create_presigned_upload(
     payload: PresignUploadRequest,
@@ -60,6 +73,7 @@ def create_presigned_upload(
     membership=Depends(get_current_membership),
     _: None = Depends(require_permission("documents:write")),
 ) -> PresignUploadResponse:
+    content_type = _normalize_content_type(payload.content_type)
     try:
         settings = load_presign_s3_settings()
     except ValueError as exc:
@@ -76,7 +90,7 @@ def create_presigned_upload(
             client=client,
             bucket=settings.bucket,
             key=key,
-            content_type=payload.content_type,
+            content_type=content_type,
             expires_in=settings.expires_in_seconds,
         )
     except Exception as exc:
@@ -98,7 +112,7 @@ def create_presigned_upload(
         key=key,
         url=url,
         method="PUT",
-        headers={"Content-Type": payload.content_type},
+        headers={"Content-Type": content_type},
     )
 
 

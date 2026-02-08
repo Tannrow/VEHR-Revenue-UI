@@ -12,6 +12,7 @@ from app.db.models.form_template import FormTemplate  # noqa: F401
 from app.db.models.organization import Organization  # noqa: F401
 from app.db.models.organization_membership import OrganizationMembership  # noqa: F401
 from app.db.models.organization_tile import OrganizationTile  # noqa: F401
+from app.db.models.organization_tile_node import OrganizationTileNode  # noqa: F401
 from app.db.models.patient import Patient  # noqa: F401
 from app.db.models.patient_document import PatientDocument  # noqa: F401
 from app.db.models.patient_note import PatientNote  # noqa: F401

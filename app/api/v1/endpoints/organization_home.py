@@ -20,6 +20,7 @@ from app.core.time import utc_now
 from app.db.models.announcement import Announcement
 from app.db.models.encounter import Encounter
 from app.db.models.organization_tile import OrganizationTile
+from app.db.models.organization_tile_node import OrganizationTileNode
 from app.db.models.patient_document import PatientDocument
 from app.db.models.patient_service_enrollment import PatientServiceEnrollment
 from app.db.session import get_db
@@ -29,6 +30,7 @@ from app.services.audit import log_event
 router = APIRouter(tags=["Organization"])
 
 LINK_TYPES = {"internal_route", "external_url"}
+NODE_TYPES = {"folder", "file"}
 CLINICAL_OR_SUPERVISORY_ROLES = {
     ROLE_ADMIN,
     ROLE_STAFF,
@@ -81,6 +83,42 @@ class OrganizationTileRead(BaseModel):
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OrganizationTileNodeCreate(BaseModel):
+    node_type: str
+    name: str = Field(min_length=1, max_length=200)
+    parent_id: str | None = None
+    content: str | None = None
+    storage_key: str | None = Field(default=None, min_length=1, max_length=500)
+    media_type: str | None = Field(default=None, min_length=1, max_length=120)
+    size_bytes: int | None = Field(default=None, ge=0)
+    sort_order: int = 0
+
+
+class OrganizationTileNodeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    parent_id: str | None = None
+    content: str | None = None
+    storage_key: str | None = Field(default=None, min_length=1, max_length=500)
+    media_type: str | None = Field(default=None, min_length=1, max_length=120)
+    size_bytes: int | None = Field(default=None, ge=0)
+    sort_order: int | None = None
+
+
+class OrganizationTileNodeRead(BaseModel):
+    id: str
+    tile_id: str
+    parent_id: str | None = None
+    node_type: str
+    name: str
+    content: str | None = None
+    storage_key: str | None = None
+    media_type: str | None = None
+    size_bytes: int | None = None
+    sort_order: int
+    created_at: str
+    updated_at: str
 
 
 class AnnouncementCreate(BaseModel):
@@ -187,6 +225,51 @@ def _announcement_read(row: Announcement) -> AnnouncementRead:
         is_active=row.is_active,
         created_at=row.created_at.isoformat(),
     )
+
+
+def _node_read(row: OrganizationTileNode) -> OrganizationTileNodeRead:
+    return OrganizationTileNodeRead(
+        id=row.id,
+        tile_id=row.tile_id,
+        parent_id=row.parent_id,
+        node_type=row.node_type,
+        name=row.name,
+        content=row.content,
+        storage_key=row.storage_key,
+        media_type=row.media_type,
+        size_bytes=row.size_bytes,
+        sort_order=row.sort_order,
+        created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
+    )
+
+
+def _normalize_node_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in NODE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid node_type. Expected one of: {', '.join(sorted(NODE_TYPES))}",
+        )
+    return normalized
+
+
+def _validate_storage_key(*, organization_id: str, storage_key: str | None) -> str | None:
+    if storage_key is None:
+        return None
+    key = storage_key.strip().lstrip("/")
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="storage_key cannot be blank",
+        )
+    required_prefix = f"uploads/orgs/{organization_id}/"
+    if not key.startswith(required_prefix):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="storage_key must belong to current organization upload prefix",
+        )
+    return key
 
 
 def _default_tile_specs() -> list[dict]:
@@ -341,6 +424,68 @@ def _user_can_view_tile(row: OrganizationTile, *, role: str) -> bool:
 
 def _today_date() -> date:
     return utc_now().date()
+
+
+def _get_tile_with_access(
+    db: Session,
+    *,
+    organization_id: str,
+    tile_id: str,
+    role: str,
+) -> OrganizationTile:
+    tile = db.execute(
+        select(OrganizationTile).where(
+            OrganizationTile.id == tile_id,
+            OrganizationTile.organization_id == organization_id,
+            OrganizationTile.is_active.is_(True),
+        )
+    ).scalar_one_or_none()
+    if not tile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tile not found")
+    if not _user_can_view_tile(tile, role=role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return tile
+
+
+def _validate_parent_node(
+    db: Session,
+    *,
+    organization_id: str,
+    tile_id: str,
+    parent_id: str | None,
+    for_node_id: str | None = None,
+) -> OrganizationTileNode | None:
+    if parent_id is None:
+        return None
+    parent = db.execute(
+        select(OrganizationTileNode).where(
+            OrganizationTileNode.id == parent_id,
+            OrganizationTileNode.organization_id == organization_id,
+            OrganizationTileNode.tile_id == tile_id,
+        )
+    ).scalar_one_or_none()
+    if not parent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent folder not found")
+    if parent.node_type != "folder":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Parent must be a folder")
+    if for_node_id is None:
+        return parent
+    if parent.id == for_node_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Node cannot be its own parent")
+
+    cursor = parent
+    while cursor.parent_id is not None:
+        if cursor.parent_id == for_node_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot move a node inside its own descendant",
+            )
+        cursor = db.execute(
+            select(OrganizationTileNode).where(OrganizationTileNode.id == cursor.parent_id)
+        ).scalar_one_or_none()
+        if cursor is None:
+            break
+    return parent
 
 
 @router.get("/organization/home", response_model=OrganizationHomeResponse)
@@ -545,6 +690,220 @@ def reorder_organization_tiles(
         .order_by(OrganizationTile.sort_order.asc(), OrganizationTile.title.asc())
     ).scalars().all()
     return [_tile_read(row) for row in refreshed]
+
+
+@router.get("/organization/tiles/{tile_id}/nodes", response_model=list[OrganizationTileNodeRead])
+def list_organization_tile_nodes(
+    tile_id: str,
+    parent_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership=Depends(get_current_membership),
+) -> list[OrganizationTileNodeRead]:
+    _get_tile_with_access(
+        db,
+        organization_id=organization.id,
+        tile_id=tile_id,
+        role=membership.role,
+    )
+    _validate_parent_node(
+        db,
+        organization_id=organization.id,
+        tile_id=tile_id,
+        parent_id=parent_id,
+    )
+
+    query = select(OrganizationTileNode).where(
+        OrganizationTileNode.organization_id == organization.id,
+        OrganizationTileNode.tile_id == tile_id,
+    )
+    if parent_id is None:
+        query = query.where(OrganizationTileNode.parent_id.is_(None))
+    else:
+        query = query.where(OrganizationTileNode.parent_id == parent_id)
+    rows = db.execute(query).scalars().all()
+    ordered = sorted(
+        rows,
+        key=lambda row: (0 if row.node_type == "folder" else 1, row.sort_order, row.name.lower()),
+    )
+    return [_node_read(row) for row in ordered]
+
+
+@router.post(
+    "/organization/tiles/{tile_id}/nodes",
+    response_model=OrganizationTileNodeRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_organization_tile_node(
+    tile_id: str,
+    payload: OrganizationTileNodeCreate,
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership=Depends(get_current_membership),
+) -> OrganizationTileNodeRead:
+    _get_tile_with_access(
+        db,
+        organization_id=organization.id,
+        tile_id=tile_id,
+        role=membership.role,
+    )
+    node_type = _normalize_node_type(payload.node_type)
+    parent = _validate_parent_node(
+        db,
+        organization_id=organization.id,
+        tile_id=tile_id,
+        parent_id=payload.parent_id,
+    )
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Node name cannot be blank")
+    storage_key = _validate_storage_key(
+        organization_id=organization.id,
+        storage_key=payload.storage_key,
+    )
+    media_type = payload.media_type.strip() if payload.media_type is not None else None
+    if media_type == "":
+        media_type = None
+    size_bytes = payload.size_bytes
+
+    if node_type == "folder":
+        if storage_key is not None or media_type is not None or size_bytes is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Folder nodes cannot include upload metadata",
+            )
+    if storage_key is not None and node_type != "file":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only file nodes can include storage_key",
+        )
+
+    row = OrganizationTileNode(
+        organization_id=organization.id,
+        tile_id=tile_id,
+        parent_id=parent.id if parent else None,
+        node_type=node_type,
+        name=name,
+        content=(payload.content or "") if node_type == "file" and storage_key is None else None,
+        storage_key=storage_key,
+        media_type=media_type,
+        size_bytes=size_bytes,
+        sort_order=payload.sort_order,
+        created_by_user_id=membership.user_id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    log_event(
+        db,
+        action="tile_node.created",
+        entity_type="organization_tile_node",
+        entity_id=row.id,
+        organization_id=organization.id,
+        actor=membership.user.email,
+    )
+    return _node_read(row)
+
+
+@router.patch("/organization/nodes/{node_id}", response_model=OrganizationTileNodeRead)
+def update_organization_tile_node(
+    node_id: str,
+    payload: OrganizationTileNodeUpdate,
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership=Depends(get_current_membership),
+) -> OrganizationTileNodeRead:
+    row = db.execute(
+        select(OrganizationTileNode).where(
+            OrganizationTileNode.id == node_id,
+            OrganizationTileNode.organization_id == organization.id,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found")
+    _get_tile_with_access(
+        db,
+        organization_id=organization.id,
+        tile_id=row.tile_id,
+        role=membership.role,
+    )
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Node name cannot be blank")
+        row.name = name
+    if payload.sort_order is not None:
+        row.sort_order = payload.sort_order
+
+    if "parent_id" in payload.model_fields_set:
+        _validate_parent_node(
+            db,
+            organization_id=organization.id,
+            tile_id=row.tile_id,
+            parent_id=payload.parent_id,
+            for_node_id=row.id,
+        )
+        row.parent_id = payload.parent_id
+
+    if "content" in payload.model_fields_set:
+        if row.node_type != "file":
+            if payload.content not in (None, ""):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Folder nodes do not support file content",
+                )
+            row.content = None
+        else:
+            row.content = payload.content or ""
+
+    if "storage_key" in payload.model_fields_set:
+        if row.node_type != "file":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Folder nodes cannot include upload metadata",
+            )
+        row.storage_key = _validate_storage_key(
+            organization_id=organization.id,
+            storage_key=payload.storage_key,
+        )
+        if row.storage_key is not None:
+            row.content = None
+
+    if "media_type" in payload.model_fields_set:
+        if row.node_type != "file":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Folder nodes cannot include upload metadata",
+            )
+        if payload.media_type is None:
+            row.media_type = None
+        else:
+            media_type = payload.media_type.strip()
+            row.media_type = media_type or None
+
+    if "size_bytes" in payload.model_fields_set:
+        if row.node_type != "file":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Folder nodes cannot include upload metadata",
+            )
+        row.size_bytes = payload.size_bytes
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    log_event(
+        db,
+        action="tile_node.updated",
+        entity_type="organization_tile_node",
+        entity_id=row.id,
+        organization_id=organization.id,
+        actor=membership.user.email,
+    )
+    return _node_read(row)
 
 
 @router.get("/organization/announcements", response_model=list[AnnouncementRead])

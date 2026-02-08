@@ -43,3 +43,7 @@ class OrganizationTile(Base):
         "User",
         back_populates="created_organization_tiles",
     )
+    nodes: Mapped[list["OrganizationTileNode"]] = relationship(
+        "OrganizationTileNode",
+        back_populates="tile",
+    )

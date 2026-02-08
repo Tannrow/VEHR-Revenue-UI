@@ -107,4 +107,8 @@ class Organization(Base):
         "Announcement",
         back_populates="organization",
     )
+    organization_tile_nodes: Mapped[list["OrganizationTileNode"]] = relationship(
+        "OrganizationTileNode",
+        back_populates="organization",
+    )
 

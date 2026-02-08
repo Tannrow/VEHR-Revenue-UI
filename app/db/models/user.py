@@ -58,4 +58,8 @@ class User(Base):
         "Announcement",
         back_populates="created_by_user",
     )
+    created_organization_tile_nodes: Mapped[list["OrganizationTileNode"]] = relationship(
+        "OrganizationTileNode",
+        back_populates="created_by_user",
+    )
 
