@@ -27,7 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 
 type OrganizationTile = {
   id: string;
@@ -83,6 +83,13 @@ type OrganizationHomeResponse = {
   announcements: Announcement[];
 };
 
+type PresignUploadResponse = {
+  key: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+};
+
 type PresignDownloadResponse = {
   url: string;
 };
@@ -112,6 +119,11 @@ function formatBytes(size?: number | null): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function guessContentType(file: File): string {
+  if (file.type) return file.type;
+  return "application/octet-stream";
 }
 
 export default function OrganizationHomePage() {
@@ -311,14 +323,10 @@ export default function OrganizationHomePage() {
       setWorkspaceError(null);
       setUploading(true);
       for (const file of list) {
-        const formData = new FormData();
-        formData.append("file", file);
-        if (currentParentId) {
-          formData.append("parent_id", currentParentId);
-        }
-        await apiFetch<OrganizationNode>(`/api/v1/organization/tiles/${selectedTileId}/nodes/upload`, {
-          method: "POST",
-          body: formData,
+        await uploadNodeWithFallback({
+          tileId: selectedTileId,
+          file,
+          parentId: currentParentId,
         });
       }
       await loadNodes(selectedTileId, currentParentId);
@@ -361,18 +369,82 @@ export default function OrganizationHomePage() {
     }
   }
 
+  async function uploadNodeWithFallback(params: {
+    tileId: string;
+    file: File;
+    parentId?: string | null;
+    existingNodeId?: string | null;
+    fallbackName?: string;
+  }): Promise<OrganizationNode> {
+    const { tileId, file, parentId, existingNodeId, fallbackName } = params;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (parentId) {
+        formData.append("parent_id", parentId);
+      }
+      if (existingNodeId) {
+        formData.append("existing_node_id", existingNodeId);
+      }
+      return await apiFetch<OrganizationNode>(`/api/v1/organization/tiles/${tileId}/nodes/upload`, {
+        method: "POST",
+        body: formData,
+      });
+    } catch (serverUploadError) {
+      if (serverUploadError instanceof ApiError && serverUploadError.status >= 400 && serverUploadError.status < 500) {
+        throw serverUploadError;
+      }
+
+      const contentType = guessContentType(file);
+      const presign = await apiFetch<PresignUploadResponse>("/api/v1/uploads/presign", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, content_type: contentType }),
+      });
+      const uploadResponse = await fetch(presign.url, {
+        method: presign.method,
+        headers: presign.headers,
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed for ${file.name}`);
+      }
+
+      if (existingNodeId) {
+        return apiFetch<OrganizationNode>(`/api/v1/organization/nodes/${existingNodeId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: fallbackName || file.name,
+            storage_key: presign.key,
+            media_type: contentType,
+            size_bytes: file.size,
+          }),
+        });
+      }
+      return apiFetch<OrganizationNode>(`/api/v1/organization/tiles/${tileId}/nodes`, {
+        method: "POST",
+        body: JSON.stringify({
+          node_type: "file",
+          name: file.name,
+          parent_id: parentId ?? null,
+          storage_key: presign.key,
+          media_type: contentType,
+          size_bytes: file.size,
+        }),
+      });
+    }
+  }
+
   async function uploadIntoSelectedFile(file: File) {
     if (!selectedFile || !selectedTileId) return;
     try {
       setWorkspaceError(null);
       setFileUploading(true);
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("existing_node_id", selectedFile.id);
-      const updated = await apiFetch<OrganizationNode>(`/api/v1/organization/tiles/${selectedTileId}/nodes/upload`, {
-        method: "POST",
-        body: formData,
+      const updated = await uploadNodeWithFallback({
+        tileId: selectedTileId,
+        file,
+        existingNodeId: selectedFile.id,
+        fallbackName: fileDraftName.trim() || file.name,
       });
 
       setSelectedFile(updated);
