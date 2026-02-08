@@ -141,10 +141,13 @@ export default function OrganizationHomePage() {
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [fileDragActive, setFileDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileNodeInputRef = useRef<HTMLInputElement | null>(null);
 
   const currentParentId = folderPath.length > 0 ? folderPath[folderPath.length - 1].id : null;
 
@@ -162,9 +165,6 @@ export default function OrganizationHomePage() {
         setTiles(home.tiles);
         setAnnouncements(home.announcements);
         setWorkSummary(work);
-        if (home.tiles.length > 0) {
-          setSelectedTileId((current) => current ?? home.tiles[0].id);
-        }
       } catch (loadError) {
         if (!mounted) return;
         setError(toErrorMessage(loadError, "Failed to load organization home"));
@@ -236,6 +236,15 @@ export default function OrganizationHomePage() {
     setSelectedTileId(tileId);
     setFolderPath([]);
     setSelectedFile(null);
+    setNodes([]);
+    setWorkspaceError(null);
+  }
+
+  function exitWorkspace() {
+    setSelectedTileId(null);
+    setFolderPath([]);
+    setSelectedFile(null);
+    setNodes([]);
     setWorkspaceError(null);
   }
 
@@ -381,6 +390,72 @@ export default function OrganizationHomePage() {
     }
   }
 
+  async function uploadIntoSelectedFile(file: File) {
+    if (!selectedFile) return;
+    try {
+      setWorkspaceError(null);
+      setFileUploading(true);
+
+      const contentType = guessContentType(file);
+      const presign = await apiFetch<PresignUploadResponse>("/api/v1/uploads/presign", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, content_type: contentType }),
+      });
+
+      const uploadResponse = await fetch(presign.url, {
+        method: presign.method,
+        headers: presign.headers,
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed for ${file.name}`);
+      }
+
+      const updated = await apiFetch<OrganizationNode>(`/api/v1/organization/nodes/${selectedFile.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: fileDraftName.trim() || file.name,
+          storage_key: presign.key,
+          media_type: contentType,
+          size_bytes: file.size,
+        }),
+      });
+
+      setSelectedFile(updated);
+      setFileDraftName(updated.name);
+      setFileDraftContent(updated.content ?? "");
+      if (selectedTileId) {
+        await loadNodes(selectedTileId, currentParentId);
+      }
+    } catch (uploadError) {
+      setWorkspaceError(toErrorMessage(uploadError, "Failed to attach upload to file"));
+    } finally {
+      setFileUploading(false);
+      if (fileNodeInputRef.current) {
+        fileNodeInputRef.current.value = "";
+      }
+    }
+  }
+
+  function onFileEditorDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setFileDragActive(false);
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) {
+      void uploadIntoSelectedFile(droppedFile);
+    }
+  }
+
+  function onFileEditorDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setFileDragActive(true);
+  }
+
+  function onFileEditorDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setFileDragActive(false);
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -437,210 +512,263 @@ export default function OrganizationHomePage() {
         </Card>
       ) : null}
 
-      <div className="space-y-4">
-        {groupedTiles.map((group) => (
-          <Card key={group.category} className="border-slate-200/70 shadow-sm">
-            <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
-              <CardTitle className="text-base">{group.category}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 xl:grid-cols-3">
-              {group.tiles.map((tile) => {
-                const Icon = ICONS[tile.icon] ?? Layers;
-                const isSelected = tile.id === selectedTileId;
-                return (
-                  <button
-                    key={tile.id}
-                    type="button"
-                    onClick={() => selectTile(tile.id)}
-                    className={`rounded-lg border p-4 text-left transition ${
-                      isSelected
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${isSelected ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-700"}`}>
-                        <Icon className="h-5 w-5" />
-                      </span>
-                      <div>
-                        <div className={`text-sm font-semibold ${isSelected ? "text-white" : "text-slate-900"}`}>{tile.title}</div>
-                        <div className={`text-xs ${isSelected ? "text-slate-300" : "text-slate-500"}`}>Workspace folder</div>
+      {!selectedTile ? (
+        <div className="space-y-4">
+          {groupedTiles.map((group) => (
+            <Card key={group.category} className="border-slate-200/70 shadow-sm">
+              <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+                <CardTitle className="text-base">{group.category}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 xl:grid-cols-3">
+                {group.tiles.map((tile) => {
+                  const Icon = ICONS[tile.icon] ?? Layers;
+                  return (
+                    <button
+                      key={tile.id}
+                      type="button"
+                      onClick={() => selectTile(tile.id)}
+                      className="rounded-lg border border-slate-200 bg-white p-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">{tile.title}</div>
+                          <div className="text-xs text-slate-500">Open workspace</div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="border-slate-200/70 shadow-sm">
-        <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
-          <CardTitle className="text-base">
-            {selectedTile ? `${selectedTile.title} Workspace` : "Workspace"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-5">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-            <button type="button" onClick={goToRoot} className="rounded border border-slate-200 bg-white px-2 py-1 hover:bg-slate-50">
-              Root
-            </button>
-            {folderPath.map((segment, index) => (
-              <div key={segment.id} className="flex items-center gap-2">
-                <span>/</span>
-                <button
-                  type="button"
-                  onClick={() => goToPathIndex(index)}
-                  className="rounded border border-slate-200 bg-white px-2 py-1 hover:bg-slate-50"
-                >
-                  {segment.name}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {workspaceError ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{workspaceError}</div>
-          ) : null}
-
-          <div className="grid gap-3 lg:grid-cols-3">
-            <div className="flex gap-2">
-              <Input
-                placeholder={currentParentId ? "Create subfolder" : "Add core folder"}
-                value={newFolderName}
-                onChange={(event) => setNewFolderName(event.target.value)}
-              />
-              <Button type="button" onClick={() => createNode("folder")} disabled={!selectedTileId}>
-                Add
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className="border-slate-200/70 shadow-sm">
+          <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="text-base">{selectedTile.title} Workspace</CardTitle>
+              <Button type="button" variant="outline" onClick={exitWorkspace}>
+                Back to Organization
               </Button>
             </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Create note file"
-                value={newFileName}
-                onChange={(event) => setNewFileName(event.target.value)}
-              />
-              <Button type="button" onClick={() => createNode("file")} disabled={!selectedTileId}>
-                Add
-              </Button>
-            </div>
-            <div className="flex items-center justify-start lg:justify-end">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                multiple
-                onChange={(event) => {
-                  if (event.target.files) {
-                    void uploadFiles(event.target.files);
-                  }
-                }}
-              />
-              <Button
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <button
                 type="button"
-                variant="outline"
-                disabled={!selectedTileId || uploading}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={goToRoot}
+                className="rounded border border-slate-200 bg-white px-2 py-1 hover:bg-slate-50"
               >
-                <Upload className="mr-2 h-4 w-4" />
-                {uploading ? "Uploading..." : "Upload File/Image"}
-              </Button>
-            </div>
-          </div>
-
-          <div
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            className={`rounded-lg border-2 border-dashed p-4 text-sm transition ${
-              dragActive
-                ? "border-slate-500 bg-slate-100 text-slate-800"
-                : "border-slate-200 bg-slate-50 text-slate-600"
-            }`}
-          >
-            Drag and drop files here to upload into this folder.
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white">
-            <div className="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Folder Items
-            </div>
-            <div className="p-3">
-              {workspaceLoading ? <div className="text-sm text-slate-600">Loading workspace...</div> : null}
-              {!workspaceLoading && nodes.length === 0 ? (
-                <div className="text-sm text-slate-600">No files or folders yet.</div>
-              ) : null}
-              <div className="space-y-2">
-                {nodes.map((node) => (
+                {selectedTile.title}
+              </button>
+              {folderPath.map((segment, index) => (
+                <div key={segment.id} className="flex items-center gap-2">
+                  <span>/</span>
                   <button
-                    key={node.id}
                     type="button"
-                    onClick={() => (node.node_type === "folder" ? openFolder(node) : openFile(node))}
-                    className="flex w-full items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
+                    onClick={() => goToPathIndex(index)}
+                    className="rounded border border-slate-200 bg-white px-2 py-1 hover:bg-slate-50"
                   >
-                    <div className="flex items-center gap-2 text-sm text-slate-800">
-                      {node.node_type === "folder" ? (
-                        <Folder className="h-4 w-4" />
-                      ) : node.media_type?.startsWith("image/") ? (
-                        <ImageIcon className="h-4 w-4" />
-                      ) : (
-                        <File className="h-4 w-4" />
-                      )}
-                      <span>{node.name}</span>
-                    </div>
-                    <span className="text-xs text-slate-500">
-                      {node.node_type === "folder" ? "Open" : node.storage_key ? `Uploaded ${formatBytes(node.size_bytes)}` : "Edit"}
-                    </span>
+                    {segment.name}
                   </button>
-                ))}
+                </div>
+              ))}
+            </div>
+
+            {workspaceError ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{workspaceError}</div>
+            ) : null}
+
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="flex gap-2">
+                <Input
+                  placeholder={currentParentId ? "Create subfolder" : "Add core folder"}
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                />
+                <Button type="button" onClick={() => createNode("folder")}>
+                  Add
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Create note file"
+                  value={newFileName}
+                  onChange={(event) => setNewFileName(event.target.value)}
+                />
+                <Button type="button" onClick={() => createNode("file")}>
+                  Add
+                </Button>
+              </div>
+              <div className="flex items-center justify-start lg:justify-end">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  onChange={(event) => {
+                    if (event.target.files) {
+                      void uploadFiles(event.target.files);
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {uploading ? "Uploading..." : "Upload File/Image"}
+                </Button>
               </div>
             </div>
-          </div>
 
-          {selectedFile ? (
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-              <div className="text-sm font-semibold text-slate-900">{selectedFile.storage_key ? "File Details" : "Edit File"}</div>
-              <Input
-                value={fileDraftName}
-                onChange={(event) => setFileDraftName(event.target.value)}
-                placeholder="File name"
-              />
+            <div
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              className={`rounded-lg border-2 border-dashed p-4 text-sm transition ${
+                dragActive
+                  ? "border-slate-500 bg-slate-100 text-slate-800"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
+              }`}
+            >
+              Drag and drop files here to upload into this folder.
+            </div>
 
-              {selectedFile.storage_key ? (
-                <div className="space-y-2 text-sm text-slate-600">
-                  <div>Storage key: {selectedFile.storage_key}</div>
-                  <div>Media type: {selectedFile.media_type || "unknown"}</div>
-                  <div>Size: {formatBytes(selectedFile.size_bytes) || "unknown"}</div>
-                  <div className="flex gap-2">
-                    <Button type="button" onClick={saveFile}>
-                      Save Name
-                    </Button>
-                    <Button type="button" variant="outline" onClick={downloadSelectedFile}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Download
-                    </Button>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+              <div className="rounded-lg border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Folder Contents
+                </div>
+                <div className="p-3">
+                  {workspaceLoading ? <div className="text-sm text-slate-600">Loading folder...</div> : null}
+                  {!workspaceLoading && nodes.length === 0 ? (
+                    <div className="text-sm text-slate-600">No files or folders yet.</div>
+                  ) : null}
+                  <div className="space-y-2">
+                    {nodes.map((node) => (
+                      <button
+                        key={node.id}
+                        type="button"
+                        onClick={() => (node.node_type === "folder" ? openFolder(node) : openFile(node))}
+                        className="flex w-full items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
+                      >
+                        <div className="flex items-center gap-2 text-sm text-slate-800">
+                          {node.node_type === "folder" ? (
+                            <Folder className="h-4 w-4" />
+                          ) : node.media_type?.startsWith("image/") ? (
+                            <ImageIcon className="h-4 w-4" />
+                          ) : (
+                            <File className="h-4 w-4" />
+                          )}
+                          <span>{node.name}</span>
+                        </div>
+                        <span className="text-xs text-slate-500">
+                          {node.node_type === "folder"
+                            ? "Enter Folder"
+                            : node.storage_key
+                              ? `Uploaded ${formatBytes(node.size_bytes)}`
+                              : "Open File"}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ) : (
-                <>
-                  <textarea
-                    value={fileDraftContent}
-                    onChange={(event) => setFileDraftContent(event.target.value)}
-                    placeholder="File contents"
-                    className="min-h-[180px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                  />
-                  <div className="flex justify-end">
-                    <Button type="button" onClick={saveFile}>
-                      Save File
-                    </Button>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                {!selectedFile ? (
+                  <div className="text-sm text-slate-600">
+                    Select a file to open it. Clicking a folder enters that folder.
                   </div>
-                </>
-              )}
+                ) : (
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-slate-900">
+                      {selectedFile.storage_key ? "File Details" : "Edit File"}
+                    </div>
+                    <Input
+                      value={fileDraftName}
+                      onChange={(event) => setFileDraftName(event.target.value)}
+                      placeholder="File name"
+                    />
+
+                    <div className="space-y-2">
+                      <input
+                        ref={fileNodeInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={(event) => {
+                          const uploaded = event.target.files?.[0];
+                          if (uploaded) {
+                            void uploadIntoSelectedFile(uploaded);
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={fileUploading}
+                        onClick={() => fileNodeInputRef.current?.click()}
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        {fileUploading ? "Uploading..." : "Upload Document/Image to This File"}
+                      </Button>
+                      <div
+                        onDrop={onFileEditorDrop}
+                        onDragOver={onFileEditorDragOver}
+                        onDragLeave={onFileEditorDragLeave}
+                        className={`rounded-lg border-2 border-dashed p-3 text-xs transition ${
+                          fileDragActive
+                            ? "border-slate-500 bg-slate-100 text-slate-800"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        Drag and drop a document/image here to attach it to this file.
+                      </div>
+                    </div>
+
+                    {selectedFile.storage_key ? (
+                      <div className="space-y-2 text-sm text-slate-600">
+                        <div>Storage key: {selectedFile.storage_key}</div>
+                        <div>Media type: {selectedFile.media_type || "unknown"}</div>
+                        <div>Size: {formatBytes(selectedFile.size_bytes) || "unknown"}</div>
+                        <div className="flex gap-2">
+                          <Button type="button" onClick={saveFile}>
+                            Save Name
+                          </Button>
+                          <Button type="button" variant="outline" onClick={downloadSelectedFile}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <textarea
+                          value={fileDraftContent}
+                          onChange={(event) => setFileDraftContent(event.target.value)}
+                          placeholder="File contents"
+                          className="min-h-[180px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <div className="flex justify-end">
+                          <Button type="button" onClick={saveFile}>
+                            Save File
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          ) : null}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
