@@ -1,7 +1,5 @@
 import os
-import re
 from datetime import datetime
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -17,9 +15,9 @@ from app.db.session import get_db
 from app.services.audit import log_event
 from app.services.outbox import enqueue_event
 from app.services.storage import (
+    build_object_key,
     generate_presigned_get_url,
-    get_s3_client,
-    load_s3_settings,
+    get_s3_settings,
     upload_fileobj,
 )
 
@@ -44,14 +42,6 @@ class DocumentDownload(BaseModel):
     expires_in: int
 
 
-def _sanitize_filename(filename: str) -> str:
-    name = Path(filename).name
-    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
-    if not name:
-        return "document"
-    return name[:180]
-
-
 def _get_file_size(upload: UploadFile) -> int:
     try:
         upload.file.seek(0, os.SEEK_END)
@@ -68,9 +58,13 @@ def _build_storage_key(
     document_id: str,
     filename: str,
 ) -> str:
-    safe_name = _sanitize_filename(filename)
-    patient_segment = patient_id or "unassigned"
-    return f"orgs/{organization_id}/patients/{patient_segment}/documents/{document_id}/{safe_name}"
+    del patient_id
+    return build_object_key(
+        organization_id=organization_id,
+        resource="documents",
+        filename=filename,
+        object_id=document_id,
+    )
 
 
 @router.post("/documents", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
@@ -114,8 +108,8 @@ def upload_document(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     try:
-        settings = load_s3_settings()
-    except ValueError as exc:
+        settings = get_s3_settings()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
@@ -131,14 +125,11 @@ def upload_document(
 
     content_type = file.content_type or None
     size_bytes = _get_file_size(file)
-    client = get_s3_client(settings)
 
     try:
         upload_fileobj(
-            client=client,
-            bucket=settings.bucket,
+            file_obj=file.file,
             key=storage_key,
-            fileobj=file.file,
             content_type=content_type,
         )
     except Exception as exc:
@@ -160,7 +151,7 @@ def upload_document(
         storage_bucket=settings.bucket,
         storage_key=storage_key,
         storage_region=settings.region,
-        storage_url=f"s3://{settings.bucket}/{storage_key}",
+        storage_url=None,
     )
     db.add(document)
     db.commit()
@@ -285,20 +276,16 @@ def download_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     try:
-        settings = load_s3_settings()
-    except ValueError as exc:
+        settings = get_s3_settings()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
 
-    client = get_s3_client(settings)
     url = generate_presigned_get_url(
-        client=client,
-        bucket=document.storage_bucket,
         key=document.storage_key,
-        expires_in=settings.presign_expires_seconds,
-        filename=document.filename,
+        expires=settings.presign_expires_seconds,
     )
 
     log_event(

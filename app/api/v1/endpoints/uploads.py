@@ -1,7 +1,5 @@
 import re
-from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -10,11 +8,11 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_membership, get_current_organization, require_permission
 from app.db.session import get_db
 from app.services.audit import log_event
-from app.services.s3_presign import (
+from app.services.storage import (
+    build_object_key,
     generate_presigned_get_url,
     generate_presigned_put_url,
-    get_presign_s3_client,
-    load_presign_s3_settings,
+    get_s3_settings,
 )
 
 
@@ -46,9 +44,12 @@ def _sanitize_filename(filename: str) -> str:
 
 
 def _build_upload_key(filename: str, organization_id: str) -> str:
-    now = datetime.now(timezone.utc)
     safe_name = _sanitize_filename(filename)
-    return f"uploads/orgs/{organization_id}/{now:%Y/%m}/{uuid4()}_{safe_name}"
+    return build_object_key(
+        organization_id=organization_id,
+        resource="uploads",
+        filename=safe_name,
+    )
 
 
 def _normalize_content_type(content_type: str) -> str:
@@ -75,23 +76,20 @@ def create_presigned_upload(
 ) -> PresignUploadResponse:
     content_type = _normalize_content_type(payload.content_type)
     try:
-        settings = load_presign_s3_settings()
-    except ValueError as exc:
+        settings = get_s3_settings()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
 
     key = _build_upload_key(payload.filename, organization.id)
-    client = get_presign_s3_client(settings)
 
     try:
         url = generate_presigned_put_url(
-            client=client,
-            bucket=settings.bucket,
             key=key,
             content_type=content_type,
-            expires_in=settings.expires_in_seconds,
+            expires=settings.presign_expires_seconds,
         )
     except Exception as exc:
         raise HTTPException(
@@ -125,7 +123,7 @@ def create_presigned_download(
     _: None = Depends(require_permission("documents:read")),
 ) -> PresignDownloadResponse:
     key = key.lstrip("/")
-    required_prefix = f"uploads/orgs/{organization.id}/"
+    required_prefix = f"{organization.id}/"
     if not key or not key.startswith(required_prefix):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -133,21 +131,17 @@ def create_presigned_download(
         )
 
     try:
-        settings = load_presign_s3_settings()
-    except ValueError as exc:
+        settings = get_s3_settings()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
 
-    client = get_presign_s3_client(settings)
-
     try:
         url = generate_presigned_get_url(
-            client=client,
-            bucket=settings.bucket,
             key=key,
-            expires_in=settings.expires_in_seconds,
+            expires=settings.presign_expires_seconds,
         )
     except Exception as exc:
         raise HTTPException(

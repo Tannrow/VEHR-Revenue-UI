@@ -1,9 +1,6 @@
 import json
 import os
-import re
 from datetime import date, timedelta
-from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,7 +26,7 @@ from app.db.models.patient_document import PatientDocument
 from app.db.models.patient_service_enrollment import PatientServiceEnrollment
 from app.db.session import get_db
 from app.services.audit import log_event
-from app.services.storage import get_s3_client, load_s3_settings, upload_fileobj
+from app.services.storage import build_object_key, upload_fileobj
 
 
 router = APIRouter(tags=["Organization"])
@@ -268,27 +265,13 @@ def _validate_storage_key(*, organization_id: str, storage_key: str | None) -> s
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="storage_key cannot be blank",
         )
-    required_prefix = f"uploads/orgs/{organization_id}/"
+    required_prefix = f"{organization_id}/"
     if not key.startswith(required_prefix):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="storage_key must belong to current organization upload prefix",
         )
     return key
-
-
-def _sanitize_filename(filename: str) -> str:
-    safe_name = Path(filename).name
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
-    if not safe_name:
-        return "file"
-    return safe_name[:180]
-
-
-def _build_workspace_storage_key(*, organization_id: str, tile_id: str, filename: str) -> str:
-    now = utc_now()
-    safe_name = _sanitize_filename(filename)
-    return f"uploads/orgs/{organization_id}/workspace/{tile_id}/{now:%Y/%m}/{uuid4()}_{safe_name}"
 
 
 def _get_file_size(upload: UploadFile) -> int:
@@ -882,29 +865,22 @@ def upload_organization_tile_node_file(
 
     content_type = (file.content_type or "").strip() or "application/octet-stream"
     size_bytes = _get_file_size(file)
-    storage_key = _build_workspace_storage_key(
+    storage_key = build_object_key(
         organization_id=organization.id,
-        tile_id=tile_id,
+        resource=f"workspace_{tile_id}",
         filename=file.filename,
     )
-
     try:
-        settings = load_s3_settings()
-    except ValueError as exc:
+        upload_fileobj(
+            file_obj=file.file,
+            key=storage_key,
+            content_type=content_type,
+        )
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
-
-    client = get_s3_client(settings)
-    try:
-        upload_fileobj(
-            client=client,
-            bucket=settings.bucket,
-            key=storage_key,
-            fileobj=file.file,
-            content_type=content_type,
-        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

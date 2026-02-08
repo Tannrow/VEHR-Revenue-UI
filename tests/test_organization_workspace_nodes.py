@@ -1,6 +1,5 @@
 ﻿from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -81,12 +80,6 @@ def test_workspace_nodes_support_nested_folders_and_files(tmp_path) -> None:
 
         with TestClient(app) as client:
             with patch(
-                "app.api.v1.endpoints.organization_home.load_s3_settings",
-                return_value=SimpleNamespace(bucket="test-bucket"),
-            ), patch(
-                "app.api.v1.endpoints.organization_home.get_s3_client",
-                return_value=object(),
-            ), patch(
                 "app.api.v1.endpoints.organization_home.upload_fileobj",
                 return_value=None,
             ):
@@ -156,7 +149,7 @@ def test_workspace_nodes_support_nested_folders_and_files(tmp_path) -> None:
                     json={
                         "node_type": "file",
                         "name": "IOP-Checklist.png",
-                        "storage_key": "uploads/orgs/other-org-id/2026/02/checklist.png",
+                        "storage_key": "other-org-id/workspace/2026-02/checklist.png",
                         "media_type": "image/png",
                         "size_bytes": 1024,
                     },
@@ -169,14 +162,14 @@ def test_workspace_nodes_support_nested_folders_and_files(tmp_path) -> None:
                     json={
                         "node_type": "file",
                         "name": "IOP-Checklist.png",
-                        "storage_key": f"uploads/orgs/{organization_id}/2026/02/checklist.png",
+                        "storage_key": f"{organization_id}/workspace/2026-02/checklist.png",
                         "media_type": "image/png",
                         "size_bytes": 1024,
                     },
                     headers=_auth_header(token),
                 )
                 assert uploaded_asset_ok.status_code == 201
-                assert uploaded_asset_ok.json()["storage_key"] == f"uploads/orgs/{organization_id}/2026/02/checklist.png"
+                assert uploaded_asset_ok.json()["storage_key"] == f"{organization_id}/workspace/2026-02/checklist.png"
                 assert uploaded_asset_ok.json()["media_type"] == "image/png"
                 assert uploaded_asset_ok.json()["size_bytes"] == 1024
 
@@ -192,7 +185,7 @@ def test_workspace_nodes_support_nested_folders_and_files(tmp_path) -> None:
                 assert uploaded_pdf.json()["size_bytes"] > 0
                 assert uploaded_pdf.json()["parent_id"] == folder_id
                 assert uploaded_pdf.json()["storage_key"].startswith(
-                    f"uploads/orgs/{organization_id}/workspace/{tile_id}/"
+                    f"{organization_id}/workspace_{tile_id}/"
                 )
 
                 uploaded_png = client.post(
@@ -205,7 +198,7 @@ def test_workspace_nodes_support_nested_folders_and_files(tmp_path) -> None:
                 assert uploaded_png.json()["id"] == file_id
                 assert uploaded_png.json()["media_type"] == "image/png"
                 assert uploaded_png.json()["storage_key"].startswith(
-                    f"uploads/orgs/{organization_id}/workspace/{tile_id}/"
+                    f"{organization_id}/workspace_{tile_id}/"
                 )
                 assert uploaded_png.json()["content"] is None
     finally:
@@ -316,12 +309,6 @@ def test_workspace_nodes_enforce_tenant_and_rbac(tmp_path) -> None:
             assert cross_tenant_update.status_code == 404
 
             with patch(
-                "app.api.v1.endpoints.organization_home.load_s3_settings",
-                return_value=SimpleNamespace(bucket="test-bucket"),
-            ), patch(
-                "app.api.v1.endpoints.organization_home.get_s3_client",
-                return_value=object(),
-            ), patch(
                 "app.api.v1.endpoints.organization_home.upload_fileobj",
                 return_value=None,
             ):

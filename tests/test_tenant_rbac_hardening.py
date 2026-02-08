@@ -260,7 +260,7 @@ def test_upload_presign_enforces_rbac_and_tenant_prefix(client: TestClient, sess
     )
     assert denied_presign.status_code == 403
 
-    org_a_key = f"uploads/orgs/{org_a_id}/2026/02/test.pdf"
+    org_a_key = f"{org_a_id}/uploads/2026/02/test.pdf"
     denied_download = client.get(
         f"/api/v1/uploads/{org_a_key}/download",
         headers=_auth_header(admin_b_token),

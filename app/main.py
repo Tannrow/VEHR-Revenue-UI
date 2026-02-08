@@ -10,6 +10,7 @@ from sqlalchemy import text
 from app.api.v1.router import api_router
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
+from app.services.storage import should_validate_s3_on_startup, validate_s3_connection
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ async def lifespan(_app: FastAPI):
     import app.db.models  # register models
 
     _log_auth_dependency_versions()
+
+    if should_validate_s3_on_startup():
+        # Optional production guard: fail boot if bucket/credentials are invalid.
+        validate_s3_connection()
 
     auto_create = os.getenv("AUTO_CREATE_TABLES", "").strip().lower() in {"1", "true", "yes"}
     if auto_create:
