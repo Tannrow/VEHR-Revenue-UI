@@ -22,6 +22,14 @@ class User(Base):
         "OrganizationMembership",
         back_populates="user",
     )
+    sent_invites: Mapped[list["Invite"]] = relationship(
+        "Invite",
+        back_populates="invited_by_user",
+    )
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+    )
     triggered_clinical_audit_runs: Mapped[list["ClinicalAuditRun"]] = relationship(
         "ClinicalAuditRun",
         back_populates="triggered_by_user",
@@ -42,9 +50,27 @@ class User(Base):
         "PatientServiceEnrollment",
         back_populates="assigned_staff_user",
     )
+    patient_care_team_assignments: Mapped[list["PatientCareTeam"]] = relationship(
+        "PatientCareTeam",
+        back_populates="user",
+    )
+    updated_treatment_stages: Mapped[list["PatientTreatmentStage"]] = relationship(
+        "PatientTreatmentStage",
+        back_populates="updated_by_user",
+    )
+    patient_treatment_stage_events: Mapped[list["PatientTreatmentStageEvent"]] = relationship(
+        "PatientTreatmentStageEvent",
+        back_populates="changed_by_user",
+    )
     patient_notes: Mapped[list["PatientNote"]] = relationship(
         "PatientNote",
         back_populates="created_by_user",
+        foreign_keys="PatientNote.created_by_user_id",
+    )
+    signed_patient_notes: Mapped[list["PatientNote"]] = relationship(
+        "PatientNote",
+        back_populates="signed_by_user",
+        foreign_keys="PatientNote.signed_by_user_id",
     )
     disclosure_logs: Mapped[list["DisclosureLog"]] = relationship(
         "DisclosureLog",

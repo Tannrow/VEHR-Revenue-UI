@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     organization_home,
     organizations,
     paperwork,
+    patient_chart,
     patients,
     portal,
     services,
@@ -25,6 +26,7 @@ api_router.include_router(auth.router)
 api_router.include_router(organizations.router)
 api_router.include_router(organization_home.router)
 api_router.include_router(patients.router)
+api_router.include_router(patient_chart.router)
 api_router.include_router(encounters.router)
 api_router.include_router(documents.router)
 api_router.include_router(forms.router)

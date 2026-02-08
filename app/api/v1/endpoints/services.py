@@ -6,6 +6,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import get_current_membership, get_current_organization, require_permission
+from app.core.time import utc_now
+from app.db.models.encounter import Encounter
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.patient import Patient
 from app.db.models.patient_note import PatientNote
@@ -22,6 +24,7 @@ router = APIRouter(tags=["Services"])
 SERVICE_CATEGORIES = {"intake", "sud", "mh", "psych", "cm"}
 ENROLLMENT_STATUSES = {"active", "paused", "discharged"}
 NOTE_VISIBILITIES = {"clinical_only", "legal_and_clinical"}
+NOTE_STATUSES = {"draft", "signed"}
 
 
 class ServiceCreate(BaseModel):
@@ -94,6 +97,7 @@ class EnrollmentRead(BaseModel):
 
 class NoteCreate(BaseModel):
     primary_service_id: str
+    encounter_id: str | None = None
     body: str = Field(min_length=1)
     visibility: str = "clinical_only"
 
@@ -102,11 +106,19 @@ class NoteRead(BaseModel):
     id: str
     patient_id: str
     primary_service_id: str
+    encounter_id: str | None = None
+    status: str
     visibility: str
     body: str
     created_by_user_id: str | None = None
+    signed_by_user_id: str | None = None
+    signed_at: datetime | None = None
     created_at: datetime
     primary_service: ServiceSummary
+
+
+class NoteSign(BaseModel):
+    encounter_id: str | None = None
 
 
 def _normalize_category(value: str) -> str:
@@ -135,6 +147,16 @@ def _normalize_visibility(value: str) -> str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid visibility. Expected one of: {', '.join(sorted(NOTE_VISIBILITIES))}",
+        )
+    return normalized
+
+
+def _normalize_note_status(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in NOTE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid note status. Expected one of: {', '.join(sorted(NOTE_STATUSES))}",
         )
     return normalized
 
@@ -171,6 +193,39 @@ def _get_service_or_404(db: Session, *, service_id: str, organization_id: str) -
     if not service:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
     return service
+
+
+def _get_encounter_or_404(
+    db: Session,
+    *,
+    encounter_id: str,
+    organization_id: str,
+    patient_id: str,
+) -> Encounter:
+    encounter = db.execute(
+        select(Encounter).where(
+            Encounter.id == encounter_id,
+            Encounter.organization_id == organization_id,
+            Encounter.patient_id == patient_id,
+        )
+    ).scalar_one_or_none()
+    if not encounter:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Encounter not found")
+    return encounter
+
+
+def _get_note_or_404(db: Session, *, note_id: str, organization_id: str) -> PatientNote:
+    note = db.execute(
+        select(PatientNote)
+        .options(selectinload(PatientNote.primary_service))
+        .where(
+            PatientNote.id == note_id,
+            PatientNote.organization_id == organization_id,
+        )
+    ).scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    return note
 
 
 def _ensure_assigned_staff_in_org(
@@ -345,9 +400,13 @@ def _to_note_read(note: PatientNote) -> NoteRead:
         id=note.id,
         patient_id=note.patient_id,
         primary_service_id=note.primary_service_id,
+        encounter_id=note.encounter_id,
+        status=note.status,
         visibility=note.visibility,
         body=note.body,
         created_by_user_id=note.created_by_user_id,
+        signed_by_user_id=note.signed_by_user_id,
+        signed_at=note.signed_at,
         created_at=note.created_at,
         primary_service=ServiceSummary(
             id=service.id,
@@ -657,6 +716,7 @@ def update_enrollment(
 def list_patient_notes(
     patient_id: str,
     service_id: str | None = Query(default=None),
+    note_status: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
     organization=Depends(get_current_organization),
     _: None = Depends(require_permission("patients:read")),
@@ -671,6 +731,8 @@ def list_patient_notes(
     ]
     if service_id:
         filters.append(PatientNote.primary_service_id == service_id)
+    if note_status is not None:
+        filters.append(PatientNote.status == _normalize_note_status(note_status))
 
     notes = db.execute(
         select(PatientNote)
@@ -700,10 +762,22 @@ def create_patient_note(
             detail="body is required",
         )
 
+    encounter_id = payload.encounter_id
+    if encounter_id is not None:
+        encounter = _get_encounter_or_404(
+            db,
+            encounter_id=encounter_id,
+            organization_id=organization.id,
+            patient_id=patient_id,
+        )
+        encounter_id = encounter.id
+
     note = PatientNote(
         organization_id=organization.id,
         patient_id=patient_id,
         primary_service_id=service.id,
+        encounter_id=encounter_id,
+        status="draft",
         visibility=_normalize_visibility(payload.visibility),
         body=body,
         created_by_user_id=membership.user_id,
@@ -716,4 +790,97 @@ def create_patient_note(
         .options(selectinload(PatientNote.primary_service))
         .where(PatientNote.id == note.id)
     ).scalar_one()
+
+    log_event(
+        db,
+        action="note.created",
+        entity_type="patient_note",
+        entity_id=note.id,
+        organization_id=organization.id,
+        patient_id=patient_id,
+        actor=membership.user.email,
+        metadata={
+            "primary_service_id": note.primary_service_id,
+            "encounter_id": note.encounter_id,
+            "status": note.status,
+            "visibility": note.visibility,
+        },
+    )
+    return _to_note_read(note)
+
+
+@router.post("/notes/{note_id}/sign", response_model=NoteRead)
+def sign_patient_note(
+    note_id: str,
+    payload: NoteSign,
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership=Depends(get_current_membership),
+    _: None = Depends(require_permission("patients:write")),
+) -> NoteRead:
+    note = _get_note_or_404(db, note_id=note_id, organization_id=organization.id)
+    auto_created_encounter = False
+    transitioned_to_signed = False
+
+    if note.status != "signed":
+        encounter_id = payload.encounter_id or note.encounter_id
+        if encounter_id is not None:
+            encounter = _get_encounter_or_404(
+                db,
+                encounter_id=encounter_id,
+                organization_id=organization.id,
+                patient_id=note.patient_id,
+            )
+        else:
+            encounter = Encounter(
+                organization_id=organization.id,
+                patient_id=note.patient_id,
+                encounter_type="note_signoff",
+                start_time=utc_now(),
+                clinician=membership.user.full_name or membership.user.email,
+            )
+            db.add(encounter)
+            db.flush()
+            auto_created_encounter = True
+
+        note.encounter_id = encounter.id
+        note.status = "signed"
+        note.signed_by_user_id = membership.user_id
+        note.signed_at = utc_now()
+        db.add(note)
+        db.commit()
+        transitioned_to_signed = True
+
+        if auto_created_encounter:
+            log_event(
+                db,
+                action="create_encounter",
+                entity_type="encounter",
+                entity_id=encounter.id,
+                organization_id=organization.id,
+                patient_id=note.patient_id,
+                actor=membership.user.email,
+                metadata={"source": "note.sign"},
+            )
+
+    note = db.execute(
+        select(PatientNote)
+        .options(selectinload(PatientNote.primary_service))
+        .where(PatientNote.id == note.id)
+    ).scalar_one()
+    if transitioned_to_signed:
+        log_event(
+            db,
+            action="note.signed",
+            entity_type="patient_note",
+            entity_id=note.id,
+            organization_id=organization.id,
+            patient_id=note.patient_id,
+            actor=membership.user.email,
+            metadata={
+                "primary_service_id": note.primary_service_id,
+                "encounter_id": note.encounter_id,
+                "auto_created_encounter": auto_created_encounter,
+            },
+        )
     return _to_note_read(note)

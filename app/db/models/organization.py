@@ -43,6 +43,10 @@ class Organization(Base):
         "EventOutbox",
         back_populates="organization",
     )
+    invites: Mapped[list["Invite"]] = relationship(
+        "Invite",
+        back_populates="organization",
+    )
     webhooks: Mapped[list["WebhookEndpoint"]] = relationship(
         "WebhookEndpoint",
         back_populates="organization",
@@ -77,6 +81,26 @@ class Organization(Base):
     )
     patient_service_enrollments: Mapped[list["PatientServiceEnrollment"]] = relationship(
         "PatientServiceEnrollment",
+        back_populates="organization",
+    )
+    episodes_of_care: Mapped[list["EpisodeOfCare"]] = relationship(
+        "EpisodeOfCare",
+        back_populates="organization",
+    )
+    patient_care_team_assignments: Mapped[list["PatientCareTeam"]] = relationship(
+        "PatientCareTeam",
+        back_populates="organization",
+    )
+    patient_requirements: Mapped[list["PatientRequirement"]] = relationship(
+        "PatientRequirement",
+        back_populates="organization",
+    )
+    patient_treatment_stages: Mapped[list["PatientTreatmentStage"]] = relationship(
+        "PatientTreatmentStage",
+        back_populates="organization",
+    )
+    patient_treatment_stage_events: Mapped[list["PatientTreatmentStageEvent"]] = relationship(
+        "PatientTreatmentStageEvent",
         back_populates="organization",
     )
     patient_notes: Mapped[list["PatientNote"]] = relationship(

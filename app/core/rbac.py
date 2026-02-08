@@ -1,4 +1,6 @@
 ROLE_ADMIN = "Administrator"
+ROLE_COUNSELOR = "Counselor"
+ROLE_CASE_MANAGER = "Case Manager"
 ROLE_CLINICIAN = "Clinician"
 ROLE_THERAPIST = "Therapist"
 ROLE_MEDICAL_PROVIDER = "Medical Provider"
@@ -30,6 +32,34 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "org:manage",
         "users:manage",
         "webhooks:manage",
+    },
+    ROLE_COUNSELOR: {
+        "patients:read",
+        "patients:write",
+        "patient:create",
+        "encounters:read",
+        "encounters:write",
+        "encounter:create",
+        "forms:read",
+        "forms:write",
+        "form_submission:create",
+        "documents:read",
+        "documents:write",
+        "services:read",
+    },
+    ROLE_CASE_MANAGER: {
+        "patients:read",
+        "patients:write",
+        "patient:create",
+        "encounters:read",
+        "encounters:write",
+        "encounter:create",
+        "forms:read",
+        "forms:write",
+        "form_submission:create",
+        "documents:read",
+        "documents:write",
+        "services:read",
     },
     ROLE_COMPLIANCE: {
         "patients:read",

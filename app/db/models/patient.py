@@ -44,6 +44,26 @@ class Patient(Base):
         "PatientServiceEnrollment",
         back_populates="patient",
     )
+    episodes_of_care: Mapped[list["EpisodeOfCare"]] = relationship(
+        "EpisodeOfCare",
+        back_populates="patient",
+    )
+    care_team_assignments: Mapped[list["PatientCareTeam"]] = relationship(
+        "PatientCareTeam",
+        back_populates="patient",
+    )
+    requirements: Mapped[list["PatientRequirement"]] = relationship(
+        "PatientRequirement",
+        back_populates="patient",
+    )
+    treatment_stages: Mapped[list["PatientTreatmentStage"]] = relationship(
+        "PatientTreatmentStage",
+        back_populates="patient",
+    )
+    treatment_stage_events: Mapped[list["PatientTreatmentStageEvent"]] = relationship(
+        "PatientTreatmentStageEvent",
+        back_populates="patient",
+    )
     notes: Mapped[list["PatientNote"]] = relationship(
         "PatientNote",
         back_populates="patient",
