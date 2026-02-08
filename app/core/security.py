@@ -12,6 +12,9 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt only uses the first 72 bytes of a password.
+# Validate length up front so we do not silently truncate credentials.
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
 class TokenData(BaseModel):
@@ -19,11 +22,23 @@ class TokenData(BaseModel):
     organization_id: str
 
 
+def _validate_bcrypt_password_length(password: str) -> None:
+    if len(password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(
+            f"Password exceeds bcrypt limit of {BCRYPT_MAX_PASSWORD_BYTES} UTF-8 bytes",
+        )
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        _validate_bcrypt_password_length(plain_password)
+    except ValueError:
+        return False
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def hash_password(password: str) -> str:
+    _validate_bcrypt_password_length(password)
     return pwd_context.hash(password)
 
 
