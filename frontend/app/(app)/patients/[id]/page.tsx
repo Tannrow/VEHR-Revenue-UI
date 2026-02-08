@@ -27,13 +27,15 @@ type Service = {
   is_active: boolean;
 };
 
+type ServiceSummary = Pick<Service, "id" | "name" | "code" | "category">;
+
 type Enrollment = {
   id: string;
   status: "active" | "paused" | "discharged";
   start_date: string;
   end_date?: string | null;
   reporting_enabled: boolean;
-  service: Pick<Service, "id" | "name" | "code" | "category">;
+  service: ServiceSummary;
 };
 
 type PatientNote = {
@@ -41,7 +43,35 @@ type PatientNote = {
   body: string;
   visibility: "clinical_only" | "legal_and_clinical";
   created_at: string;
-  primary_service: Pick<Service, "id" | "name" | "code" | "category">;
+  primary_service: ServiceSummary;
+};
+
+type PatientDocument = {
+  id: string;
+  patient_id: string;
+  service_id: string;
+  enrollment_id: string;
+  template_id: string;
+  status: "required" | "sent" | "completed" | "expired";
+  completed_at?: string | null;
+  expires_at?: string | null;
+  sent_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  service: ServiceSummary;
+  template: {
+    id: string;
+    name: string;
+    version: number;
+    status: string;
+  };
+};
+
+type SendDocumentsResponse = {
+  sent_document_ids: string[];
+  access_code: string;
+  magic_link: string;
+  expires_at: string;
 };
 
 function toErrorMessage(error: unknown, fallback: string) {
@@ -50,6 +80,19 @@ function toErrorMessage(error: unknown, fallback: string) {
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function statusBadgeClass(status: string) {
+  if (status === "active" || status === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (status === "required" || status === "sent") {
+    return "border-cyan-200 bg-cyan-50 text-cyan-700";
+  }
+  if (status === "paused" || status === "expired") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 export default function PatientWorkspacePage() {
@@ -64,6 +107,7 @@ export default function PatientWorkspacePage() {
   const [services, setServices] = useState<Service[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [notes, setNotes] = useState<PatientNote[]>([]);
+  const [documents, setDocuments] = useState<PatientDocument[]>([]);
 
   const [noteServiceFilter, setNoteServiceFilter] = useState("all");
   const [enrollmentServiceId, setEnrollmentServiceId] = useState("");
@@ -72,33 +116,69 @@ export default function PatientWorkspacePage() {
   const [noteBody, setNoteBody] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<PatientNote["visibility"]>("clinical_only");
 
+  const [sendingServiceId, setSendingServiceId] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<SendDocumentsResponse | null>(null);
+
   const activeServiceChips = useMemo(() => {
     const byId = new Map<string, Enrollment["service"]>();
-    enrollments.filter((e) => e.status === "active").forEach((enrollment) => {
+    enrollments.filter((enrollment) => enrollment.status === "active").forEach((enrollment) => {
       byId.set(enrollment.service.id, enrollment.service);
     });
     return Array.from(byId.values());
   }, [enrollments]);
+
+  const documentGroups = useMemo(() => {
+    const grouped = new Map<string, { service: ServiceSummary; documents: PatientDocument[] }>();
+    for (const document of documents) {
+      if (!grouped.has(document.service.id)) {
+        grouped.set(document.service.id, {
+          service: document.service,
+          documents: [],
+        });
+      }
+      grouped.get(document.service.id)?.documents.push(document);
+    }
+    return Array.from(grouped.values());
+  }, [documents]);
+
+  const documentsByEnrollment = useMemo(() => {
+    const stats = new Map<string, { total: number; completed: number }>();
+    for (const document of documents) {
+      if (!stats.has(document.enrollment_id)) {
+        stats.set(document.enrollment_id, { total: 0, completed: 0 });
+      }
+      const row = stats.get(document.enrollment_id)!;
+      row.total += 1;
+      if (document.status === "completed") {
+        row.completed += 1;
+      }
+    }
+    return stats;
+  }, [documents]);
 
   const refreshWorkspace = useCallback(async () => {
     if (!patientId) return;
     try {
       setLoading(true);
       setError(null);
-      const [patientRes, servicesRes, enrollmentsRes] = await Promise.all([
+      const [patientRes, servicesRes, enrollmentsRes, documentsRes] = await Promise.all([
         apiFetch<Patient>(`/api/v1/patients/${patientId}`, { cache: "no-store" }),
         apiFetch<Service[]>("/api/v1/services?include_inactive=true", { cache: "no-store" }),
         apiFetch<Enrollment[]>(`/api/v1/patients/${patientId}/enrollments`, { cache: "no-store" }),
+        apiFetch<PatientDocument[]>(`/api/v1/patients/${patientId}/documents`, { cache: "no-store" }),
       ]);
       setPatient(patientRes);
       setServices(servicesRes);
       setEnrollments(enrollmentsRes);
-      if (!enrollmentServiceId && servicesRes[0]) setEnrollmentServiceId(servicesRes[0].id);
+      setDocuments(documentsRes);
+      if (!enrollmentServiceId && servicesRes[0]) {
+        setEnrollmentServiceId(servicesRes[0].id);
+      }
       if (!noteServiceId && (enrollmentsRes[0]?.service.id || servicesRes[0]?.id)) {
         setNoteServiceId(enrollmentsRes[0]?.service.id || servicesRes[0].id);
       }
-    } catch (e) {
-      setError(toErrorMessage(e, "Failed to load patient workspace"));
+    } catch (loadError) {
+      setError(toErrorMessage(loadError, "Failed to load patient workspace"));
     } finally {
       setLoading(false);
     }
@@ -112,8 +192,8 @@ export default function PatientWorkspacePage() {
         cache: "no-store",
       });
       setNotes(data);
-    } catch (e) {
-      setError(toErrorMessage(e, "Failed to load notes"));
+    } catch (loadError) {
+      setError(toErrorMessage(loadError, "Failed to load notes"));
     }
   }, [patientId, noteServiceFilter]);
 
@@ -128,6 +208,7 @@ export default function PatientWorkspacePage() {
   async function createEnrollment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!patientId || !enrollmentServiceId) return;
+
     try {
       await apiFetch(`/api/v1/patients/${patientId}/enrollments`, {
         method: "POST",
@@ -138,14 +219,16 @@ export default function PatientWorkspacePage() {
         }),
       });
       await refreshWorkspace();
-    } catch (e) {
-      setError(toErrorMessage(e, "Failed to create enrollment"));
+      setActiveTab("services");
+    } catch (createError) {
+      setError(toErrorMessage(createError, "Failed to create enrollment"));
     }
   }
 
   async function createNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!patientId || !noteServiceId || !noteBody.trim()) return;
+
     try {
       await apiFetch(`/api/v1/patients/${patientId}/notes`, {
         method: "POST",
@@ -157,17 +240,57 @@ export default function PatientWorkspacePage() {
       });
       setNoteBody("");
       await refreshNotes();
-    } catch (e) {
-      setError(toErrorMessage(e, "Failed to create note"));
+    } catch (createError) {
+      setError(toErrorMessage(createError, "Failed to create note"));
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-600">Loading patient workspace...</p>;
-  if (!patientId || !patient) return <p className="text-sm text-rose-700">Patient not found.</p>;
+  async function sendDocumentsToPortal(serviceId: string) {
+    if (!patientId) return;
+    try {
+      setSendingServiceId(serviceId);
+      setError(null);
+      const data = await apiFetch<SendDocumentsResponse>(`/api/v1/patients/${patientId}/documents/send`, {
+        method: "POST",
+        body: JSON.stringify({ service_id: serviceId }),
+      });
+      setSendResult(data);
+      const refreshed = await apiFetch<PatientDocument[]>(`/api/v1/patients/${patientId}/documents`, {
+        cache: "no-store",
+      });
+      setDocuments(refreshed);
+    } catch (sendError) {
+      setError(toErrorMessage(sendError, "Failed to send documents to patient portal"));
+    } finally {
+      setSendingServiceId(null);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-slate-600">Loading patient workspace...</p>;
+  }
+  if (!patientId || !patient) {
+    return <p className="text-sm text-rose-700">Patient not found.</p>;
+  }
 
   return (
     <div className="space-y-6">
-      {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      {sendResult ? (
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">
+          <div className="font-semibold">Patient Portal Invite Created</div>
+          <div className="mt-1">Code: <span className="font-mono">{sendResult.access_code}</span></div>
+          <div className="mt-1 break-all">Magic link: {sendResult.magic_link}</div>
+          <div className="mt-1 text-xs text-cyan-700">
+            Expires: {new Date(sendResult.expires_at).toLocaleString()}
+          </div>
+        </div>
+      ) : null}
 
       <Card className="border-slate-200/70 shadow-sm">
         <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
@@ -206,29 +329,58 @@ export default function PatientWorkspacePage() {
         </TabsList>
 
         <TabsContent value="overview" className="pt-4 text-sm text-slate-600">
-          One chart, multiple services. Enrollment and notes remain service-scoped.
+          One chart, multiple services. Enrollment, notes, and paperwork remain service-scoped.
         </TabsContent>
 
         <TabsContent value="services" className="pt-4">
           <Card className="border-slate-200/70 shadow-sm">
-            <CardHeader><CardTitle className="text-base">Service Enrollments</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Service Enrollments</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4 pt-0">
               <form className="grid gap-2 sm:grid-cols-[1fr_auto_auto]" onSubmit={createEnrollment}>
-                <select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={enrollmentServiceId} onChange={(e) => setEnrollmentServiceId(e.target.value)}>
-                  {services.map((service) => <option key={service.id} value={service.id}>{service.code} - {service.name}</option>)}
+                <select
+                  className="h-9 rounded-md border border-slate-200 px-3 text-sm"
+                  value={enrollmentServiceId}
+                  onChange={(event) => setEnrollmentServiceId(event.target.value)}
+                >
+                  {services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.code} - {service.name}
+                    </option>
+                  ))}
                 </select>
-                <Input type="date" value={enrollmentStartDate} onChange={(e) => setEnrollmentStartDate(e.target.value)} />
+                <Input
+                  type="date"
+                  value={enrollmentStartDate}
+                  onChange={(event) => setEnrollmentStartDate(event.target.value)}
+                />
                 <Button type="submit">Enroll</Button>
               </form>
+
               <div className="space-y-2">
-                {enrollments.map((enrollment) => (
-                  <div key={enrollment.id} className="rounded-md border border-slate-200 p-3 text-sm">
-                    <div className="font-semibold text-slate-900">{enrollment.service.name} ({enrollment.service.code})</div>
-                    <div className="text-slate-600">Status: {enrollment.status} | {enrollment.start_date} to {enrollment.end_date || "open"}</div>
-                    <div className="text-slate-500">Reporting: {enrollment.reporting_enabled ? "enabled" : "disabled"}</div>
-                  </div>
-                ))}
-                {enrollments.length === 0 ? <div className="text-sm text-slate-600">No enrollments yet.</div> : null}
+                {enrollments.map((enrollment) => {
+                  const stats = documentsByEnrollment.get(enrollment.id) ?? { total: 0, completed: 0 };
+                  return (
+                    <div key={enrollment.id} className="rounded-md border border-slate-200 p-3 text-sm">
+                      <div className="font-semibold text-slate-900">
+                        {enrollment.service.name} ({enrollment.service.code})
+                      </div>
+                      <div className="text-slate-600">
+                        Status: {enrollment.status} | {enrollment.start_date} to {enrollment.end_date || "open"}
+                      </div>
+                      <div className="text-slate-500">
+                        Reporting: {enrollment.reporting_enabled ? "enabled" : "disabled"}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        Documents completed: {stats.completed}/{stats.total}
+                      </div>
+                    </div>
+                  );
+                })}
+                {enrollments.length === 0 ? (
+                  <div className="text-sm text-slate-600">No enrollments yet.</div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
@@ -236,49 +388,135 @@ export default function PatientWorkspacePage() {
 
         <TabsContent value="notes" className="pt-4">
           <Card className="border-slate-200/70 shadow-sm">
-            <CardHeader><CardTitle className="text-base">Service-Scoped Notes</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Service-Scoped Notes</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4 pt-0">
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant={noteServiceFilter === "all" ? "default" : "outline"} onClick={() => setNoteServiceFilter("all")}>All</Button>
-                {Array.from(new Map(enrollments.map((e) => [e.service.id, e.service])).values()).map((service) => (
-                  <Button key={service.id} type="button" size="sm" variant={noteServiceFilter === service.id ? "default" : "outline"} onClick={() => setNoteServiceFilter(service.id)}>
-                    {service.code}
-                  </Button>
-                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={noteServiceFilter === "all" ? "default" : "outline"}
+                  onClick={() => setNoteServiceFilter("all")}
+                >
+                  All
+                </Button>
+                {Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map(
+                  (service) => (
+                    <Button
+                      key={service.id}
+                      type="button"
+                      size="sm"
+                      variant={noteServiceFilter === service.id ? "default" : "outline"}
+                      onClick={() => setNoteServiceFilter(service.id)}
+                    >
+                      {service.code}
+                    </Button>
+                  ),
+                )}
               </div>
+
               <form className="grid gap-2" onSubmit={createNote}>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteServiceId} onChange={(e) => setNoteServiceId(e.target.value)}>
-                    {Array.from(new Map(enrollments.map((e) => [e.service.id, e.service])).values()).map((service) => (
-                      <option key={service.id} value={service.id}>{service.code} - {service.name}</option>
-                    ))}
+                  <select
+                    className="h-9 rounded-md border border-slate-200 px-3 text-sm"
+                    value={noteServiceId}
+                    onChange={(event) => setNoteServiceId(event.target.value)}
+                  >
+                    {Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map(
+                      (service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.code} - {service.name}
+                        </option>
+                      ),
+                    )}
                   </select>
-                  <select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteVisibility} onChange={(e) => setNoteVisibility(e.target.value as PatientNote["visibility"])}>
+                  <select
+                    className="h-9 rounded-md border border-slate-200 px-3 text-sm"
+                    value={noteVisibility}
+                    onChange={(event) => setNoteVisibility(event.target.value as PatientNote["visibility"])}
+                  >
                     <option value="clinical_only">clinical_only</option>
                     <option value="legal_and_clinical">legal_and_clinical</option>
                   </select>
                 </div>
-                <textarea className="min-h-[96px] rounded-md border border-slate-200 px-3 py-2 text-sm" value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
+                <textarea
+                  className="min-h-[96px] rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={noteBody}
+                  onChange={(event) => setNoteBody(event.target.value)}
+                />
                 <Button type="submit">Add Note</Button>
               </form>
+
               <div className="space-y-2">
                 {notes.map((note) => (
                   <div key={note.id} className="rounded-md border border-slate-200 p-3 text-sm">
                     <div className="flex flex-wrap gap-2">
-                      <Badge className="border-cyan-200 bg-cyan-50 font-mono text-cyan-700">{note.primary_service.code}</Badge>
-                      <Badge className="border-violet-200 bg-violet-50 text-violet-700">{note.visibility}</Badge>
+                      <Badge className="border-cyan-200 bg-cyan-50 font-mono text-cyan-700">
+                        {note.primary_service.code}
+                      </Badge>
+                      <Badge className="border-violet-200 bg-violet-50 text-violet-700">
+                        {note.visibility}
+                      </Badge>
                     </div>
                     <div className="mt-2 whitespace-pre-wrap text-slate-700">{note.body}</div>
                   </div>
                 ))}
-                {notes.length === 0 ? <div className="text-sm text-slate-600">No notes in this filter.</div> : null}
+                {notes.length === 0 ? (
+                  <div className="text-sm text-slate-600">No notes in this filter.</div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="documents" className="pt-4 text-sm text-slate-600">Documents placeholder.</TabsContent>
-        <TabsContent value="compliance" className="pt-4 text-sm text-slate-600">Compliance placeholder.</TabsContent>
+        <TabsContent value="documents" className="pt-4">
+          <Card className="border-slate-200/70 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Service Paperwork</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-0">
+              {documentGroups.length === 0 ? (
+                <div className="text-sm text-slate-600">No assigned paperwork yet.</div>
+              ) : (
+                documentGroups.map((group) => (
+                  <div key={group.service.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-900">
+                        {group.service.name} ({group.service.code})
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => sendDocumentsToPortal(group.service.id)}
+                        disabled={sendingServiceId === group.service.id}
+                      >
+                        {sendingServiceId === group.service.id ? "Sending..." : "Send to Patient Portal"}
+                      </Button>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {group.documents.map((document) => (
+                        <div
+                          key={document.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
+                        >
+                          <div className="text-sm text-slate-800">
+                            {document.template.name} v{document.template.version}
+                          </div>
+                          <Badge className={statusBadgeClass(document.status)}>{document.status}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="compliance" className="pt-4 text-sm text-slate-600">
+          Compliance placeholder.
+        </TabsContent>
       </Tabs>
     </div>
   );

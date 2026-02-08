@@ -14,6 +14,7 @@ from app.db.models.service import Service
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import log_event
+from app.services.paperwork import assign_required_documents_for_enrollment
 
 
 router = APIRouter(tags=["Services"])
@@ -534,6 +535,10 @@ def create_patient_enrollment(
         .options(selectinload(PatientServiceEnrollment.service))
         .where(PatientServiceEnrollment.id == enrollment.id)
     ).scalar_one()
+    created_documents = assign_required_documents_for_enrollment(
+        db,
+        enrollment=enrollment,
+    )
 
     log_event(
         db,
@@ -548,6 +553,7 @@ def create_patient_enrollment(
             "status": enrollment.status,
             "start_date": enrollment.start_date.isoformat(),
             "end_date": enrollment.end_date.isoformat() if enrollment.end_date else None,
+            "required_documents_created": len(created_documents),
         },
     )
 

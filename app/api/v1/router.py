@@ -6,11 +6,14 @@ from app.api.v1.endpoints import (
     clinical_audit,
     documents,
     encounters,
+    exports,
     forms,
     health,
     integrations,
     organizations,
+    paperwork,
     patients,
+    portal,
     services,
     uploads,
     webhooks,
@@ -23,6 +26,9 @@ api_router.include_router(patients.router)
 api_router.include_router(encounters.router)
 api_router.include_router(documents.router)
 api_router.include_router(forms.router)
+api_router.include_router(paperwork.router)
+api_router.include_router(exports.router)
+api_router.include_router(portal.router)
 api_router.include_router(audit.router)
 api_router.include_router(clinical_audit.router)
 api_router.include_router(webhooks.router)

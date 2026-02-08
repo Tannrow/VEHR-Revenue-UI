@@ -46,4 +46,8 @@ class User(Base):
         "PatientNote",
         back_populates="created_by_user",
     )
+    disclosure_logs: Mapped[list["DisclosureLog"]] = relationship(
+        "DisclosureLog",
+        back_populates="generated_by_user",
+    )
 

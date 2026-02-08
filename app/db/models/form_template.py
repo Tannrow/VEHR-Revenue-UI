@@ -32,4 +32,12 @@ class FormTemplate(Base):
         "FormSubmission",
         back_populates="form_template",
     )
+    service_document_templates: Mapped[list["ServiceDocumentTemplate"]] = relationship(
+        "ServiceDocumentTemplate",
+        back_populates="template",
+    )
+    patient_documents: Mapped[list["PatientDocument"]] = relationship(
+        "PatientDocument",
+        back_populates="template",
+    )
 

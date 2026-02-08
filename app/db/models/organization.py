@@ -83,4 +83,20 @@ class Organization(Base):
         "PatientNote",
         back_populates="organization",
     )
+    service_document_templates: Mapped[list["ServiceDocumentTemplate"]] = relationship(
+        "ServiceDocumentTemplate",
+        back_populates="organization",
+    )
+    patient_documents: Mapped[list["PatientDocument"]] = relationship(
+        "PatientDocument",
+        back_populates="organization",
+    )
+    portal_access_codes: Mapped[list["PortalAccessCode"]] = relationship(
+        "PortalAccessCode",
+        back_populates="organization",
+    )
+    disclosure_logs: Mapped[list["DisclosureLog"]] = relationship(
+        "DisclosureLog",
+        back_populates="organization",
+    )
 

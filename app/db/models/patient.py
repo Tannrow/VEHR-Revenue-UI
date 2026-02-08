@@ -48,4 +48,16 @@ class Patient(Base):
         "PatientNote",
         back_populates="patient",
     )
+    patient_documents: Mapped[list["PatientDocument"]] = relationship(
+        "PatientDocument",
+        back_populates="patient",
+    )
+    portal_access_codes: Mapped[list["PortalAccessCode"]] = relationship(
+        "PortalAccessCode",
+        back_populates="patient",
+    )
+    disclosure_logs: Mapped[list["DisclosureLog"]] = relationship(
+        "DisclosureLog",
+        back_populates="patient",
+    )
 

@@ -213,7 +213,7 @@ def list_documents(
     return documents
 
 
-@router.get("/patients/{patient_id}/documents", response_model=list[DocumentRead])
+@router.get("/patients/{patient_id}/uploaded-documents", response_model=list[DocumentRead])
 def list_documents_for_patient(
     patient_id: str,
     limit: int = Query(50, ge=1, le=200),

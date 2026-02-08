@@ -40,3 +40,15 @@ class Service(Base):
         "PatientNote",
         back_populates="primary_service",
     )
+    document_templates: Mapped[list["ServiceDocumentTemplate"]] = relationship(
+        "ServiceDocumentTemplate",
+        back_populates="service",
+    )
+    patient_documents: Mapped[list["PatientDocument"]] = relationship(
+        "PatientDocument",
+        back_populates="service",
+    )
+    disclosure_logs: Mapped[list["DisclosureLog"]] = relationship(
+        "DisclosureLog",
+        back_populates="service",
+    )
