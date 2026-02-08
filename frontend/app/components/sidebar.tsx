@@ -11,6 +11,7 @@ type NavItem = {
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
+  roles?: string[];
 };
 
 type NavSection = {
@@ -18,180 +19,125 @@ type NavSection = {
   items: NavItem[];
 };
 
+const ROLE_ADMIN = "Administrator";
+const ROLE_COMPLIANCE = "Compliance Manager";
+const ROLE_BILLING = "Billing";
+const ROLE_STAFF = "Staff";
+const ROLE_CLINICIAN = "Clinician";
+const ROLE_THERAPIST = "Therapist";
+const ROLE_PROVIDER = "Medical Provider";
+const ROLE_ASSISTANT = "Medical Assistant";
+const ROLE_CONSULTANT = "Consultant";
+
 function IconPulse({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M3 12h4l2.5-5 5 10 2.5-5H21" />
     </svg>
   );
 }
 
-function IconDashboard({ className }: { className?: string }) {
+function IconGrid({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 13c0-5 4-9 9-9s9 4 9 9" />
-      <path d="M12 7v6l4 2" />
-      <path d="M7 20h10" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3" y="3" width="8" height="8" rx="2" />
+      <rect x="13" y="3" width="8" height="8" rx="2" />
+      <rect x="3" y="13" width="8" height="8" rx="2" />
+      <rect x="13" y="13" width="8" height="8" rx="2" />
     </svg>
   );
 }
 
-function IconPatients({ className }: { className?: string }) {
+function IconUsers({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M16 11a4 4 0 1 0-8 0" />
-      <path d="M3 20a9 9 0 0 1 18 0" />
-      <circle cx="12" cy="7" r="3" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="9" cy="8" r="3" />
+      <circle cx="17" cy="8" r="3" />
+      <path d="M3 19a6 6 0 0 1 12 0" />
+      <path d="M14 19a5 5 0 0 1 7 0" />
     </svg>
   );
 }
 
-function IconEncounters({ className }: { className?: string }) {
+function IconCalendar({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="4" y="4" width="16" height="16" rx="3" />
-      <path d="M8 2v4M16 2v4M4 10h16" />
-      <path d="M9 14h6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="4" y="5" width="16" height="15" rx="2" />
+      <path d="M8 3v4M16 3v4M4 10h16" />
     </svg>
   );
 }
 
-function IconForms({ className }: { className?: string }) {
+function IconClipboard({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="5" y="3" width="14" height="18" rx="2" />
-      <path d="M9 8h6M9 12h6M9 16h4" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="6" y="4" width="12" height="16" rx="2" />
+      <path d="M9 4.5h6" />
+      <path d="M9 10h6M9 14h4" />
     </svg>
   );
 }
 
-function IconAudit({ className }: { className?: string }) {
+function IconShield({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M4 6h16v12H4z" />
-      <path d="M9 10h6M9 14h3" />
-      <path d="M7 2v4M17 2v4" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 3l8 4v6c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7l8-4z" />
+      <path d="M9 12l2 2 4-4" />
     </svg>
   );
 }
 
-function IconIntegrations({ className }: { className?: string }) {
+function IconBank({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="18" cy="18" r="3" />
-      <path d="M8.8 10.8l6.4-3.6M8.8 13.2l6.4 3.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 10h18" />
+      <path d="M5 10v7M10 10v7M14 10v7M19 10v7" />
+      <path d="M2 20h20" />
+      <path d="M12 3l9 5H3l9-5z" />
     </svg>
   );
 }
 
-function IconCrm({ className }: { className?: string }) {
+function IconPlug({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M4 8h16v12H4z" />
-      <path d="M8 8V6a4 4 0 0 1 8 0v2" />
-      <path d="M9 14h6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M7 3v6M11 3v6M6 9h6v2a4 4 0 0 1-4 4H7v6" />
+      <path d="M13 15h5" />
     </svg>
   );
 }
 
 const navSections: NavSection[] = [
   {
-    label: "Overview",
+    label: "Clinical",
+    items: [
+      { href: "/dashboard", label: "Dashboard", description: "Clinical and ops view", icon: IconGrid },
+      { href: "/patients", label: "Patients", description: "Unified patient charts", icon: IconUsers },
+      { href: "/encounters", label: "Encounters", description: "Visits and sessions", icon: IconCalendar },
+      { href: "/forms-builder", label: "Forms Builder", description: "Template and versions", icon: IconClipboard },
+    ],
+  },
+  {
+    label: "Administration",
     items: [
       {
-        href: "/dashboard",
-        label: "Dashboard",
-        description: "Operational overview",
-        icon: IconDashboard,
+        href: "/administration",
+        label: "Administration",
+        description: "Org settings and users",
+        icon: IconGrid,
+        roles: [ROLE_ADMIN, ROLE_STAFF],
       },
     ],
   },
   {
-    label: "Care Delivery",
+    label: "Billing",
     items: [
       {
-        href: "/patients",
-        label: "Patients",
-        description: "Charts and demographics",
-        icon: IconPatients,
-      },
-      {
-        href: "/encounters",
-        label: "Encounters",
-        description: "Visits and notes",
-        icon: IconEncounters,
-      },
-      {
-        href: "/forms-builder",
-        label: "Forms Builder",
-        description: "Versioned schema templates",
-        icon: IconForms,
+        href: "/billing",
+        label: "Billing Workspace",
+        description: "Claims and reimbursement",
+        icon: IconBank,
+        roles: [ROLE_ADMIN, ROLE_BILLING],
       },
     ],
   },
@@ -201,32 +147,56 @@ const navSections: NavSection[] = [
       {
         href: "/audit-center",
         label: "Audit Center",
-        description: "Risk analytics and reviews",
-        icon: IconAudit,
-      },
-      {
-        href: "/integrations",
-        label: "Integrations",
-        description: "Connector catalog",
-        icon: IconIntegrations,
+        description: "Clinical compliance and review",
+        icon: IconShield,
+        roles: [ROLE_ADMIN, ROLE_COMPLIANCE, ROLE_CONSULTANT],
       },
     ],
   },
   {
-    label: "Operations",
+    label: "Scheduling",
     items: [
       {
-        href: "/crm",
-        label: "CRM",
-        description: "Relationships and pipeline",
-        icon: IconCrm,
+        href: "/scheduling",
+        label: "Scheduling",
+        description: "Calendars and assignments",
+        icon: IconCalendar,
+        roles: [ROLE_ADMIN, ROLE_STAFF, ROLE_CLINICIAN, ROLE_THERAPIST, ROLE_PROVIDER, ROLE_ASSISTANT],
+      },
+    ],
+  },
+  {
+    label: "Integrations",
+    items: [
+      {
+        href: "/integrations",
+        label: "Integrations",
+        description: "Connector catalog",
+        icon: IconPlug,
+        roles: [ROLE_ADMIN, ROLE_COMPLIANCE],
       },
     ],
   },
 ];
 
-export default function Sidebar() {
+function hasRoleAccess(role: string | null | undefined, allowedRoles?: string[]) {
+  if (!allowedRoles || allowedRoles.length === 0) return true;
+  if (!role) return false;
+  return allowedRoles.includes(role);
+}
+
+type SidebarProps = {
+  role?: string | null;
+};
+
+export default function Sidebar({ role = null }: SidebarProps) {
   const pathname = usePathname();
+  const visibleSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => hasRoleAccess(role, item.roles)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <aside className="flex h-full flex-col gap-8 rounded-3xl border border-slate-900/70 bg-slate-950 p-6 text-slate-100 shadow-[0_35px_90px_rgba(15,23,42,0.35)] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
@@ -235,65 +205,28 @@ export default function Sidebar() {
           <IconPulse className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-lg font-semibold tracking-tight text-white">
-            {BRANDING.name}
-          </div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
-            {BRANDING.tagline}
-          </div>
+          <div className="text-lg font-semibold tracking-tight text-white">{BRANDING.name}</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">{BRANDING.tagline}</div>
         </div>
       </div>
 
       <nav className="space-y-6">
-        {navSections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.label} className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-500">
-              {section.label}
-            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-500">{section.label}</div>
             <div className="grid gap-2">
               {section.items.map((item) => {
-                const isActive =
-                  pathname === item.href || pathname?.startsWith(`${item.href}/`);
+                const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
                 const Icon = item.icon;
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`group relative flex items-start gap-3 rounded-2xl border px-3 py-3 transition ${
-                      isActive
-                        ? "border-cyan-400/60 bg-slate-900 text-white shadow-[0_16px_40px_rgba(8,145,178,0.35)]"
-                        : "border-slate-900/60 bg-slate-900/40 text-slate-200 hover:border-slate-700 hover:bg-slate-900/70"
-                    }`}
-                    data-active={isActive}
-                    aria-current={isActive ? "page" : undefined}
-                  >
-                    <span
-                      className={`absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r ${
-                        isActive ? "bg-cyan-400" : "bg-transparent"
-                      }`}
-                    />
-                    <span
-                      className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
-                        isActive
-                          ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-200"
-                          : "border-slate-800 bg-slate-900/70 text-slate-300 group-hover:text-cyan-100"
-                      }`}
-                    >
+                  <Link key={item.href} href={item.href} className={`group relative flex items-start gap-3 rounded-2xl border px-3 py-3 transition ${isActive ? "border-cyan-400/60 bg-slate-900 text-white shadow-[0_16px_40px_rgba(8,145,178,0.35)]" : "border-slate-900/60 bg-slate-900/40 text-slate-200 hover:border-slate-700 hover:bg-slate-900/70"}`} data-active={isActive} aria-current={isActive ? "page" : undefined}>
+                    <span className={`absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r ${isActive ? "bg-cyan-400" : "bg-transparent"}`} />
+                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl border ${isActive ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-200" : "border-slate-800 bg-slate-900/70 text-slate-300 group-hover:text-cyan-100"}`}>
                       <Icon className="h-4 w-4" />
                     </span>
                     <div className="space-y-1">
-                      <span className="text-sm font-semibold text-white">
-                        {item.label}
-                      </span>
-                      <span
-                        className={`text-xs ${
-                          isActive
-                            ? "text-slate-300"
-                            : "text-slate-500 group-hover:text-slate-300"
-                        }`}
-                      >
-                        {item.description}
-                      </span>
+                      <span className="text-sm font-semibold text-white">{item.label}</span>
+                      <span className={`text-xs ${isActive ? "text-slate-300" : "text-slate-500 group-hover:text-slate-300"}`}>{item.description}</span>
                     </div>
                   </Link>
                 );
@@ -309,9 +242,7 @@ export default function Sidebar() {
             <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)]" />
             {BRANDING.environmentLabel}
           </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Audit-ready workflows with live sandbox data.
-          </p>
+          <p className="mt-2 text-xs text-slate-500">Service-aware charting and audit visibility.</p>
         </div>
         <div className="text-[11px] text-slate-500">{BRANDING.internalNote}</div>
       </div>

@@ -71,4 +71,16 @@ class Organization(Base):
         "ReviewEvidenceLink",
         back_populates="organization",
     )
+    services: Mapped[list["Service"]] = relationship(
+        "Service",
+        back_populates="organization",
+    )
+    patient_service_enrollments: Mapped[list["PatientServiceEnrollment"]] = relationship(
+        "PatientServiceEnrollment",
+        back_populates="organization",
+    )
+    patient_notes: Mapped[list["PatientNote"]] = relationship(
+        "PatientNote",
+        back_populates="organization",
+    )
 

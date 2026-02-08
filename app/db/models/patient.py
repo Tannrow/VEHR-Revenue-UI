@@ -40,4 +40,12 @@ class Patient(Base):
         "Document",
         back_populates="patient",
     )
+    service_enrollments: Mapped[list["PatientServiceEnrollment"]] = relationship(
+        "PatientServiceEnrollment",
+        back_populates="patient",
+    )
+    notes: Mapped[list["PatientNote"]] = relationship(
+        "PatientNote",
+        back_populates="patient",
+    )
 

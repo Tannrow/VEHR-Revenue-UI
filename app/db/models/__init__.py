@@ -10,9 +10,12 @@ from app.db.models.form_template import FormTemplate  # noqa: F401
 from app.db.models.organization import Organization  # noqa: F401
 from app.db.models.organization_membership import OrganizationMembership  # noqa: F401
 from app.db.models.patient import Patient  # noqa: F401
+from app.db.models.patient_note import PatientNote  # noqa: F401
+from app.db.models.patient_service_enrollment import PatientServiceEnrollment  # noqa: F401
 from app.db.models.review_action import ReviewAction  # noqa: F401
 from app.db.models.review_evidence_link import ReviewEvidenceLink  # noqa: F401
 from app.db.models.review_queue_item import ReviewQueueItem  # noqa: F401
+from app.db.models.service import Service  # noqa: F401
 from app.db.models.user import User  # noqa: F401
 from app.db.models.webhook_delivery import WebhookDelivery  # noqa: F401
 from app.db.models.webhook_endpoint import WebhookEndpoint  # noqa: F401

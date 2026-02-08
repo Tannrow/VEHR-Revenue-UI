@@ -104,7 +104,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-8 lg:px-6">
-        <Sidebar />
+        <Sidebar role={currentUser?.role} />
         <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white/95 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/70 px-6 py-4">
             <div className="space-y-1">

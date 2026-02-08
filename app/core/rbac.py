@@ -25,6 +25,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "audit:read",
         "clinical_audit:run",
         "clinical_audit:review",
+        "services:read",
+        "services:write",
         "org:manage",
         "users:manage",
         "webhooks:manage",
@@ -37,6 +39,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "audit:read",
         "clinical_audit:run",
         "clinical_audit:review",
+        "services:read",
     },
     ROLE_CLINICIAN: {
         "patients:read",
@@ -52,6 +55,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "documents:read",
         "documents:write",
         "clinical_audit:run",
+        "services:read",
     },
     ROLE_THERAPIST: {
         "patients:read",
@@ -67,6 +71,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "documents:read",
         "documents:write",
         "clinical_audit:run",
+        "services:read",
     },
     ROLE_MEDICAL_PROVIDER: {
         "patients:read",
@@ -82,6 +87,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "documents:read",
         "documents:write",
         "clinical_audit:run",
+        "services:read",
     },
     ROLE_MEDICAL_ASSISTANT: {
         "patients:read",
@@ -97,23 +103,27 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "documents:read",
         "documents:write",
         "clinical_audit:run",
+        "services:read",
     },
     ROLE_STAFF: {
         "patients:read",
         "forms:read",
         "encounters:read",
         "documents:read",
+        "services:read",
     },
     ROLE_BILLING: {
         "patients:read",
         "encounters:read",
         "documents:read",
+        "services:read",
     },
     ROLE_CONSULTANT: {
         "patients:read",
         "encounters:read",
         "forms:read",
         "documents:read",
+        "services:read",
     },
 }
 

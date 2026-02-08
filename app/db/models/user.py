@@ -38,4 +38,12 @@ class User(Base):
         "ReviewEvidenceLink",
         back_populates="created_by_user",
     )
+    assigned_service_enrollments: Mapped[list["PatientServiceEnrollment"]] = relationship(
+        "PatientServiceEnrollment",
+        back_populates="assigned_staff_user",
+    )
+    patient_notes: Mapped[list["PatientNote"]] = relationship(
+        "PatientNote",
+        back_populates="created_by_user",
+    )
 
