@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MetricCard from "../_components/MetricCard";
@@ -23,17 +27,32 @@ type ConnectorCatalog = {
   connectors: Connector[];
 };
 
-export default async function IntegrationsPage() {
-  let catalog: ConnectorCatalog | null = null;
-  let error: string | null = null;
+export default function IntegrationsPage() {
+  const [catalog, setCatalog] = useState<ConnectorCatalog | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  try {
-    catalog = await apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", {
-      cache: "no-store",
-    });
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load connector catalog";
-  }
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        setError(null);
+        const data = await apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", {
+          cache: "no-store",
+        });
+        if (!isMounted) return;
+        setCatalog(data);
+      } catch (err) {
+        if (!isMounted) return;
+        setError(err instanceof Error ? err.message : "Failed to load connector catalog");
+      }
+    }
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const connectors = catalog?.connectors ?? [];
 

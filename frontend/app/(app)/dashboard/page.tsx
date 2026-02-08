@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MetricCard from "../_components/MetricCard";
 import { apiFetch } from "@/lib/api";
@@ -17,24 +21,38 @@ type ConnectorCatalog = {
   total: number;
 };
 
-export default async function DashboardPage() {
-  let auditSummary: SummaryResponse | null = null;
-  let formUsage: UsageInsights | null = null;
-  let connectors: ConnectorCatalog | null = null;
-  let error: string | null = null;
+export default function DashboardPage() {
+  const [auditSummary, setAuditSummary] = useState<SummaryResponse | null>(null);
+  const [formUsage, setFormUsage] = useState<UsageInsights | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorCatalog | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  try {
-    const [auditRes, formsRes, integrationsRes] = await Promise.all([
-      apiFetch<SummaryResponse>("/api/v1/audit/summary?hours=24", { cache: "no-store" }),
-      apiFetch<UsageInsights>("/api/v1/forms/templates/insights/usage", { cache: "no-store" }),
-      apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", { cache: "no-store" }),
-    ]);
-    auditSummary = auditRes;
-    formUsage = formsRes;
-    connectors = integrationsRes;
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load dashboard metrics";
-  }
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        setError(null);
+        const [auditRes, formsRes, integrationsRes] = await Promise.all([
+          apiFetch<SummaryResponse>("/api/v1/audit/summary?hours=24", { cache: "no-store" }),
+          apiFetch<UsageInsights>("/api/v1/forms/templates/insights/usage", { cache: "no-store" }),
+          apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", { cache: "no-store" }),
+        ]);
+        if (!isMounted) return;
+        setAuditSummary(auditRes);
+        setFormUsage(formsRes);
+        setConnectors(integrationsRes);
+      } catch (err) {
+        if (!isMounted) return;
+        setError(err instanceof Error ? err.message : "Failed to load dashboard metrics");
+      }
+    }
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">

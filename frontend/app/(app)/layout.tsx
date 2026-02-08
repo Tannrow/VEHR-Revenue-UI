@@ -1,9 +1,106 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import Sidebar from "../components/sidebar";
 import { BRANDING } from "@/lib/branding";
+import { ApiError, apiFetch } from "@/lib/api";
+import { clearAccessToken } from "@/lib/auth";
+
+type MeResponse = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  role: string;
+  organization_id: string;
+};
+
+function buildLoginPath(pathname: string | null): string {
+  const next = pathname && pathname.startsWith("/") ? pathname : "/dashboard";
+  return `/login?next=${encodeURIComponent(next)}`;
+}
+
+function initialsForUser(user: MeResponse | null): string {
+  if (!user) return "VE";
+  const source = user.full_name?.trim() || user.email;
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+  return source.slice(0, 2).toUpperCase();
+}
 
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [currentUser, setCurrentUser] = useState<MeResponse | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentUser) {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function validateSession() {
+      setIsCheckingSession(true);
+      setSessionError(null);
+      try {
+        const me = await apiFetch<MeResponse>("/api/v1/auth/me", { cache: "no-store" });
+        if (!isMounted) return;
+        setCurrentUser(me);
+      } catch (error) {
+        if (!isMounted) return;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          clearAccessToken();
+          router.replace(buildLoginPath(pathname));
+          return;
+        }
+        setSessionError(error instanceof Error ? error.message : "Failed to validate session");
+      } finally {
+        if (isMounted) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+
+    validateSession();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser, pathname, router]);
+
+  const userInitials = useMemo(() => initialsForUser(currentUser), [currentUser]);
+
+  function handleSignOut() {
+    clearAccessToken();
+    router.replace("/login");
+  }
+
+  if (isCheckingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+          Verifying session...
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="max-w-xl rounded-xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm">
+          {sessionError}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-8 lg:px-6">
@@ -40,33 +137,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   type="search"
                 />
               </div>
-              <button
-                type="button"
-                className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300"
-              >
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                  TD
-                </span>
-                <span className="hidden sm:block">
-                  <span className="block text-xs font-semibold text-slate-900">
-                    Taylor Dawson
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 text-left">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                    {userInitials}
                   </span>
-                  <span className="block text-[11px] text-slate-500">
-                    Clinical Admin
+                  <span className="hidden sm:block">
+                    <span className="block text-xs font-semibold text-slate-900">
+                      {currentUser?.full_name || currentUser?.email || "Session User"}
+                    </span>
+                    <span className="block text-[11px] text-slate-500">
+                      {currentUser?.role || "member"}
+                    </span>
                   </span>
-                </span>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.8}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4 text-slate-400"
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="h-10 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:border-slate-300"
                 >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
+                  Sign Out
+                </button>
+              </div>
             </div>
           </header>
           <main className="flex-1 px-6 py-6 sm:px-8 sm:py-8">{children}</main>

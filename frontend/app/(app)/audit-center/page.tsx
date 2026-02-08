@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
@@ -45,24 +49,38 @@ function severityBadge(severity: string) {
   return "outline" as const;
 }
 
-export default async function AuditCenterPage() {
-  let summary: SummaryResponse | null = null;
-  let anomalies: Anomaly[] = [];
-  let brief: AssistantBrief | null = null;
-  let error: string | null = null;
+export default function AuditCenterPage() {
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [brief, setBrief] = useState<AssistantBrief | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  try {
-    const [summaryRes, anomalyRes, briefRes] = await Promise.all([
-      apiFetch<SummaryResponse>("/api/v1/audit/summary?hours=72", { cache: "no-store" }),
-      apiFetch<Anomaly[]>("/api/v1/audit/anomalies?hours=72&limit=10", { cache: "no-store" }),
-      apiFetch<AssistantBrief>("/api/v1/audit/assistant/brief?hours=72", { cache: "no-store" }),
-    ]);
-    summary = summaryRes;
-    anomalies = anomalyRes;
-    brief = briefRes;
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load audit center data";
-  }
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        setError(null);
+        const [summaryRes, anomalyRes, briefRes] = await Promise.all([
+          apiFetch<SummaryResponse>("/api/v1/audit/summary?hours=72", { cache: "no-store" }),
+          apiFetch<Anomaly[]>("/api/v1/audit/anomalies?hours=72&limit=10", { cache: "no-store" }),
+          apiFetch<AssistantBrief>("/api/v1/audit/assistant/brief?hours=72", { cache: "no-store" }),
+        ]);
+        if (!isMounted) return;
+        setSummary(summaryRes);
+        setAnomalies(anomalyRes);
+        setBrief(briefRes);
+      } catch (err) {
+        if (!isMounted) return;
+        setError(err instanceof Error ? err.message : "Failed to load audit center data");
+      }
+    }
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const riskScore = brief?.risk_score ?? 0;
 

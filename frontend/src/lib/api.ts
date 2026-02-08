@@ -1,3 +1,5 @@
+import { getBrowserAccessToken } from "@/lib/auth";
+
 export class ApiError extends Error {
   status: number;
   info?: unknown;
@@ -50,37 +52,10 @@ function getErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
-function getTokenFromCookie(): string | null {
-  if (typeof document === "undefined") {
-    return null;
-  }
-  const cookies = document.cookie ? document.cookie.split(";") : [];
-  for (const cookie of cookies) {
-    const [rawKey, ...rawValue] = cookie.trim().split("=");
-    const key = rawKey?.trim();
-    if (!key) continue;
-    if (key === "vehr_access_token" || key === "access_token") {
-      return decodeURIComponent(rawValue.join("="));
-    }
-  }
-  return null;
-}
-
 function getRuntimeToken(): string | undefined {
-  if (typeof window !== "undefined") {
-    const storageToken =
-      window.localStorage.getItem("vehr_access_token") ||
-      window.localStorage.getItem("access_token") ||
-      window.sessionStorage.getItem("vehr_access_token") ||
-      window.sessionStorage.getItem("access_token");
-    if (storageToken) {
-      return storageToken;
-    }
-
-    const cookieToken = getTokenFromCookie();
-    if (cookieToken) {
-      return cookieToken;
-    }
+  const browserToken = getBrowserAccessToken();
+  if (browserToken) {
+    return browserToken;
   }
   return process.env.NEXT_PUBLIC_API_TOKEN;
 }
