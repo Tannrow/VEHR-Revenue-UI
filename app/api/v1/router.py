@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     forms,
     health,
     integrations,
+    organization_home,
     organizations,
     paperwork,
     patients,
@@ -22,6 +23,7 @@ from app.api.v1.endpoints import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(organizations.router)
+api_router.include_router(organization_home.router)
 api_router.include_router(patients.router)
 api_router.include_router(encounters.router)
 api_router.include_router(documents.router)

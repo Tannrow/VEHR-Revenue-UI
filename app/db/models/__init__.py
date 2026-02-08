@@ -1,5 +1,6 @@
 # Import models here so SQLAlchemy registers them with Base.metadata
 from app.db.models.audit_event import AuditEvent  # noqa: F401
+from app.db.models.announcement import Announcement  # noqa: F401
 from app.db.models.clinical_audit_finding import ClinicalAuditFinding  # noqa: F401
 from app.db.models.clinical_audit_run import ClinicalAuditRun  # noqa: F401
 from app.db.models.disclosure_log import DisclosureLog  # noqa: F401
@@ -10,6 +11,7 @@ from app.db.models.form_submission import FormSubmission  # noqa: F401
 from app.db.models.form_template import FormTemplate  # noqa: F401
 from app.db.models.organization import Organization  # noqa: F401
 from app.db.models.organization_membership import OrganizationMembership  # noqa: F401
+from app.db.models.organization_tile import OrganizationTile  # noqa: F401
 from app.db.models.patient import Patient  # noqa: F401
 from app.db.models.patient_document import PatientDocument  # noqa: F401
 from app.db.models.patient_note import PatientNote  # noqa: F401

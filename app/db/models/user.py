@@ -50,4 +50,12 @@ class User(Base):
         "DisclosureLog",
         back_populates="generated_by_user",
     )
+    created_organization_tiles: Mapped[list["OrganizationTile"]] = relationship(
+        "OrganizationTile",
+        back_populates="created_by_user",
+    )
+    created_announcements: Mapped[list["Announcement"]] = relationship(
+        "Announcement",
+        back_populates="created_by_user",
+    )
 

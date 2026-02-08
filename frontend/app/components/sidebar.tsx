@@ -107,7 +107,44 @@ function IconPlug({ className }: { className?: string }) {
   );
 }
 
+function IconBuilding({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M4 21h16" />
+      <path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+      <path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1" />
+    </svg>
+  );
+}
+
+function IconSliders({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M4 21v-7M4 10V3M12 21v-4M12 13V3M20 21v-9M20 8V3" />
+      <path d="M1 14h6M9 13h6M17 8h6" />
+    </svg>
+  );
+}
+
 const navSections: NavSection[] = [
+  {
+    label: "Organization",
+    items: [
+      {
+        href: "/organization/home",
+        label: "Home",
+        description: "Staff operations dashboard",
+        icon: IconBuilding,
+      },
+      {
+        href: "/organization/settings",
+        label: "Settings",
+        description: "Tiles and announcements",
+        icon: IconSliders,
+        roles: [ROLE_ADMIN],
+      },
+    ],
+  },
   {
     label: "Clinical",
     items: [

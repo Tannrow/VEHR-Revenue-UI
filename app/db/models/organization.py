@@ -99,4 +99,12 @@ class Organization(Base):
         "DisclosureLog",
         back_populates="organization",
     )
+    organization_tiles: Mapped[list["OrganizationTile"]] = relationship(
+        "OrganizationTile",
+        back_populates="organization",
+    )
+    announcements: Mapped[list["Announcement"]] = relationship(
+        "Announcement",
+        back_populates="organization",
+    )
 
