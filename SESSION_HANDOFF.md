@@ -1,5 +1,27 @@
 # VEHR Handoff (Resume Here)
 
+## Tomorrow First Action (Upload "Failed to fetch" Fix)
+Root cause is likely missing/incorrect S3 bucket CORS for browser presigned uploads.
+
+1. Open AWS Console -> S3 -> bucket `vehr-uploads-prod`.
+2. Go to `Permissions` -> `Cross-origin resource sharing (CORS)` -> `Edit`.
+3. Set CORS config to:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://the-trapp-house.com", "https://www.the-trapp-house.com"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "x-amz-request-id", "x-amz-id-2"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+4. Save changes.
+5. Re-test upload from Organization workspace (PDF + image).
+
 ## Completed Tonight (Local Code)
 ### Backend
 - Extended forms engine in `app/api/v1/endpoints/forms.py`:

@@ -1,0 +1,480 @@
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+⨯ ./app/(app)/layout.tsx:7:1
+Module not found: Can't resolve '../components/sidebar'
+[0m [90m  5 |[39m [36mimport[39m { usePathname[33m,[39m useRouter } [36mfrom[39m [32m"next/navigation"[39m[33m;[39m
+ [90m  6 |[39m
+[31m[1m>[22m[39m[90m  7 |[39m [36mimport[39m [33mSidebar[39m [36mfrom[39m [32m"../components/sidebar"[39m[33m;[39m
+ [90m    |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m  8 |[39m [36mimport[39m { [33mBRANDING[39m } [36mfrom[39m [32m"@/lib/branding"[39m[33m;[39m
+ [90m  9 |[39m [36mimport[39m { [33mApiError[39m[33m,[39m apiFetch } [36mfrom[39m [32m"@/lib/api"[39m[33m;[39m
+ [90m 10 |[39m [36mimport[39m { clearAccessToken } [36mfrom[39m [32m"@/lib/auth"[39m[33m;[39m[0m
+
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(app)/layout.tsx [Client Component Browser]
+    ./app/(app)/layout.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(app)/layout.tsx [Client Component SSR]
+    ./app/(app)/layout.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
