@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -69,11 +71,11 @@ def _seed_admin_token(session_factory) -> tuple[str, str]:
         return token, org.id
 
 
-def test_sharepoint_home_requires_authentication(tmp_path) -> None:
+def test_sharepoint_settings_requires_authentication(tmp_path) -> None:
     engine, session_factory = _build_session(tmp_path)
     try:
         with TestClient(app) as client:
-            response = client.get("/api/v1/sharepoint/home")
+            response = client.get("/api/v1/org/sharepoint-settings")
             assert response.status_code == 401
     finally:
         app.dependency_overrides.clear()
@@ -81,30 +83,89 @@ def test_sharepoint_home_requires_authentication(tmp_path) -> None:
         engine.dispose()
 
 
-def test_sharepoint_home_returns_default_url_for_authenticated_org(tmp_path, monkeypatch) -> None:
+def test_sharepoint_settings_returns_defaults_for_authenticated_org(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("SHAREPOINT_HOME_URL", raising=False)
+    monkeypatch.delenv("SHAREPOINT_QUICK_LINKS_JSON", raising=False)
     engine, session_factory = _build_session(tmp_path)
     try:
         token, org_id = _seed_admin_token(session_factory)
         with TestClient(app) as client:
-            response = client.get("/api/v1/sharepoint/home", headers=_auth_header(token))
+            response = client.get("/api/v1/org/sharepoint-settings", headers=_auth_header(token))
             assert response.status_code == 200
             payload = response.json()
-            assert payload["organization_id"] == org_id
             assert payload["home_url"] == DEFAULT_SHAREPOINT_HOME_URL
+            assert len(payload["quick_links"]) == 5
+            assert [item["label"] for item in payload["quick_links"]] == [
+                "Policies",
+                "Training",
+                "Templates",
+                "Contracts",
+                "Forms",
+            ]
+            assert all(item["url"] == DEFAULT_SHAREPOINT_HOME_URL for item in payload["quick_links"])
+
+            # Tenant scoping remains tied to membership org.
+            home_response = client.get("/api/v1/sharepoint/home", headers=_auth_header(token))
+            assert home_response.status_code == 200
+            assert home_response.json()["organization_id"] == org_id
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
 
 
-def test_sharepoint_home_rejects_non_sharepoint_domain(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("SHAREPOINT_HOME_URL", "https://example.com/sites/home")
+def test_sharepoint_settings_uses_valid_env_quick_links(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SHAREPOINT_HOME_URL", DEFAULT_SHAREPOINT_HOME_URL)
+    monkeypatch.setenv(
+        "SHAREPOINT_QUICK_LINKS_JSON",
+        json.dumps(
+            [
+                {
+                    "label": "Policies",
+                    "url": "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage/policies",
+                    "description": "Policy library",
+                },
+                {
+                    "label": "Training",
+                    "url": "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage/training",
+                },
+            ]
+        ),
+    )
     engine, session_factory = _build_session(tmp_path)
     try:
         token, _org_id = _seed_admin_token(session_factory)
         with TestClient(app) as client:
-            response = client.get("/api/v1/sharepoint/home", headers=_auth_header(token))
+            response = client.get("/api/v1/org/sharepoint-settings", headers=_auth_header(token))
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["home_url"] == DEFAULT_SHAREPOINT_HOME_URL
+            assert payload["quick_links"] == [
+                {
+                    "label": "Policies",
+                    "url": "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage/policies",
+                    "description": "Policy library",
+                },
+                {
+                    "label": "Training",
+                    "url": "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage/training",
+                    "description": None,
+                },
+            ]
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_sharepoint_settings_rejects_non_sharepoint_domain(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SHAREPOINT_HOME_URL", "https://example.com/sites/home")
+    monkeypatch.delenv("SHAREPOINT_QUICK_LINKS_JSON", raising=False)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, _org_id = _seed_admin_token(session_factory)
+        with TestClient(app) as client:
+            response = client.get("/api/v1/org/sharepoint-settings", headers=_auth_header(token))
             assert response.status_code == 500
             assert "sharepoint.com" in response.json()["detail"]
     finally:
@@ -113,13 +174,40 @@ def test_sharepoint_home_rejects_non_sharepoint_domain(tmp_path, monkeypatch) ->
         engine.dispose()
 
 
-def test_sharepoint_home_rejects_non_https_url(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("SHAREPOINT_HOME_URL", "http://tenant.sharepoint.com/sites/home")
+def test_sharepoint_settings_rejects_invalid_quick_link_url(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SHAREPOINT_HOME_URL", DEFAULT_SHAREPOINT_HOME_URL)
+    monkeypatch.setenv(
+        "SHAREPOINT_QUICK_LINKS_JSON",
+        json.dumps(
+            [
+                {
+                    "label": "Policies",
+                    "url": "https://example.com/policies",
+                }
+            ]
+        ),
+    )
     engine, session_factory = _build_session(tmp_path)
     try:
         token, _org_id = _seed_admin_token(session_factory)
         with TestClient(app) as client:
-            response = client.get("/api/v1/sharepoint/home", headers=_auth_header(token))
+            response = client.get("/api/v1/org/sharepoint-settings", headers=_auth_header(token))
+            assert response.status_code == 500
+            assert "sharepoint.com" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_sharepoint_settings_rejects_non_https_home_url(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SHAREPOINT_HOME_URL", "http://tenant.sharepoint.com/sites/home")
+    monkeypatch.delenv("SHAREPOINT_QUICK_LINKS_JSON", raising=False)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, _org_id = _seed_admin_token(session_factory)
+        with TestClient(app) as client:
+            response = client.get("/api/v1/org/sharepoint-settings", headers=_auth_header(token))
             assert response.status_code == 500
             assert "https" in response.json()["detail"]
     finally:

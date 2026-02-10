@@ -1,27 +1,61 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  Copy,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  GraduationCap,
+  LayoutTemplate,
+  ScrollText,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
 
-type SharePointHomeResponse = {
-  organization_id: string;
+type QuickLink = {
+  label: string;
+  url: string;
+  description?: string | null;
+};
+
+type SharePointSettingsResponse = {
   home_url: string;
+  quick_links: QuickLink[];
 };
 
 const EMBED_TIMEOUT_MS = 8000;
 const DEFAULT_SHAREPOINT_HOME_URL =
   "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage";
+const DEFAULT_QUICK_LINKS: Array<Omit<QuickLink, "url">> = [
+  { label: "Policies", description: "Organization policies and procedures" },
+  { label: "Training", description: "Training resources and onboarding" },
+  { label: "Templates", description: "Operational templates and examples" },
+  { label: "Contracts", description: "Contract and vendor documents" },
+  { label: "Forms", description: "Frequently used organizational forms" },
+];
+const QUICK_LINK_ICONS = [FileText, GraduationCap, LayoutTemplate, ScrollText, FolderOpen];
 
-function buildQuickLinks(homeUrl: string): Array<{ label: string; href: string }> {
-  const normalized = homeUrl.replace(/\/$/, "");
-  return [
-    { label: "SharePoint Home", href: homeUrl },
-    { label: "Site Contents", href: `${normalized}/_layouts/15/viewlsts.aspx` },
-  ];
+function buildDefaultQuickLinks(homeUrl: string): QuickLink[] {
+  return DEFAULT_QUICK_LINKS.map((item) => ({
+    label: item.label,
+    description: item.description,
+    url: homeUrl,
+  }));
+}
+
+function normalizeQuickLinks(homeUrl: string, quickLinks: QuickLink[] | null | undefined): QuickLink[] {
+  if (!quickLinks || quickLinks.length === 0) {
+    return buildDefaultQuickLinks(homeUrl);
+  }
+  return quickLinks.map((link) => ({
+    label: link.label,
+    description: link.description ?? undefined,
+    url: link.url,
+  }));
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -33,176 +67,215 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 export default function SharePointPage() {
   const [homeUrl, setHomeUrl] = useState<string>(DEFAULT_SHAREPOINT_HOME_URL);
-  const [loadingConfig, setLoadingConfig] = useState(true);
-  const [configError, setConfigError] = useState<string | null>(null);
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>(
+    buildDefaultQuickLinks(DEFAULT_SHAREPOINT_HOME_URL),
+  );
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [showEmbedded, setShowEmbedded] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
-  const [iframeLoading, setIframeLoading] = useState(true);
-  const [showFallback, setShowFallback] = useState(false);
-
-  const quickLinks = useMemo(() => buildQuickLinks(homeUrl), [homeUrl]);
+  const [iframeLoading, setIframeLoading] = useState(false);
+  const [iframeTimedOut, setIframeTimedOut] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    async function loadSharePointConfig() {
+    async function loadSharePointSettings() {
       try {
-        setLoadingConfig(true);
-        setConfigError(null);
-        const response = await apiFetch<SharePointHomeResponse>("/api/v1/sharepoint/home", {
-          cache: "no-store",
-        });
+        setLoadingSettings(true);
+        setSettingsNotice(null);
+        const response = await apiFetch<SharePointSettingsResponse>(
+          "/api/v1/org/sharepoint-settings",
+          { cache: "no-store" },
+        );
         if (!mounted) return;
         setHomeUrl(response.home_url);
-        setShowFallback(false);
-        setIframeLoading(true);
-        setIframeKey((current) => current + 1);
+        setQuickLinks(normalizeQuickLinks(response.home_url, response.quick_links));
       } catch (error) {
         if (!mounted) return;
-        setConfigError(toErrorMessage(error, "Failed to load SharePoint configuration."));
+        setHomeUrl(DEFAULT_SHAREPOINT_HOME_URL);
+        setQuickLinks(buildDefaultQuickLinks(DEFAULT_SHAREPOINT_HOME_URL));
+        setSettingsNotice(toErrorMessage(error, "Using default SharePoint links right now."));
       } finally {
         if (mounted) {
-          setLoadingConfig(false);
+          setLoadingSettings(false);
         }
       }
     }
 
-    loadSharePointConfig();
+    loadSharePointSettings();
     return () => {
       mounted = false;
     };
   }, []);
 
   useEffect(() => {
-    if (loadingConfig || showFallback || !iframeLoading) {
+    if (!showEmbedded || !iframeLoading) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      setShowFallback(true);
+      setIframeTimedOut(true);
       setIframeLoading(false);
     }, EMBED_TIMEOUT_MS);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadingConfig, showFallback, iframeLoading, iframeKey]);
+  }, [showEmbedded, iframeLoading, iframeKey]);
 
-  function handleTryAgain() {
-    setShowFallback(false);
+  async function handleCopyLink() {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(homeUrl);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = homeUrl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  function handleTryEmbed() {
+    if (showEmbedded) {
+      setShowEmbedded(false);
+      setIframeLoading(false);
+      setIframeTimedOut(false);
+      return;
+    }
+    setShowEmbedded(true);
     setIframeLoading(true);
+    setIframeTimedOut(false);
     setIframeKey((current) => current + 1);
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-15rem)] flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <div className="space-y-2 border-b border-slate-200/70 pb-4">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">SharePoint</h1>
-        <p className="text-sm text-slate-500">Organization SharePoint home</p>
+        <p className="text-sm text-slate-500">
+          Open Valley Health &amp; Counseling SharePoint resources.
+        </p>
       </div>
 
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200/70 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between border-b border-slate-200/70 bg-slate-50/70 px-5 py-4">
-          <CardTitle className="text-base text-slate-900">Embedded Window</CardTitle>
-          <button
-            type="button"
-            onClick={() => setShowFallback(true)}
-            className="text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-900"
-          >
-            Having trouble loading?
-          </button>
+      <Card className="border-slate-200/70 shadow-sm">
+        <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+          <CardTitle className="text-base text-slate-900">SharePoint</CardTitle>
         </CardHeader>
-        <CardContent className="relative flex min-h-0 flex-1 p-0">
-          {configError ? (
-            <div className="flex h-full w-full items-center justify-center bg-slate-50/70 p-6">
-              <Card className="w-full max-w-2xl border-rose-200 bg-white shadow-sm">
-                <CardHeader className="border-b border-rose-100">
-                  <CardTitle className="text-base text-rose-700">Unable to load SharePoint configuration</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 pt-5">
-                  <p className="text-sm text-rose-700">{configError}</p>
-                  <div className="flex flex-wrap gap-3">
-                    <Button type="button" variant="outline" onClick={() => window.location.reload()}>
-                      Reload page
-                    </Button>
-                    <Button asChild>
-                      <a href={DEFAULT_SHAREPOINT_HOME_URL} target="_blank" rel="noopener">
-                        Open default SharePoint in new tab
-                      </a>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          ) : null}
+        <CardContent className="space-y-5 pt-5">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/90 p-4">
+            <p className="text-sm font-semibold text-slate-900">Embedded views are blocked</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Your organization&apos;s SharePoint blocks embedded views for security. Use the
+              button below to open SharePoint in a new tab.
+            </p>
+          </div>
 
-          {!configError && !showFallback && !loadingConfig ? (
-            <iframe
-              key={iframeKey}
-              src={homeUrl}
-              title="Organization SharePoint home"
-              className="h-full w-full border-0"
-              onLoad={() => setIframeLoading(false)}
-            />
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button asChild>
+              <a href={homeUrl} target="_blank" rel="noopener noreferrer">
+                Open SharePoint
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </Button>
+            <Button type="button" variant="outline" onClick={handleCopyLink}>
+              Copy link
+              <Copy className="h-4 w-4" />
+            </Button>
+            <button
+              type="button"
+              onClick={handleTryEmbed}
+              className="text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-900"
+            >
+              {showEmbedded ? "Hide embedded view" : "Try embedded view"}
+            </button>
+          </div>
 
-          {!configError && !showFallback && (loadingConfig || iframeLoading) ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/90">
-              <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-                <span className="h-9 w-9 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-500" />
-                <p className="text-sm font-medium text-slate-700">Loading SharePoint...</p>
+          {copyStatus === "copied" ? (
+            <p className="text-xs font-medium text-emerald-700">Link copied to clipboard.</p>
+          ) : null}
+          {copyStatus === "failed" ? (
+            <p className="text-xs font-medium text-amber-700">Unable to copy link. Please copy it manually.</p>
+          ) : null}
+          {settingsNotice ? <p className="text-xs text-slate-500">{settingsNotice}</p> : null}
+
+          {showEmbedded ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Embedding may be blocked by policy.</span>
               </div>
+              <div className="relative h-[28rem] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                <iframe
+                  key={iframeKey}
+                  src={homeUrl}
+                  title="SharePoint embedded preview"
+                  className="h-full w-full border-0"
+                  onLoad={() => setIframeLoading(false)}
+                />
+                {iframeLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/85">
+                    <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-500" />
+                      Loading embedded view...
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {iframeTimedOut ? (
+                <p className="text-xs text-slate-600">
+                  Embedded view did not load within 8 seconds. Open SharePoint in a new tab for the
+                  most reliable experience.
+                </p>
+              ) : null}
             </div>
           ) : null}
+        </CardContent>
+      </Card>
 
-          {!configError && showFallback ? (
-            <div className="flex h-full w-full items-center justify-center bg-slate-50/80 p-6">
-              <Card className="w-full max-w-2xl border-slate-200 shadow-sm">
-                <CardHeader className="border-b border-slate-200/70 bg-white">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                      <AlertTriangle className="h-5 w-5" />
-                    </span>
-                    <CardTitle className="text-base text-slate-900">Embedding blocked</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-5 pt-5">
-                  <p className="text-sm text-slate-700">
-                    SharePoint embedding is blocked by your organization&apos;s security policy.
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    <Button asChild>
-                      <a href={homeUrl} target="_blank" rel="noopener">
-                        Open SharePoint in new tab
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button type="button" variant="outline" onClick={handleTryAgain}>
-                      Try again
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      Quick Links
-                    </h2>
-                    <ul className="space-y-1">
-                      {quickLinks.map((link) => (
-                        <li key={link.href}>
-                          <a
-                            href={link.href}
-                            target="_blank"
-                            rel="noopener"
-                            className="text-sm font-medium text-cyan-700 underline decoration-cyan-300 underline-offset-4 hover:text-cyan-900"
-                          >
-                            {link.label}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </CardContent>
-              </Card>
+      <Card className="border-slate-200/70 shadow-sm">
+        <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+          <CardTitle className="text-base text-slate-900">Quick Links</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-5">
+          {loadingSettings ? (
+            <div className="text-sm text-slate-500">Loading links...</div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {quickLinks.map((link, index) => {
+                const Icon = QUICK_LINK_ICONS[index % QUICK_LINK_ICONS.length];
+                return (
+                  <a
+                    key={`${link.label}-${link.url}-${index}`}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-cyan-300 hover:bg-cyan-50/30"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <ExternalLink className="h-4 w-4 text-slate-400 group-hover:text-cyan-700" />
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-slate-900">{link.label}</p>
+                    {link.description ? (
+                      <p className="mt-1 text-xs text-slate-500">{link.description}</p>
+                    ) : null}
+                  </a>
+                );
+              })}
             </div>
-          ) : null}
+          )}
         </CardContent>
       </Card>
     </div>
