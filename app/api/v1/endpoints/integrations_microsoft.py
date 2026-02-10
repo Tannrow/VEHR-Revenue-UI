@@ -394,9 +394,10 @@ def microsoft_sharepoint_workspace(
         db,
         action="microsoft.sharepoint.workspace_read",
         entity_type="sharepoint_site",
-        entity_id=workspace.site.id,
+        entity_id=membership.organization_id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
+        metadata={"site_id": workspace.site.id},
     )
 
     return SharePointWorkspaceRead(
@@ -442,10 +443,10 @@ def microsoft_sharepoint_drive_items(
         db,
         action="microsoft.sharepoint.items_list",
         entity_type="sharepoint_drive",
-        entity_id=drive_id,
+        entity_id=membership.organization_id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
-        metadata={"parent_id": parent_id},
+        metadata={"drive_id": drive_id, "parent_id": parent_id},
     )
 
     return [
@@ -488,10 +489,14 @@ def microsoft_sharepoint_item_preview(
         db,
         action="microsoft.sharepoint.preview",
         entity_type="sharepoint_item",
-        entity_id=item_id,
+        entity_id=membership.organization_id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
-        metadata={"drive_id": drive_id, "preview_kind": preview.preview_kind},
+        metadata={
+            "drive_id": drive_id,
+            "item_id": item_id,
+            "preview_kind": preview.preview_kind,
+        },
     )
 
     return SharePointItemPreviewRead(
@@ -529,10 +534,10 @@ def microsoft_sharepoint_item_download(
         db,
         action="microsoft.sharepoint.download",
         entity_type="sharepoint_item",
-        entity_id=item_id,
+        entity_id=membership.organization_id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
-        metadata={"drive_id": drive_id},
+        metadata={"drive_id": drive_id, "item_id": item_id},
     )
 
     headers = {
