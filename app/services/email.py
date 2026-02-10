@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_FROM_ADDRESS = "no-reply@behr.local"
 SMTP_TIMEOUT_SECONDS = 10
 TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
 
 class EmailDeliveryError(RuntimeError):
@@ -38,6 +39,9 @@ def _load_smtp_settings() -> SMTPSettings | None:
     port_raw = os.getenv("SMTP_PORT", "").strip()
     username = os.getenv("SMTP_USER", "").strip()
     password = os.getenv("SMTP_PASS", "").strip()
+    from_address = os.getenv("SMTP_FROM", "").strip()
+    tls_raw = os.getenv("SMTP_TLS")
+    tls_value = tls_raw.strip() if tls_raw is not None else ""
 
     missing: list[str] = []
     if not host:
@@ -48,6 +52,10 @@ def _load_smtp_settings() -> SMTPSettings | None:
         missing.append("SMTP_USER")
     if not password:
         missing.append("SMTP_PASS")
+    if not from_address:
+        missing.append("SMTP_FROM")
+    if not tls_value:
+        missing.append("SMTP_TLS")
 
     if missing:
         logger.warning(
@@ -65,13 +73,21 @@ def _load_smtp_settings() -> SMTPSettings | None:
         )
         return None
 
+    tls_normalized = tls_value.lower()
+    if tls_normalized not in TRUE_ENV_VALUES and tls_normalized not in FALSE_ENV_VALUES:
+        logger.warning(
+            "SMTP_TLS is invalid (%s); expected true/false. Falling back to log-only email.",
+            tls_value,
+        )
+        return None
+
     return SMTPSettings(
         host=host,
         port=port,
         username=username,
         password=password,
-        from_address=os.getenv("SMTP_FROM", "").strip() or DEFAULT_FROM_ADDRESS,
-        use_tls=_env_bool(os.getenv("SMTP_TLS"), default=True),
+        from_address=from_address or DEFAULT_FROM_ADDRESS,
+        use_tls=_env_bool(tls_value, default=True),
     )
 
 
