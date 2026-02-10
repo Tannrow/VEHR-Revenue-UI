@@ -13,10 +13,13 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
 from app.services.microsoft_graph import (
+    MicrosoftGraphServiceError,
     SharePointDownloadPayload,
     SharePointDrive,
     SharePointItem,
+    SharePointItemPreview,
     SharePointSite,
+    SharePointWorkspace,
 )
 
 
@@ -25,7 +28,7 @@ def _auth_header(token: str) -> dict[str, str]:
 
 
 def _build_session(tmp_path):
-    database_file = tmp_path / "sharepoint_graph.sqlite"
+    database_file = tmp_path / "sharepoint_workspace.sqlite"
     engine = create_engine(
         f"sqlite:///{database_file}",
         connect_args={"check_same_thread": False},
@@ -74,40 +77,34 @@ def _seed_admin_token(session_factory) -> tuple[str, str, str]:
         return token, org.id, user.id
 
 
-def test_sharepoint_graph_routes_smoke(tmp_path, monkeypatch) -> None:
+def test_sharepoint_workspace_routes_smoke(tmp_path, monkeypatch) -> None:
     engine, session_factory = _build_session(tmp_path)
     try:
         token, org_id, seeded_user_id = _seed_admin_token(session_factory)
 
-        def fake_sites(*, db, organization_id, user_id, search):  # noqa: ANN001
+        def fake_workspace(*, db, organization_id, user_id):  # noqa: ANN001
             assert organization_id == org_id
             assert user_id == seeded_user_id
-            assert search == "valley"
-            return [
-                SharePointSite(
-                    id="site-1",
-                    name="Valley Health",
-                    web_url="https://contoso.sharepoint.com/sites/ValleyHealth",
-                )
-            ]
+            return SharePointWorkspace(
+                site=SharePointSite(
+                    id="site-allowed",
+                    name="Valley Health Home Page",
+                    web_url="https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage",
+                ),
+                drives=[
+                    SharePointDrive(
+                        id="drive-1",
+                        name="Documents",
+                        web_url="https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage/Documents",
+                    )
+                ],
+            )
 
-        def fake_drives(*, db, organization_id, user_id, site_id):  # noqa: ANN001
-            assert organization_id == org_id
-            assert user_id == seeded_user_id
-            assert site_id == "site-1"
-            return [
-                SharePointDrive(
-                    id="drive-1",
-                    name="Documents",
-                    web_url="https://contoso.sharepoint.com/sites/ValleyHealth/Documents",
-                )
-            ]
-
-        def fake_children(*, db, organization_id, user_id, drive_id, item_id=None):  # noqa: ANN001
+        def fake_items(*, db, organization_id, user_id, drive_id, parent_id):  # noqa: ANN001
             assert organization_id == org_id
             assert user_id == seeded_user_id
             assert drive_id == "drive-1"
-            if item_id is None:
+            if parent_id == "root":
                 return [
                     SharePointItem(
                         id="folder-1",
@@ -128,7 +125,8 @@ def test_sharepoint_graph_routes_smoke(tmp_path, monkeypatch) -> None:
                         mime_type="application/pdf",
                     ),
                 ]
-            assert item_id == "folder-1"
+
+            assert parent_id == "folder-1"
             return [
                 SharePointItem(
                     id="file-2",
@@ -141,11 +139,27 @@ def test_sharepoint_graph_routes_smoke(tmp_path, monkeypatch) -> None:
                 )
             ]
 
-        def fake_download(*, db, organization_id, user_id, drive_id, item_id):  # noqa: ANN001
+        def fake_preview(*, db, organization_id, user_id, item_id, drive_id):  # noqa: ANN001
             assert organization_id == org_id
             assert user_id == seeded_user_id
-            assert drive_id == "drive-1"
             assert item_id == "file-1"
+            assert drive_id == "drive-1"
+            return SharePointItemPreview(
+                id="file-1",
+                name="Guide.pdf",
+                web_url="https://contoso.sharepoint.com/file",
+                mime_type="application/pdf",
+                preview_kind="pdf",
+                is_previewable=True,
+                preview_url=None,
+                download_url="/api/v1/integrations/microsoft/sharepoint/items/file-1/download?driveId=drive-1",
+            )
+
+        def fake_download(*, db, organization_id, user_id, item_id, drive_id):  # noqa: ANN001
+            assert organization_id == org_id
+            assert user_id == seeded_user_id
+            assert item_id == "file-1"
+            assert drive_id == "drive-1"
             return SharePointDownloadPayload(
                 stream=iter([b"PDFDATA"]),
                 filename="Guide.pdf",
@@ -154,111 +168,163 @@ def test_sharepoint_graph_routes_smoke(tmp_path, monkeypatch) -> None:
                 web_url="https://contoso.sharepoint.com/file",
             )
 
-        def fake_preview_metadata(*, db, organization_id, user_id, drive_id, item_id):  # noqa: ANN001
-            assert organization_id == org_id
-            assert user_id == seeded_user_id
-            assert drive_id == "drive-1"
-            assert item_id == "file-1"
-            return SharePointItem(
-                id="file-1",
-                name="Guide.pdf",
-                is_folder=False,
-                size=1234,
-                web_url="https://contoso.sharepoint.com/file",
-                last_modified="2026-02-10T00:00:00Z",
-                mime_type="application/pdf",
-            )
-
         monkeypatch.setattr(
-            "app.api.v1.endpoints.sharepoint_graph.search_sharepoint_sites",
-            fake_sites,
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_workspace",
+            fake_workspace,
         )
         monkeypatch.setattr(
-            "app.api.v1.endpoints.sharepoint_graph.list_sharepoint_drives",
-            fake_drives,
+            "app.api.v1.endpoints.integrations_microsoft.list_sharepoint_drive_items",
+            fake_items,
         )
         monkeypatch.setattr(
-            "app.api.v1.endpoints.sharepoint_graph.list_sharepoint_children",
-            fake_children,
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_item_preview",
+            fake_preview,
         )
         monkeypatch.setattr(
-            "app.api.v1.endpoints.sharepoint_graph.get_sharepoint_item_download",
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_item_download_by_item",
             fake_download,
-        )
-        monkeypatch.setattr(
-            "app.api.v1.endpoints.sharepoint_graph.get_sharepoint_item_metadata",
-            fake_preview_metadata,
         )
 
         with TestClient(app) as client:
-            sites_response = client.get(
-                "/api/v1/sharepoint/sites",
-                params={"search": "valley"},
+            workspace_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/workspace",
                 headers=_auth_header(token),
             )
-            assert sites_response.status_code == 200
-            assert sites_response.json()[0]["id"] == "site-1"
+            assert workspace_response.status_code == 200
+            workspace_payload = workspace_response.json()
+            assert workspace_payload["site"]["id"] == "site-allowed"
+            assert workspace_payload["drives"][0]["id"] == "drive-1"
 
-            drives_response = client.get(
-                "/api/v1/sharepoint/sites/site-1/drives",
+            root_items_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/drives/drive-1/items",
+                params={"parentId": "root"},
                 headers=_auth_header(token),
             )
-            assert drives_response.status_code == 200
-            assert drives_response.json()[0]["id"] == "drive-1"
+            assert root_items_response.status_code == 200
+            assert len(root_items_response.json()) == 2
 
-            root_children_response = client.get(
-                "/api/v1/sharepoint/drives/drive-1/root/children",
+            nested_items_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/drives/drive-1/items",
+                params={"parentId": "folder-1"},
                 headers=_auth_header(token),
             )
-            assert root_children_response.status_code == 200
-            assert len(root_children_response.json()) == 2
-
-            nested_children_response = client.get(
-                "/api/v1/sharepoint/drives/drive-1/items/folder-1/children",
-                headers=_auth_header(token),
-            )
-            assert nested_children_response.status_code == 200
-            assert nested_children_response.json()[0]["id"] == "file-2"
+            assert nested_items_response.status_code == 200
+            assert nested_items_response.json()[0]["id"] == "file-2"
 
             preview_response = client.get(
-                "/api/v1/sharepoint/items/file-1/preview",
-                params={"drive_id": "drive-1"},
+                "/api/v1/integrations/microsoft/sharepoint/items/file-1/preview",
+                params={"driveId": "drive-1"},
                 headers=_auth_header(token),
             )
             assert preview_response.status_code == 200
             preview_payload = preview_response.json()
-            assert preview_payload["id"] == "file-1"
             assert preview_payload["preview_kind"] == "pdf"
             assert preview_payload["is_previewable"] is True
-            assert "drive_id=drive-1" in preview_payload["download_url"]
+            assert "driveId=drive-1" in preview_payload["download_url"]
 
             download_response = client.get(
-                "/api/v1/sharepoint/drives/drive-1/items/file-1/download",
+                "/api/v1/integrations/microsoft/sharepoint/items/file-1/download",
+                params={"driveId": "drive-1"},
                 headers=_auth_header(token),
             )
             assert download_response.status_code == 200
             assert download_response.content == b"PDFDATA"
             assert "application/pdf" in download_response.headers["content-type"]
-
-            item_download_response = client.get(
-                "/api/v1/sharepoint/items/file-1/download",
-                params={"drive_id": "drive-1"},
-                headers=_auth_header(token),
-            )
-            assert item_download_response.status_code == 200
-            assert item_download_response.content == b"PDFDATA"
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
 
 
-def test_sharepoint_graph_routes_require_auth(tmp_path) -> None:
+def test_sharepoint_workspace_routes_require_auth(tmp_path) -> None:
     engine, _session_factory = _build_session(tmp_path)
     try:
         with TestClient(app) as client:
-            response = client.get("/api/v1/sharepoint/sites", params={"search": "valley"})
+            response = client.get("/api/v1/integrations/microsoft/sharepoint/workspace")
             assert response.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_sharepoint_allowlist_enforcement_returns_403(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, _org_id, _seeded_user_id = _seed_admin_token(session_factory)
+
+        def deny_workspace(*, db, organization_id, user_id):  # noqa: ANN001
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested site is outside the allowed SharePoint workspace",
+                403,
+            )
+
+        def deny_drive(*, db, organization_id, user_id, drive_id, parent_id):  # noqa: ANN001
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested drive is outside the allowed SharePoint workspace",
+                403,
+            )
+
+        def deny_item_preview(*, db, organization_id, user_id, item_id, drive_id):  # noqa: ANN001
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested item is outside the allowed SharePoint workspace",
+                403,
+            )
+
+        def deny_item_download(*, db, organization_id, user_id, item_id, drive_id):  # noqa: ANN001
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested item is outside the allowed SharePoint workspace",
+                403,
+            )
+
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_workspace",
+            deny_workspace,
+        )
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.list_sharepoint_drive_items",
+            deny_drive,
+        )
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_item_preview",
+            deny_item_preview,
+        )
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.get_sharepoint_item_download_by_item",
+            deny_item_download,
+        )
+
+        with TestClient(app) as client:
+            workspace_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/workspace",
+                headers=_auth_header(token),
+            )
+            assert workspace_response.status_code == 403
+            assert "allowed SharePoint workspace" in workspace_response.json()["detail"]
+
+            drive_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/drives/blocked-drive/items",
+                params={"parentId": "root"},
+                headers=_auth_header(token),
+            )
+            assert drive_response.status_code == 403
+            assert "allowed SharePoint workspace" in drive_response.json()["detail"]
+
+            preview_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/items/blocked-item/preview",
+                params={"driveId": "blocked-drive"},
+                headers=_auth_header(token),
+            )
+            assert preview_response.status_code == 403
+            assert "allowed SharePoint workspace" in preview_response.json()["detail"]
+
+            download_response = client.get(
+                "/api/v1/integrations/microsoft/sharepoint/items/blocked-item/download",
+                params={"driveId": "blocked-drive"},
+                headers=_auth_header(token),
+            )
+            assert download_response.status_code == 403
+            assert "allowed SharePoint workspace" in download_response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)

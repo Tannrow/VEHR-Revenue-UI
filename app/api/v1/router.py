@@ -18,7 +18,6 @@ from app.api.v1.endpoints import (
     patients,
     portal,
     sharepoint,
-    sharepoint_graph,
     services,
     uploads,
     webhooks,
@@ -43,6 +42,5 @@ api_router.include_router(integrations.router)
 api_router.include_router(integrations_microsoft.router)
 api_router.include_router(services.router)
 api_router.include_router(sharepoint.router)
-api_router.include_router(sharepoint_graph.router)
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)

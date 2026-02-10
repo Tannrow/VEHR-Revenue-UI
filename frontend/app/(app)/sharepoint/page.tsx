@@ -5,7 +5,7 @@ export default function SharePointPage() {
     <SharePointBrowser
       eyebrow="SharePoint"
       title="SharePoint Workspace"
-      subtitle="Browse sites, drives, folders, and files directly through Microsoft Graph."
+      subtitle="Browse the Valley Health Home Page document libraries directly through Microsoft Graph."
     />
   );
 }

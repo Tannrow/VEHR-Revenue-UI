@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
@@ -15,6 +16,13 @@ MICROSOFT_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/toke
 DEFAULT_GRAPH_SCOPES = "openid profile email offline_access User.Read Sites.Read.All Files.ReadWrite.All"
 GRAPH_TIMEOUT_SECONDS = 20.0
 GRAPH_DOWNLOAD_TIMEOUT_SECONDS = 60.0
+GRAPH_CACHE_TTL_SECONDS = 600
+
+DEFAULT_ALLOWED_SHAREPOINT_SITE_URL = (
+    "https://valleyhealthandcounseling.sharepoint.com/sites/ValleyHealthHomePage"
+)
+
+ALLOWED_SHAREPOINT_DOMAIN = "sharepoint.com"
 
 
 @dataclass(frozen=True)
@@ -43,6 +51,24 @@ class SharePointItem:
 
 
 @dataclass(frozen=True)
+class SharePointWorkspace:
+    site: SharePointSite
+    drives: list[SharePointDrive]
+
+
+@dataclass(frozen=True)
+class SharePointItemPreview:
+    id: str
+    name: str
+    web_url: str
+    mime_type: str | None
+    preview_kind: str
+    is_previewable: bool
+    preview_url: str | None
+    download_url: str | None
+
+
+@dataclass(frozen=True)
 class SharePointDownloadPayload:
     stream: Iterator[bytes]
     filename: str
@@ -54,6 +80,18 @@ class SharePointDownloadPayload:
 @dataclass
 class _CachedAccessToken:
     access_token: str
+    expires_at: datetime
+
+
+@dataclass
+class _CachedSite:
+    site: SharePointSite
+    expires_at: datetime
+
+
+@dataclass
+class _CachedString:
+    value: str
     expires_at: datetime
 
 
@@ -75,10 +113,17 @@ class MicrosoftGraphConfigurationError(MicrosoftGraphServiceError):
 
 
 _ACCESS_TOKEN_CACHE: dict[str, _CachedAccessToken] = {}
+_ALLOWED_SITE_CACHE: dict[str, _CachedSite] = {}
+_DRIVE_SITE_CACHE: dict[str, _CachedString] = {}
+_ITEM_DRIVE_CACHE: dict[str, _CachedString] = {}
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _cache_expiry() -> datetime:
+    return _now_utc() + timedelta(seconds=GRAPH_CACHE_TTL_SECONDS)
 
 
 def _required_env(name: str) -> str:
@@ -90,6 +135,33 @@ def _required_env(name: str) -> str:
 
 def _graph_scopes() -> str:
     return os.getenv("MS_GRAPH_SCOPES", "").strip() or DEFAULT_GRAPH_SCOPES
+
+
+def _normalize_host(host: str) -> str:
+    return host.strip().lower().rstrip(".")
+
+
+def _is_allowed_sharepoint_host(host: str) -> bool:
+    return _normalize_host(host).endswith(f".{ALLOWED_SHAREPOINT_DOMAIN}")
+
+
+def _validate_sharepoint_site_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url.strip())
+    if parsed.scheme != "https":
+        raise MicrosoftGraphConfigurationError("SHAREPOINT_ALLOWED_SITE_URL must use https")
+    if not parsed.hostname:
+        raise MicrosoftGraphConfigurationError("SHAREPOINT_ALLOWED_SITE_URL must include a hostname")
+    if not _is_allowed_sharepoint_host(parsed.hostname):
+        raise MicrosoftGraphConfigurationError("SHAREPOINT_ALLOWED_SITE_URL must be a sharepoint.com domain")
+    if not parsed.path or parsed.path == "/":
+        raise MicrosoftGraphConfigurationError("SHAREPOINT_ALLOWED_SITE_URL must include the site path")
+    return raw_url.strip()
+
+
+def _allowed_site_reference() -> tuple[str | None, str]:
+    configured_id = os.getenv("SHAREPOINT_ALLOWED_SITE_ID", "").strip() or None
+    configured_url = os.getenv("SHAREPOINT_ALLOWED_SITE_URL", "").strip() or DEFAULT_ALLOWED_SHAREPOINT_SITE_URL
+    return configured_id, _validate_sharepoint_site_url(configured_url)
 
 
 def _integration_account_for_user(*, db: Session, organization_id: str, user_id: str) -> IntegrationAccount:
@@ -234,13 +306,15 @@ def _access_token_for_user(
     return _refresh_access_token(db=db, account=account), account
 
 
-def _graph_get_json(
+def _graph_request_json(
     *,
     db: Session,
     organization_id: str,
     user_id: str,
+    method: str,
     path: str,
     params: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target_url = f"{GRAPH_BASE_URL}/{path.lstrip('/')}"
 
@@ -252,10 +326,12 @@ def _graph_get_json(
             force_refresh=attempt > 0,
         )
         try:
-            response = httpx.get(
+            response = httpx.request(
+                method,
                 target_url,
                 headers={"Authorization": f"Bearer {access_token}"},
                 params=params,
+                json=json_body,
                 timeout=GRAPH_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:
@@ -282,96 +358,216 @@ def _graph_get_json(
     raise MicrosoftGraphServiceError("Microsoft Graph authorization failed", 401)
 
 
-def get_microsoft_graph_profile(
+def _graph_get_json(
     *,
     db: Session,
     organization_id: str,
     user_id: str,
-) -> dict[str, str | None]:
-    body = _graph_get_json(
+    path: str,
+    params: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return _graph_request_json(
         db=db,
         organization_id=organization_id,
         user_id=user_id,
-        path="me",
-        params={"$select": "displayName,userPrincipalName"},
+        method="GET",
+        path=path,
+        params=params,
     )
-    return {
-        "displayName": str(body.get("displayName", "")).strip() or None,
-        "userPrincipalName": str(body.get("userPrincipalName", "")).strip() or None,
-    }
 
 
-def search_sharepoint_sites(
+def _graph_post_json(
     *,
     db: Session,
     organization_id: str,
     user_id: str,
-    search: str,
-) -> list[SharePointSite]:
-    search_value = search.strip()
-    if not search_value:
-        return []
+    path: str,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _graph_request_json(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        method="POST",
+        path=path,
+        json_body=body,
+    )
+
+
+def _site_from_row(row: dict[str, Any]) -> SharePointSite:
+    site_id = str(row.get("id", "")).strip()
+    if not site_id:
+        raise MicrosoftGraphServiceError("Allowed SharePoint site id could not be resolved", 500)
+
+    web_url = str(row.get("webUrl", "")).strip()
+    if not web_url:
+        raise MicrosoftGraphServiceError("Allowed SharePoint site URL could not be resolved", 500)
+
+    return SharePointSite(
+        id=site_id,
+        name=str(row.get("name", "")).strip() or "Valley Health Home Page",
+        web_url=web_url,
+    )
+
+
+def _allowed_site_cache_key(organization_id: str) -> str:
+    configured_id, configured_url = _allowed_site_reference()
+    return f"{organization_id}:{configured_id or configured_url}"
+
+
+def _resolve_allowed_site(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+) -> SharePointSite:
+    cache_key = _allowed_site_cache_key(organization_id)
+    cached = _ALLOWED_SITE_CACHE.get(cache_key)
+    if cached and cached.expires_at > _now_utc():
+        return cached.site
+
+    configured_id, configured_url = _allowed_site_reference()
+    if configured_id:
+        row = _graph_get_json(
+            db=db,
+            organization_id=organization_id,
+            user_id=user_id,
+            path=f"sites/{configured_id}",
+            params={"$select": "id,name,webUrl"},
+        )
+        site = _site_from_row(row)
+    else:
+        parsed = urlparse(configured_url)
+        hostname = parsed.hostname or ""
+        path = parsed.path.rstrip("/")
+        lookup_path = f"sites/{hostname}:{path}"
+        row = _graph_get_json(
+            db=db,
+            organization_id=organization_id,
+            user_id=user_id,
+            path=lookup_path,
+            params={"$select": "id,name,webUrl"},
+        )
+        site = _site_from_row(row)
+
+    _ALLOWED_SITE_CACHE[cache_key] = _CachedSite(site=site, expires_at=_cache_expiry())
+    return site
+
+
+def _drive_site_cache_key(*, organization_id: str, drive_id: str) -> str:
+    return f"{organization_id}:{drive_id}"
+
+
+def _item_drive_cache_key(*, organization_id: str, item_id: str) -> str:
+    return f"{organization_id}:{item_id}"
+
+
+def _cache_drive_site(*, organization_id: str, drive_id: str, site_id: str) -> None:
+    _DRIVE_SITE_CACHE[_drive_site_cache_key(organization_id=organization_id, drive_id=drive_id)] = _CachedString(
+        value=site_id,
+        expires_at=_cache_expiry(),
+    )
+
+
+def _cached_drive_site(*, organization_id: str, drive_id: str) -> str | None:
+    cache_key = _drive_site_cache_key(organization_id=organization_id, drive_id=drive_id)
+    cached = _DRIVE_SITE_CACHE.get(cache_key)
+    if not cached:
+        return None
+    if cached.expires_at <= _now_utc():
+        _DRIVE_SITE_CACHE.pop(cache_key, None)
+        return None
+    return cached.value
+
+
+def _cache_item_drive(*, organization_id: str, item_id: str, drive_id: str) -> None:
+    _ITEM_DRIVE_CACHE[_item_drive_cache_key(organization_id=organization_id, item_id=item_id)] = _CachedString(
+        value=drive_id,
+        expires_at=_cache_expiry(),
+    )
+
+
+def _cached_item_drive(*, organization_id: str, item_id: str) -> str | None:
+    cache_key = _item_drive_cache_key(organization_id=organization_id, item_id=item_id)
+    cached = _ITEM_DRIVE_CACHE.get(cache_key)
+    if not cached:
+        return None
+    if cached.expires_at <= _now_utc():
+        _ITEM_DRIVE_CACHE.pop(cache_key, None)
+        return None
+    return cached.value
+
+
+def _ensure_drive_in_allowed_site(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+    drive_id: str,
+) -> SharePointSite:
+    allowed_site = _resolve_allowed_site(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
+    cached_site_id = _cached_drive_site(organization_id=organization_id, drive_id=drive_id)
+    if cached_site_id == allowed_site.id:
+        return allowed_site
 
     body = _graph_get_json(
         db=db,
         organization_id=organization_id,
         user_id=user_id,
-        path="sites",
-        params={"search": search_value},
+        path=f"sites/{allowed_site.id}/drives",
     )
     rows = body.get("value", [])
     if not isinstance(rows, list):
-        return []
+        rows = []
 
-    sites: list[SharePointSite] = []
+    allowed_drive_ids: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
-        site_id = str(row.get("id", "")).strip()
-        if not site_id:
+        mapped = _map_sharepoint_drive(row)
+        if not mapped:
             continue
-        sites.append(
-            SharePointSite(
-                id=site_id,
-                name=str(row.get("name", "")).strip() or "Untitled Site",
-                web_url=str(row.get("webUrl", "")).strip(),
-            )
+        allowed_drive_ids.add(mapped.id)
+        _cache_drive_site(
+            organization_id=organization_id,
+            drive_id=mapped.id,
+            site_id=allowed_site.id,
         )
-    return sites
+
+    if drive_id not in allowed_drive_ids:
+        raise MicrosoftGraphServiceError(
+            "Access denied: requested drive is outside the allowed SharePoint workspace",
+            403,
+        )
+    return allowed_site
 
 
-def list_sharepoint_drives(
+def _resolve_item_drive_id(
     *,
-    db: Session,
     organization_id: str,
-    user_id: str,
-    site_id: str,
-) -> list[SharePointDrive]:
-    body = _graph_get_json(
-        db=db,
-        organization_id=organization_id,
-        user_id=user_id,
-        path=f"sites/{site_id}/drives",
-    )
-    rows = body.get("value", [])
-    if not isinstance(rows, list):
-        return []
-
-    drives: list[SharePointDrive] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        drive_id = str(row.get("id", "")).strip()
-        if not drive_id:
-            continue
-        drives.append(
-            SharePointDrive(
-                id=drive_id,
-                name=str(row.get("name", "")).strip() or "Untitled Drive",
-                web_url=str(row.get("webUrl", "")).strip(),
-            )
+    item_id: str,
+    drive_id: str | None,
+) -> str:
+    if drive_id and drive_id.strip():
+        _cache_item_drive(
+            organization_id=organization_id,
+            item_id=item_id,
+            drive_id=drive_id.strip(),
         )
-    return drives
+        return drive_id.strip()
+
+    cached = _cached_item_drive(organization_id=organization_id, item_id=item_id)
+    if cached:
+        return cached
+
+    raise MicrosoftGraphServiceError(
+        "Drive context is required for this item. Refresh the folder listing and retry.",
+        400,
+    )
 
 
 def _map_sharepoint_item(row: dict[str, Any]) -> SharePointItem | None:
@@ -405,18 +601,94 @@ def _map_sharepoint_item(row: dict[str, Any]) -> SharePointItem | None:
     )
 
 
-def list_sharepoint_children(
+def _map_sharepoint_drive(row: dict[str, Any]) -> SharePointDrive | None:
+    drive_id = str(row.get("id", "")).strip()
+    if not drive_id:
+        return None
+    return SharePointDrive(
+        id=drive_id,
+        name=str(row.get("name", "")).strip() or "Untitled Drive",
+        web_url=str(row.get("webUrl", "")).strip(),
+    )
+
+
+def get_microsoft_graph_profile(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+) -> dict[str, str | None]:
+    body = _graph_get_json(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        path="me",
+        params={"$select": "displayName,userPrincipalName"},
+    )
+    return {
+        "displayName": str(body.get("displayName", "")).strip() or None,
+        "userPrincipalName": str(body.get("userPrincipalName", "")).strip() or None,
+    }
+
+
+def get_sharepoint_workspace(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+) -> SharePointWorkspace:
+    allowed_site = _resolve_allowed_site(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
+    body = _graph_get_json(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        path=f"sites/{allowed_site.id}/drives",
+    )
+    rows = body.get("value", [])
+    if not isinstance(rows, list):
+        rows = []
+
+    drives: list[SharePointDrive] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        drive = _map_sharepoint_drive(row)
+        if not drive:
+            continue
+        _cache_drive_site(
+            organization_id=organization_id,
+            drive_id=drive.id,
+            site_id=allowed_site.id,
+        )
+        drives.append(drive)
+
+    return SharePointWorkspace(site=allowed_site, drives=drives)
+
+
+def list_sharepoint_drive_items(
     *,
     db: Session,
     organization_id: str,
     user_id: str,
     drive_id: str,
-    item_id: str | None = None,
+    parent_id: str,
 ) -> list[SharePointItem]:
+    _ensure_drive_in_allowed_site(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        drive_id=drive_id,
+    )
+
+    normalized_parent = parent_id.strip()
     path = (
-        f"drives/{drive_id}/items/{item_id}/children"
-        if item_id
-        else f"drives/{drive_id}/root/children"
+        f"drives/{drive_id}/root/children"
+        if normalized_parent.lower() == "root"
+        else f"drives/{drive_id}/items/{normalized_parent}/children"
     )
     body = _graph_get_json(
         db=db,
@@ -434,6 +706,11 @@ def list_sharepoint_children(
             continue
         mapped = _map_sharepoint_item(row)
         if mapped:
+            _cache_item_drive(
+                organization_id=organization_id,
+                item_id=mapped.id,
+                drive_id=drive_id,
+            )
             items.append(mapped)
     return items
 
@@ -443,20 +720,107 @@ def get_sharepoint_item_metadata(
     db: Session,
     organization_id: str,
     user_id: str,
-    drive_id: str,
     item_id: str,
+    drive_id: str | None = None,
 ) -> SharePointItem:
+    resolved_drive_id = _resolve_item_drive_id(
+        organization_id=organization_id,
+        item_id=item_id,
+        drive_id=drive_id,
+    )
+    _ensure_drive_in_allowed_site(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        drive_id=resolved_drive_id,
+    )
     body = _graph_get_json(
         db=db,
         organization_id=organization_id,
         user_id=user_id,
-        path=f"drives/{drive_id}/items/{item_id}",
-        params={"$select": "id,name,size,webUrl,lastModifiedDateTime,file,folder"},
+        path=f"drives/{resolved_drive_id}/items/{item_id}",
+        params={"$select": "id,name,size,webUrl,lastModifiedDateTime,file,folder,parentReference"},
     )
     mapped = _map_sharepoint_item(body)
     if not mapped:
         raise MicrosoftGraphServiceError("SharePoint item not found", 404)
+
+    parent_reference = body.get("parentReference")
+    if isinstance(parent_reference, dict):
+        parent_drive_id = str(parent_reference.get("driveId", "")).strip()
+        if parent_drive_id and parent_drive_id != resolved_drive_id:
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested item is outside the allowed SharePoint workspace",
+                403,
+            )
+
+    _cache_item_drive(
+        organization_id=organization_id,
+        item_id=item_id,
+        drive_id=resolved_drive_id,
+    )
     return mapped
+
+
+def get_sharepoint_item_preview(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+    item_id: str,
+    drive_id: str | None = None,
+) -> SharePointItemPreview:
+    resolved_drive_id = _resolve_item_drive_id(
+        organization_id=organization_id,
+        item_id=item_id,
+        drive_id=drive_id,
+    )
+    item = get_sharepoint_item_metadata(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        item_id=item_id,
+        drive_id=resolved_drive_id,
+    )
+    if item.is_folder:
+        raise MicrosoftGraphServiceError("Folders do not support preview", 400)
+
+    mime = (item.mime_type or "").lower()
+    is_pdf = mime == "application/pdf" or item.name.lower().endswith(".pdf")
+    is_image = mime.startswith("image/")
+    preview_kind = "pdf" if is_pdf else "image" if is_image else "external"
+
+    preview_url: str | None = None
+    if not is_pdf and not is_image:
+        try:
+            preview_body = _graph_post_json(
+                db=db,
+                organization_id=organization_id,
+                user_id=user_id,
+                path=f"drives/{resolved_drive_id}/items/{item_id}/preview",
+                body={"allowEdit": False},
+            )
+            preview_url_raw = preview_body.get("getUrl")
+            if isinstance(preview_url_raw, str) and preview_url_raw.strip():
+                preview_url = preview_url_raw.strip()
+        except MicrosoftGraphServiceError:
+            preview_url = None
+
+    download_url = (
+        f"/api/v1/integrations/microsoft/sharepoint/items/{item_id}/download?driveId={resolved_drive_id}"
+        if is_pdf or is_image
+        else None
+    )
+    return SharePointItemPreview(
+        id=item.id,
+        name=item.name,
+        web_url=item.web_url,
+        mime_type=item.mime_type,
+        preview_kind=preview_kind,
+        is_previewable=is_pdf or is_image,
+        preview_url=preview_url,
+        download_url=download_url,
+    )
 
 
 def _stream_from_url(url: str) -> Iterator[bytes]:
@@ -484,6 +848,28 @@ def _stream_from_graph_content(*, url: str, access_token: str) -> Iterator[bytes
                 yield chunk
 
 
+def get_sharepoint_item_download_by_item(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+    item_id: str,
+    drive_id: str | None = None,
+) -> SharePointDownloadPayload:
+    resolved_drive_id = _resolve_item_drive_id(
+        organization_id=organization_id,
+        item_id=item_id,
+        drive_id=drive_id,
+    )
+    return get_sharepoint_item_download(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        drive_id=resolved_drive_id,
+        item_id=item_id,
+    )
+
+
 def get_sharepoint_item_download(
     *,
     db: Session,
@@ -492,13 +878,29 @@ def get_sharepoint_item_download(
     drive_id: str,
     item_id: str,
 ) -> SharePointDownloadPayload:
+    _ensure_drive_in_allowed_site(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        drive_id=drive_id,
+    )
+
     metadata = _graph_get_json(
         db=db,
         organization_id=organization_id,
         user_id=user_id,
         path=f"drives/{drive_id}/items/{item_id}",
-        params={"$select": "id,name,size,webUrl,file,@microsoft.graph.downloadUrl"},
+        params={"$select": "id,name,size,webUrl,file,@microsoft.graph.downloadUrl,parentReference"},
     )
+
+    parent_reference = metadata.get("parentReference")
+    if isinstance(parent_reference, dict):
+        parent_drive_id = str(parent_reference.get("driveId", "")).strip()
+        if parent_drive_id and parent_drive_id != drive_id:
+            raise MicrosoftGraphServiceError(
+                "Access denied: requested item is outside the allowed SharePoint workspace",
+                403,
+            )
 
     name = str(metadata.get("name", "")).strip() or "download.bin"
     size_value = metadata.get("size")
@@ -517,6 +919,12 @@ def get_sharepoint_item_download(
             content_type = mime_type.strip()
 
     web_url = str(metadata.get("webUrl", "")).strip() or None
+    _cache_item_drive(
+        organization_id=organization_id,
+        item_id=item_id,
+        drive_id=drive_id,
+    )
+
     download_url = metadata.get("@microsoft.graph.downloadUrl")
     if isinstance(download_url, str) and download_url.strip():
         return SharePointDownloadPayload(

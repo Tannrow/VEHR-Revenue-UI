@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,6 +23,10 @@ from app.services.integration_tokens import TokenEncryptionError, encrypt_token
 from app.services.microsoft_graph import (
     MicrosoftGraphServiceError,
     get_microsoft_graph_profile,
+    get_sharepoint_item_download_by_item,
+    get_sharepoint_item_preview,
+    get_sharepoint_workspace,
+    list_sharepoint_drive_items,
 )
 
 
@@ -48,6 +52,44 @@ class MicrosoftConnectResponse(BaseModel):
 class MicrosoftConnectionTestResponse(BaseModel):
     display_name: str | None = None
     user_principal_name: str | None = None
+
+
+class SharePointSiteRead(BaseModel):
+    id: str
+    name: str
+    web_url: str
+
+
+class SharePointDriveRead(BaseModel):
+    id: str
+    name: str
+    web_url: str
+
+
+class SharePointWorkspaceRead(BaseModel):
+    site: SharePointSiteRead
+    drives: list[SharePointDriveRead]
+
+
+class SharePointItemRead(BaseModel):
+    id: str
+    name: str
+    is_folder: bool
+    size: int | None = None
+    web_url: str
+    last_modified_date_time: str | None = None
+    mime_type: str | None = None
+
+
+class SharePointItemPreviewRead(BaseModel):
+    id: str
+    name: str
+    web_url: str
+    mime_type: str | None = None
+    preview_kind: str
+    is_previewable: bool
+    preview_url: str | None = None
+    download_url: str | None = None
 
 
 def _sanitize_reason(raw_reason: str) -> str:
@@ -157,6 +199,13 @@ def _ensure_membership_for_state(*, db: Session, organization_id: str, user_id: 
     if not membership.user or not membership.user.is_active:
         raise ValueError("state_user_inactive")
     return membership
+
+
+def _raise_graph_error(exc: MicrosoftGraphServiceError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail=exc.detail,
+    ) from exc
 
 
 def _exchange_code_for_tokens(*, code: str, settings: dict[str, str]) -> dict[str, Any]:
@@ -320,6 +369,186 @@ def microsoft_test_connection(
     return MicrosoftConnectionTestResponse(
         display_name=profile.get("displayName"),
         user_principal_name=profile.get("userPrincipalName"),
+    )
+
+
+@router.get(
+    "/integrations/microsoft/sharepoint/workspace",
+    response_model=SharePointWorkspaceRead,
+)
+def microsoft_sharepoint_workspace(
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> SharePointWorkspaceRead:
+    try:
+        workspace = get_sharepoint_workspace(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        _raise_graph_error(exc)
+
+    log_event(
+        db,
+        action="microsoft.sharepoint.workspace_read",
+        entity_type="sharepoint_site",
+        entity_id=workspace.site.id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+    )
+
+    return SharePointWorkspaceRead(
+        site=SharePointSiteRead(
+            id=workspace.site.id,
+            name=workspace.site.name,
+            web_url=workspace.site.web_url,
+        ),
+        drives=[
+            SharePointDriveRead(
+                id=drive.id,
+                name=drive.name,
+                web_url=drive.web_url,
+            )
+            for drive in workspace.drives
+        ],
+    )
+
+
+@router.get(
+    "/integrations/microsoft/sharepoint/drives/{drive_id}/items",
+    response_model=list[SharePointItemRead],
+)
+def microsoft_sharepoint_drive_items(
+    drive_id: str,
+    parent_id: str = Query(default="root", alias="parentId"),
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> list[SharePointItemRead]:
+    try:
+        items = list_sharepoint_drive_items(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+            drive_id=drive_id,
+            parent_id=parent_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        _raise_graph_error(exc)
+
+    log_event(
+        db,
+        action="microsoft.sharepoint.items_list",
+        entity_type="sharepoint_drive",
+        entity_id=drive_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"parent_id": parent_id},
+    )
+
+    return [
+        SharePointItemRead(
+            id=item.id,
+            name=item.name,
+            is_folder=item.is_folder,
+            size=item.size,
+            web_url=item.web_url,
+            last_modified_date_time=item.last_modified,
+            mime_type=item.mime_type,
+        )
+        for item in items
+    ]
+
+
+@router.get(
+    "/integrations/microsoft/sharepoint/items/{item_id}/preview",
+    response_model=SharePointItemPreviewRead,
+)
+def microsoft_sharepoint_item_preview(
+    item_id: str,
+    drive_id: str = Query(..., alias="driveId"),
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> SharePointItemPreviewRead:
+    try:
+        preview = get_sharepoint_item_preview(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+            item_id=item_id,
+            drive_id=drive_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        _raise_graph_error(exc)
+
+    log_event(
+        db,
+        action="microsoft.sharepoint.preview",
+        entity_type="sharepoint_item",
+        entity_id=item_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"drive_id": drive_id, "preview_kind": preview.preview_kind},
+    )
+
+    return SharePointItemPreviewRead(
+        id=preview.id,
+        name=preview.name,
+        web_url=preview.web_url,
+        mime_type=preview.mime_type,
+        preview_kind=preview.preview_kind,
+        is_previewable=preview.is_previewable,
+        preview_url=preview.preview_url,
+        download_url=preview.download_url,
+    )
+
+
+@router.get("/integrations/microsoft/sharepoint/items/{item_id}/download")
+def microsoft_sharepoint_item_download(
+    item_id: str,
+    drive_id: str = Query(..., alias="driveId"),
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> StreamingResponse:
+    try:
+        payload = get_sharepoint_item_download_by_item(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+            item_id=item_id,
+            drive_id=drive_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        _raise_graph_error(exc)
+
+    log_event(
+        db,
+        action="microsoft.sharepoint.download",
+        entity_type="sharepoint_item",
+        entity_id=item_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"drive_id": drive_id},
+    )
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{payload.filename}"',
+        "Cache-Control": "no-store",
+    }
+    if payload.content_length is not None:
+        headers["Content-Length"] = str(payload.content_length)
+    if payload.web_url:
+        headers["X-SharePoint-Web-Url"] = payload.web_url
+
+    return StreamingResponse(
+        payload.stream,
+        media_type=payload.content_type or "application/octet-stream",
+        headers=headers,
+        status_code=status.HTTP_200_OK,
     )
 
 
