@@ -37,3 +37,16 @@ def encrypt_token(token: str) -> str:
         raise
     except Exception as exc:
         raise TokenEncryptionError(f"Unable to encrypt token: {exc}") from exc
+
+
+def decrypt_token(token_encrypted: str) -> str:
+    if not token_encrypted:
+        raise TokenEncryptionError("Encrypted token value is required")
+
+    try:
+        fernet = Fernet(_fernet_key_from_env())
+        return fernet.decrypt(token_encrypted.encode("utf-8")).decode("utf-8")
+    except TokenEncryptionError:
+        raise
+    except Exception as exc:
+        raise TokenEncryptionError(f"Unable to decrypt token: {exc}") from exc

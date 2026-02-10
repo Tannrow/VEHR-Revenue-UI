@@ -224,3 +224,43 @@ def test_microsoft_callback_rejects_invalid_state(tmp_path, monkeypatch) -> None
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_microsoft_test_connection_endpoint(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, org_id, seeded_user_id = _seed_admin_token(session_factory)
+
+        def fake_profile(*, db, organization_id, user_id):  # noqa: ANN001
+            assert organization_id == org_id
+            assert user_id == seeded_user_id
+            return {
+                "displayName": "Graph User",
+                "userPrincipalName": "graph.user@example.com",
+            }
+
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.get_microsoft_graph_profile",
+            fake_profile,
+        )
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/microsoft/test",
+                headers=_auth_header(token),
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["display_name"] == "Graph User"
+            assert payload["user_principal_name"] == "graph.user@example.com"
+
+        with session_factory() as db:
+            audit_event = db.execute(
+                select(AuditEvent).where(AuditEvent.action == "microsoft.test_connection")
+            ).scalar_one_or_none()
+            assert audit_event is not None
+            assert audit_event.organization_id == org_id
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

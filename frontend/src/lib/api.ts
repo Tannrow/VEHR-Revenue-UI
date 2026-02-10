@@ -72,18 +72,23 @@ function getRuntimeToken(): string | undefined {
   return process.env.NEXT_PUBLIC_API_TOKEN;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = buildUrl(path);
+function buildRequestHeaders(init: RequestInit): Headers {
   const headers = new Headers(init.headers);
   const apiToken = getRuntimeToken();
-
   const isFormDataBody = typeof FormData !== "undefined" && init.body instanceof FormData;
+
   if (init.body && !headers.has("Content-Type") && !isFormDataBody) {
     headers.set("Content-Type", "application/json");
   }
   if (apiToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${apiToken}`);
   }
+  return headers;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const url = buildUrl(path);
+  const headers = buildRequestHeaders(init);
 
   const response = await fetch(url, { credentials: "include", ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
@@ -101,4 +106,24 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
 
   return payload as T;
+}
+
+export async function apiFetchBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+  const url = buildUrl(path);
+  const headers = buildRequestHeaders(init);
+  const response = await fetch(url, { credentials: "include", ...init, headers });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    let payload: unknown = null;
+    if (contentType.includes("application/json")) {
+      payload = await response.json().catch(() => null);
+    } else {
+      payload = await response.text().catch(() => null);
+    }
+    const message = getErrorMessage(payload, response.statusText);
+    throw new ApiError(response.status, message, payload);
+  }
+
+  return response.blob();
 }

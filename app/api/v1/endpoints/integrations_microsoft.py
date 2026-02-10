@@ -20,6 +20,10 @@ from app.db.models.organization_membership import OrganizationMembership
 from app.db.session import get_db
 from app.services.audit import log_event
 from app.services.integration_tokens import TokenEncryptionError, encrypt_token
+from app.services.microsoft_graph import (
+    MicrosoftGraphServiceError,
+    get_microsoft_graph_profile,
+)
 
 
 router = APIRouter(tags=["Integrations"])
@@ -39,6 +43,11 @@ class MicrosoftOAuthConfigError(RuntimeError):
 
 class MicrosoftConnectResponse(BaseModel):
     authorization_url: str
+
+
+class MicrosoftConnectionTestResponse(BaseModel):
+    display_name: str | None = None
+    user_principal_name: str | None = None
 
 
 def _sanitize_reason(raw_reason: str) -> str:
@@ -279,6 +288,39 @@ def microsoft_connect(
     )
     auth_url = f"{MICROSOFT_AUTHORIZE_URL}?{query}"
     return MicrosoftConnectResponse(authorization_url=auth_url)
+
+
+@router.post("/integrations/microsoft/test", response_model=MicrosoftConnectionTestResponse)
+def microsoft_test_connection(
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> MicrosoftConnectionTestResponse:
+    try:
+        profile = get_microsoft_graph_profile(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+    log_event(
+        db,
+        action="microsoft.test_connection",
+        entity_type="integration",
+        entity_id=membership.organization_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"provider": "microsoft"},
+    )
+    return MicrosoftConnectionTestResponse(
+        display_name=profile.get("displayName"),
+        user_principal_name=profile.get("userPrincipalName"),
+    )
 
 
 @router.get("/integrations/microsoft/callback")
