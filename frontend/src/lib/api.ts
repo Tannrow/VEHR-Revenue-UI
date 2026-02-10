@@ -12,9 +12,21 @@ export class ApiError extends Error {
 }
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const CUTOVER_FRONTEND_HOSTS = new Set(["360-encompass.com", "www.360-encompass.com"]);
+const CUTOVER_API_BASE_URL = "https://api.360-encompass.com";
 
 function getApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname.toLowerCase();
+    if (CUTOVER_FRONTEND_HOSTS.has(host)) {
+      return CUTOVER_API_BASE_URL;
+    }
+  }
+  return DEFAULT_API_BASE_URL;
 }
 
 function buildUrl(path: string) {

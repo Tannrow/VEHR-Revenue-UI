@@ -41,6 +41,8 @@ def get_cors_origins() -> list[str]:
     default_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://360-encompass.com",
+        "https://www.360-encompass.com",
         "https://the-trapp-house.com",
         "https://www.the-trapp-house.com",
     ]
