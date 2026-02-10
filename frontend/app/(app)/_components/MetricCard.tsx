@@ -11,14 +11,14 @@ type MetricCardProps = {
 
 export default function MetricCard({ label, value, hint, icon }: MetricCardProps) {
   return (
-    <Card className="border-slate-200/70 bg-white/95 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+    <Card className="border-slate-200/80 bg-white">
+      <CardHeader className="flex flex-row items-center justify-between pb-1">
         <CardTitle className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
           {label}
         </CardTitle>
         {icon ? <span className="text-slate-400">{icon}</span> : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-1">
         <div className="text-2xl font-semibold tracking-tight text-slate-900">{value}</div>
         {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
       </CardContent>

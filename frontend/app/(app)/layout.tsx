@@ -83,7 +83,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   if (isCheckingSession) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--ui-gray-canvas)] px-6">
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
           Verifying session...
         </div>
@@ -93,7 +93,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   if (sessionError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--ui-gray-canvas)] px-6">
         <div className="max-w-xl rounded-xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm">
           {sessionError}
         </div>
@@ -103,12 +103,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col gap-6 px-4 py-6 lg:flex-row lg:items-stretch lg:gap-8 lg:px-6">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col gap-5 px-4 py-5 lg:flex-row lg:items-stretch lg:gap-6 lg:px-6">
         <Sidebar role={currentUser?.role} />
-        <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white/95 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur">
-          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/70 px-6 py-4">
+        <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-xl border border-[var(--ui-gray-divider)] bg-[var(--ui-gray-panel)]">
+          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--ui-gray-divider)] px-6 py-4">
             <div className="space-y-1">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
                 {BRANDING.name}
               </div>
               <div className="text-sm font-semibold text-slate-900">
@@ -132,14 +132,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   </svg>
                 </span>
                 <input
-                  className="h-10 w-full rounded-full border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
                   placeholder="Search patients, encounters, tasks"
                   type="search"
                 />
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 text-left">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-900 text-xs font-semibold text-white">
                     {userInitials}
                   </span>
                   <span className="hidden sm:block">
@@ -154,15 +154,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="h-10 rounded-full border border-slate-200 bg-white px-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:border-slate-300"
+                  className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300"
                 >
                   Sign Out
                 </button>
               </div>
             </div>
           </header>
-          <main className="flex-1 px-6 py-6 sm:px-8 sm:py-8">{children}</main>
-          <footer className="border-t border-slate-200/70 px-6 py-3 text-xs text-slate-500">
+          <main className="flex-1 px-6 py-7 sm:px-8 sm:py-8">{children}</main>
+          <footer className="border-t border-[var(--ui-gray-divider)] px-6 py-3 text-xs text-slate-500">
             {BRANDING.internalNote}
           </footer>
         </div>

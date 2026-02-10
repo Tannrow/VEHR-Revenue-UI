@@ -1,0 +1,44 @@
+:root {
+  /* Navigation: this hue is reserved for navigation indicators only. */
+  --ui-nav-color: #38bdf8;
+  --ui-nav-bg: #0f172a;
+  --ui-nav-active-bg: #1e293b;
+  --ui-nav-active-fg: #f8fafc;
+  --ui-nav-inactive-fg: #94a3b8;
+  --ui-nav-inactive-icon: #64748b;
+  --ui-nav-hover-bg: rgba(148, 163, 184, 0.1);
+
+  /* Status colors: never reuse navigation color for status semantics. */
+  --ui-status-success: #059669;
+  --ui-status-warning: #d97706;
+  --ui-status-error: #e11d48;
+  --ui-status-info: #2563eb;
+
+  /* Grayscale foundation. */
+  --ui-gray-canvas: #f8fafc;
+  --ui-gray-panel: #ffffff;
+  --ui-gray-divider: #e2e8f0;
+  --ui-gray-muted: #64748b;
+  --ui-gray-strong: #0f172a;
+}
+
+.dark {
+  --ui-nav-color: #38bdf8;
+  --ui-nav-bg: #020617;
+  --ui-nav-active-bg: #1e293b;
+  --ui-nav-active-fg: #f8fafc;
+  --ui-nav-inactive-fg: #94a3b8;
+  --ui-nav-inactive-icon: #64748b;
+  --ui-nav-hover-bg: rgba(148, 163, 184, 0.14);
+
+  --ui-status-success: #10b981;
+  --ui-status-warning: #f59e0b;
+  --ui-status-error: #fb7185;
+  --ui-status-info: #3b82f6;
+
+  --ui-gray-canvas: #020617;
+  --ui-gray-panel: #0f172a;
+  --ui-gray-divider: #1e293b;
+  --ui-gray-muted: #94a3b8;
+  --ui-gray-strong: #f8fafc;
+}

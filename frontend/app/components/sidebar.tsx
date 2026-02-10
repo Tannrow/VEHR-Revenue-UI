@@ -257,34 +257,58 @@ export default function Sidebar({ role = null }: SidebarProps) {
     .filter((section) => section.items.length > 0);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col gap-8 overflow-hidden rounded-3xl border border-slate-900/70 bg-slate-950 p-6 text-slate-100 shadow-[0_35px_90px_rgba(15,23,42,0.35)] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+    <aside className="flex h-full min-h-0 flex-col gap-7 overflow-hidden rounded-xl border border-slate-900 bg-[var(--ui-nav-bg)] p-5 text-[var(--ui-nav-inactive-fg)] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
       <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500/15 text-cyan-200">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-[var(--ui-nav-active-fg)]">
           <IconPulse className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-lg font-semibold tracking-tight text-white">{BRANDING.name}</div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">{BRANDING.tagline}</div>
+          <div className="text-lg font-semibold tracking-tight text-[var(--ui-nav-active-fg)]">{BRANDING.name}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">{BRANDING.tagline}</div>
         </div>
       </div>
 
       <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
         {visibleSections.map((section) => (
           <div key={section.label} className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-500">{section.label}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">{section.label}</div>
             <div className="grid gap-2">
               {section.items.map((item) => {
                 const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
                 const Icon = item.icon;
                 return (
-                  <Link key={item.href} href={item.href} className={`group relative flex items-start gap-3 rounded-2xl border px-3 py-3 transition ${isActive ? "border-cyan-400/60 bg-slate-900 text-white shadow-[0_16px_40px_rgba(8,145,178,0.35)]" : "border-slate-900/60 bg-slate-900/40 text-slate-200 hover:border-slate-700 hover:bg-slate-900/70"}`} data-active={isActive} aria-current={isActive ? "page" : undefined}>
-                    <span className={`absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r ${isActive ? "bg-cyan-400" : "bg-transparent"}`} />
-                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl border ${isActive ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-200" : "border-slate-800 bg-slate-900/70 text-slate-300 group-hover:text-cyan-100"}`}>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`group relative flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 ${
+                      isActive
+                        ? "bg-[var(--ui-nav-active-bg)] text-[var(--ui-nav-active-fg)]"
+                        : "bg-transparent text-[var(--ui-nav-inactive-fg)] hover:bg-[var(--ui-nav-hover-bg)]"
+                    }`}
+                    data-active={isActive}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <span
+                      className={`absolute left-0 top-1/2 h-8 w-[5px] -translate-y-1/2 rounded-r ${
+                        isActive ? "bg-[var(--ui-nav-color)]" : "bg-transparent"
+                      }`}
+                    />
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center ${
+                        isActive
+                          ? "rounded-md bg-white/10 text-[var(--ui-nav-active-fg)]"
+                          : "text-[var(--ui-nav-inactive-icon)] group-hover:text-[var(--ui-nav-inactive-fg)]"
+                      }`}
+                    >
                       <Icon className="h-4 w-4" />
                     </span>
                     <div className="space-y-1">
-                      <span className="text-sm font-semibold text-white">{item.label}</span>
-                      <span className={`text-xs ${isActive ? "text-slate-300" : "text-slate-500 group-hover:text-slate-300"}`}>{item.description}</span>
+                      <span className={`text-sm font-semibold ${isActive ? "text-[var(--ui-nav-active-fg)]" : "text-[var(--ui-nav-inactive-fg)]"}`}>
+                        {item.label}
+                      </span>
+                      <span className={`block text-[11px] leading-4 ${isActive ? "text-slate-300" : "text-slate-500 group-hover:text-slate-400"}`}>
+                        {item.description}
+                      </span>
                     </div>
                   </Link>
                 );
@@ -294,15 +318,15 @@ export default function Sidebar({ role = null }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="mt-auto space-y-4 text-xs text-slate-400">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 px-4 py-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)]" />
+      <div className="mt-auto space-y-3 text-xs text-slate-400">
+        <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <span className="h-2 w-2 rounded-full bg-[var(--ui-status-success)]" />
             {BRANDING.environmentLabel}
           </div>
-          <p className="mt-2 text-xs text-slate-500">Service-aware charting and audit visibility.</p>
+          <p className="mt-2 text-[11px] text-slate-500">Service-aware charting and audit visibility.</p>
         </div>
-        <div className="text-[11px] text-slate-500">{BRANDING.internalNote}</div>
+        <div className="text-[10px] text-slate-500">{BRANDING.internalNote}</div>
       </div>
     </aside>
   );

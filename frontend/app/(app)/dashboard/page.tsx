@@ -56,11 +56,11 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="space-y-2">
+      <div className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
           Operations
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Executive Dashboard</h1>
+        <h1 className="text-[2rem] font-semibold tracking-tight text-slate-900">Executive Dashboard</h1>
         <p className="text-sm text-slate-500">
           Clinical workload, compliance signals, and integration readiness in one control plane.
         </p>
@@ -91,15 +91,15 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <Card className="border-slate-200/70 shadow-sm">
-          <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+        <Card className="border-slate-200/80 bg-white">
+          <CardHeader className="border-b border-slate-100">
             <CardTitle className="text-base text-slate-900">Action Velocity</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 pt-5">
+          <CardContent className="space-y-1.5 pt-4">
             {(auditSummary?.by_action ?? []).slice(0, 6).map((item) => (
               <div
                 key={item.key}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                className="flex items-center justify-between border-b border-slate-100 px-1 py-2 text-sm last:border-b-0"
               >
                 <span className="text-slate-700">{item.key}</span>
                 <span className="font-mono text-xs text-slate-500">{item.count}</span>
@@ -108,13 +108,13 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200/70 shadow-sm">
-          <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
+        <Card className="border-slate-200/80 bg-white">
+          <CardHeader className="border-b border-slate-100">
             <CardTitle className="text-base text-slate-900">Entity Coverage</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 pt-5">
+          <CardContent className="space-y-1.5 pt-4">
             {(auditSummary?.by_entity_type ?? []).slice(0, 6).map((item) => (
-              <div key={item.key} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <div key={item.key} className="border-b border-slate-100 px-1 py-2 last:border-b-0">
                 <div className="text-sm font-semibold text-slate-800">{item.key}</div>
                 <div className="text-xs text-slate-500">{item.count} events</div>
               </div>
