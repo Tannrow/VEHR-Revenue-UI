@@ -8,32 +8,22 @@ from app.core.rbac import normalize_role_key, role_label
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.user import User
 from app.db.session import get_db
+from app.services.teams import TEAM_LABELS, team_key_for_role
 
 
 router = APIRouter(tags=["Staff"])
 
-TEAM_ORDER: tuple[str, ...] = (
-    "Admissions team",
-    "Clinical team",
-    "Billing",
-    "Compliance",
-    "Reception",
-    "Workforce",
+TEAM_ORDER: tuple[str, ...] = tuple(
+    name
+    for name in (
+        "admissions",
+        "clinical",
+        "billing",
+        "compliance",
+        "reception",
+        "workforce",
+    )
 )
-
-ROLE_TO_TEAM: dict[str, str] = {
-    "admin": "Admissions team",
-    "office_manager": "Admissions team",
-    "receptionist": "Reception",
-    "counselor": "Clinical team",
-    "sud_supervisor": "Clinical team",
-    "case_manager": "Clinical team",
-    "fcs_staff": "Clinical team",
-    "intern": "Clinical team",
-    "billing": "Billing",
-    "compliance": "Compliance",
-    "driver": "Workforce",
-}
 
 
 class TeamMemberRead(BaseModel):
@@ -62,12 +52,12 @@ def list_staff_teams(
         )
     ).all()
 
-    teams: dict[str, list[TeamMemberRead]] = {team_name: [] for team_name in TEAM_ORDER}
+    teams: dict[str, list[TeamMemberRead]] = {team_key: [] for team_key in TEAM_ORDER}
     for membership_row, user_row in rows:
         normalized_role = normalize_role_key(membership_row.role)
-        team_name = ROLE_TO_TEAM.get(normalized_role, "Clinical team")
-        teams.setdefault(team_name, [])
-        teams[team_name].append(
+        team_key = team_key_for_role(normalized_role)
+        teams.setdefault(team_key, [])
+        teams[team_key].append(
             TeamMemberRead(
                 id=user_row.id,
                 full_name=user_row.full_name,
@@ -78,6 +68,6 @@ def list_staff_teams(
         )
 
     return [
-        TeamRead(name=team_name, members=teams.get(team_name, []))
-        for team_name in TEAM_ORDER
+        TeamRead(name=TEAM_LABELS.get(team_key, team_key.title()), members=teams.get(team_key, []))
+        for team_key in TEAM_ORDER
     ]

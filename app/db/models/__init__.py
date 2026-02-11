@@ -33,6 +33,7 @@ from app.db.models.review_evidence_link import ReviewEvidenceLink  # noqa: F401
 from app.db.models.review_queue_item import ReviewQueueItem  # noqa: F401
 from app.db.models.service import Service  # noqa: F401
 from app.db.models.service_document_template import ServiceDocumentTemplate  # noqa: F401
+from app.db.models.task import Task  # noqa: F401
 from app.db.models.user import User  # noqa: F401
 from app.db.models.webhook_delivery import WebhookDelivery  # noqa: F401
 from app.db.models.webhook_endpoint import WebhookEndpoint  # noqa: F401

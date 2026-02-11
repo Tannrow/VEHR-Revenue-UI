@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     sharepoint,
     staff,
     services,
+    tasks,
     uploads,
     webhooks,
 )
@@ -46,5 +47,6 @@ api_router.include_router(integrations_microsoft.router)
 api_router.include_router(services.router)
 api_router.include_router(sharepoint.router)
 api_router.include_router(staff.router)
+api_router.include_router(tasks.router)
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)

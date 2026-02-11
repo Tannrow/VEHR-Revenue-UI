@@ -91,3 +91,24 @@ Login example:
   "organization_id": "<org-id-from-bootstrap>"
 }
 ```
+
+**Tasks API (Phase 1)**
+Routes are mounted under `/api/v1`:
+
+- `GET /tasks`
+- `POST /tasks`
+- `GET /tasks/{id}`
+- `PATCH /tasks/{id}`
+- `POST /tasks/{id}/complete`
+- `POST /tasks/{id}/reopen`
+- `POST /tasks/bulk`
+- `GET /tasks/calendar`
+- `GET /tasks/matrix`
+
+**Tasks Verification Checklist**
+1. Create a task from `Operations` (`/dashboard`) or `Tasks` (`/tasks`) and confirm it appears in list view.
+2. Complete a task from list action and confirm status updates without page errors.
+3. Open `/tasks/matrix`, click a non-zero cell, and confirm matching tasks load in detail panel.
+4. Confirm role behavior:
+   - receptionist gets `403` for `GET /api/v1/tasks?scope=all`
+   - admin can load `scope=all`

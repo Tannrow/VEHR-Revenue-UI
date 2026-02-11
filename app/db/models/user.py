@@ -92,4 +92,14 @@ class User(Base):
         "OrganizationTileNode",
         back_populates="created_by_user",
     )
+    created_tasks: Mapped[list["Task"]] = relationship(
+        "Task",
+        foreign_keys="Task.created_by_user_id",
+        back_populates="created_by_user",
+    )
+    assigned_tasks: Mapped[list["Task"]] = relationship(
+        "Task",
+        foreign_keys="Task.assigned_to_user_id",
+        back_populates="assigned_to_user",
+    )
 
