@@ -254,3 +254,29 @@ Create presigned download URL:
 curl "http://127.0.0.1:8000/api/v1/uploads/<key-from-presign-response>/download" ^
   -H "Authorization: Bearer <token>"
 ```
+
+RingCentral integration (OAuth + webhook)
+
+Required API env vars:
+
+- INTEGRATION_TOKEN_KEY
+- RINGCENTRAL_CLIENT_ID
+- RINGCENTRAL_CLIENT_SECRET
+- RINGCENTRAL_SERVER_URL (default: https://platform.ringcentral.com)
+- RINGCENTRAL_REDIRECT_URI (example: https://api.360-encompass.com/api/v1/integrations/ringcentral/callback)
+- RINGCENTRAL_WEBHOOK_SECRET
+
+Connect flow:
+
+1. Sign in as an admin user with `admin:integrations`.
+2. Open Admin Center and click `Connect RingCentral`.
+3. Complete OAuth consent in RingCentral.
+4. Confirm redirect back to frontend includes `?ringcentral=connected`.
+5. Verify `integration_tokens` has one `provider='ringcentral'` row for your organization.
+
+Webhook configuration:
+
+- Endpoint:
+  `https://api.360-encompass.com/api/v1/integrations/ringcentral/webhook?organization_id=<ORG_ID>&secret=<RINGCENTRAL_WEBHOOK_SECRET>`
+- Point RingCentral event subscriptions to this URL.
+- After a test call event, verify rows are created in `ringcentral_events`.

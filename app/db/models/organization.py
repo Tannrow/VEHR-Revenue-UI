@@ -51,6 +51,18 @@ class Organization(Base):
         "IntegrationAccount",
         back_populates="organization",
     )
+    integration_tokens: Mapped[list["IntegrationToken"]] = relationship(
+        "IntegrationToken",
+        back_populates="organization",
+    )
+    ringcentral_events: Mapped[list["RingCentralEvent"]] = relationship(
+        "RingCentralEvent",
+        back_populates="organization",
+    )
+    reception_call_workflows: Mapped[list["ReceptionCallWorkflow"]] = relationship(
+        "ReceptionCallWorkflow",
+        back_populates="organization",
+    )
     webhooks: Mapped[list["WebhookEndpoint"]] = relationship(
         "WebhookEndpoint",
         back_populates="organization",

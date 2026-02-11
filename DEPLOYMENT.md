@@ -46,6 +46,12 @@ alembic upgrade head
 `MS_GRAPH_SCOPES` = `openid profile email offline_access User.Read Sites.Read.All Files.ReadWrite.All`  
 `MS_POST_CONNECT_REDIRECT` = `https://360-encompass.com/admin/integrations/microsoft`  
 `INTEGRATION_TOKEN_KEY` = secret used to encrypt refresh tokens at rest  
+`RINGCENTRAL_CLIENT_ID` = RingCentral OAuth app client ID  
+`RINGCENTRAL_CLIENT_SECRET` = RingCentral OAuth app client secret  
+`RINGCENTRAL_SERVER_URL` = `https://platform.ringcentral.com`  
+`RINGCENTRAL_REDIRECT_URI` = `https://api.360-encompass.com/api/v1/integrations/ringcentral/callback`  
+`RINGCENTRAL_WEBHOOK_SECRET` = shared secret for webhook authentication  
+`RINGCENTRAL_POST_CONNECT_REDIRECT` = `https://360-encompass.com/admin-center` (optional)
 
 Notes:
 `AUTO_CREATE_TABLES` stays off so Alembic is the schema source of truth.  
@@ -72,6 +78,15 @@ Render supplies `PORT` automatically for the Docker container.
    - Click **Connect Microsoft** and complete Microsoft consent.
    - Confirm redirect returns to `/admin/integrations/microsoft?status=connected`.
    - Confirm a row exists in `integration_accounts` for `provider='microsoft'` with `revoked_at` null.
+7. RingCentral OAuth + webhook checklist:
+   - Confirm all RingCentral env vars above are set in API service config.
+   - In Admin Center, open Integrations status and click **Connect RingCentral**.
+   - Complete RingCentral consent and confirm redirect returns with `?ringcentral=connected`.
+   - Confirm a row exists in `integration_tokens` for `provider='ringcentral'` and your organization.
+   - Configure RingCentral webhook target URL:
+     `https://api.360-encompass.com/api/v1/integrations/ringcentral/webhook?organization_id=<ORG_ID>&secret=<RINGCENTRAL_WEBHOOK_SECRET>`
+   - Trigger a test call event and confirm rows are created in `ringcentral_events`.
+   - Open **Calls & Reception** and confirm call feed and presence load.
 
 Example bootstrap payload:
 ```json

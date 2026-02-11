@@ -32,6 +32,18 @@ type IntegrationStatus = {
   items: Array<{ provider: string; connected_accounts: number }>;
 };
 
+type RingCentralStatus = {
+  connected: boolean;
+  scope?: string | null;
+  account_id?: string | null;
+  extension_id?: string | null;
+  expires_at?: string | null;
+};
+
+type RingCentralConnect = {
+  auth_url: string;
+};
+
 function sortPermissions(values: string[]) {
   return [...values].sort((a, b) => a.localeCompare(b));
 }
@@ -56,6 +68,10 @@ export default function AdminCenterPage() {
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [permissionCatalog, setPermissionCatalog] = useState<string[]>([]);
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const [ringCentralStatus, setRingCentralStatus] = useState<RingCentralStatus | null>(null);
+  const [ringCentralMessage, setRingCentralMessage] = useState<string | null>(null);
+  const [isConnectingRingCentral, setIsConnectingRingCentral] = useState(false);
+  const [isDisconnectingRingCentral, setIsDisconnectingRingCentral] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("");
@@ -80,12 +96,13 @@ export default function AdminCenterPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [settingsRes, usersRes, rolesRes, permissionsRes, integrationsRes] = await Promise.all([
+      const [settingsRes, usersRes, rolesRes, permissionsRes, integrationsRes, ringCentralStatusRes] = await Promise.all([
         apiFetch<OrganizationSettings>("/api/v1/admin/organization/settings", { cache: "no-store" }),
         apiFetch<UserRow[]>("/api/v1/users", { cache: "no-store" }),
         apiFetch<RoleRow[]>("/api/v1/admin/roles", { cache: "no-store" }),
         apiFetch<string[]>("/api/v1/admin/permissions/catalog", { cache: "no-store" }),
         apiFetch<IntegrationStatus>("/api/v1/admin/integrations/status", { cache: "no-store" }),
+        apiFetch<RingCentralStatus>("/api/v1/integrations/ringcentral/status", { cache: "no-store" }),
       ]);
 
       setSettings(settingsRes);
@@ -94,6 +111,7 @@ export default function AdminCenterPage() {
       setRoles(rolesRes);
       setPermissionCatalog(sortPermissions(permissionsRes));
       setIntegrationStatus(integrationsRes);
+      setRingCentralStatus(ringCentralStatusRes);
 
       if (rolesRes.length > 0) {
         const firstRoleKey = rolesRes[0].key;
@@ -210,6 +228,34 @@ export default function AdminCenterPage() {
     }
   }
 
+  async function handleConnectRingCentral() {
+    setRingCentralMessage(null);
+    setIsConnectingRingCentral(true);
+    try {
+      const response = await apiFetch<RingCentralConnect>("/api/v1/integrations/ringcentral/connect", {
+        method: "POST",
+      });
+      window.location.assign(response.auth_url);
+    } catch (error) {
+      setRingCentralMessage(toMessage(error, "Unable to start RingCentral connection."));
+      setIsConnectingRingCentral(false);
+    }
+  }
+
+  async function handleDisconnectRingCentral() {
+    setRingCentralMessage(null);
+    setIsDisconnectingRingCentral(true);
+    try {
+      await apiFetch("/api/v1/integrations/ringcentral/disconnect", { method: "POST" });
+      setRingCentralMessage("RingCentral disconnected.");
+      await loadAdminData();
+    } catch (error) {
+      setRingCentralMessage(toMessage(error, "Unable to disconnect RingCentral."));
+    } finally {
+      setIsDisconnectingRingCentral(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <div className="space-y-3">
@@ -258,7 +304,44 @@ export default function AdminCenterPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-xl text-slate-900">Integrations status</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 pt-0">
+              <CardContent className="space-y-3 pt-0">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">RingCentral</p>
+                      <p className="text-xs text-slate-500">
+                        {ringCentralStatus?.connected ? "Connected" : "Not connected"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        className="h-8 rounded-lg px-3"
+                        onClick={() => void handleConnectRingCentral()}
+                        disabled={isConnectingRingCentral}
+                      >
+                        {isConnectingRingCentral ? "Redirecting..." : "Connect RingCentral"}
+                      </Button>
+                      {ringCentralStatus?.connected ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 rounded-lg px-3"
+                          onClick={() => void handleDisconnectRingCentral()}
+                          disabled={isDisconnectingRingCentral}
+                        >
+                          {isDisconnectingRingCentral ? "Disconnecting..." : "Disconnect"}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {ringCentralStatus?.connected ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Account: {ringCentralStatus.account_id || "n/a"} · Extension:{" "}
+                      {ringCentralStatus.extension_id || "n/a"}
+                    </p>
+                  ) : null}
+                </div>
                 {integrationStatus?.items.length ? (
                   integrationStatus.items.map((item) => (
                     <div key={item.provider} className="rounded-lg bg-slate-50 px-3 py-2">
@@ -271,6 +354,7 @@ export default function AdminCenterPage() {
                 ) : (
                   <p className="text-sm text-slate-500">No active integrations connected.</p>
                 )}
+                {ringCentralMessage ? <p className="text-sm text-slate-700">{ringCentralMessage}</p> : null}
               </CardContent>
             </Card>
           </div>

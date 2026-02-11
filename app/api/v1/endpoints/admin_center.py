@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.core.deps import get_current_membership, require_permission
 from app.db.models.integration_account import IntegrationAccount
+from app.db.models.integration_token import IntegrationToken
 from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.session import get_db
@@ -91,7 +92,7 @@ def integration_status(
     db: Session = Depends(get_db),
     _: None = Depends(require_permission("admin:integrations")),
 ) -> IntegrationStatusRead:
-    rows = db.execute(
+    account_rows = db.execute(
         select(
             IntegrationAccount.provider,
             func.count(IntegrationAccount.id),
@@ -104,9 +105,25 @@ def integration_status(
         .order_by(IntegrationAccount.provider.asc())
     ).all()
 
+    token_rows = db.execute(
+        select(
+            IntegrationToken.provider,
+            func.count(IntegrationToken.id),
+        )
+        .where(IntegrationToken.organization_id == membership.organization_id)
+        .group_by(IntegrationToken.provider)
+        .order_by(IntegrationToken.provider.asc())
+    ).all()
+
+    counts_by_provider: dict[str, int] = {}
+    for provider, count in account_rows:
+        counts_by_provider[provider] = counts_by_provider.get(provider, 0) + int(count)
+    for provider, count in token_rows:
+        counts_by_provider[provider] = counts_by_provider.get(provider, 0) + int(count)
+
     items = [
-        IntegrationStatusItemRead(provider=provider, connected_accounts=count)
-        for provider, count in rows
+        IntegrationStatusItemRead(provider=provider, connected_accounts=counts_by_provider[provider])
+        for provider in sorted(counts_by_provider)
     ]
     return IntegrationStatusRead(
         organization_id=membership.organization_id,

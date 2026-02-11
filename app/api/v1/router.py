@@ -12,12 +12,14 @@ from app.api.v1.endpoints import (
     health,
     integrations,
     integrations_microsoft,
+    integrations_ringcentral,
     organization_home,
     organizations,
     paperwork,
     patient_chart,
     patients,
     portal,
+    reception,
     sharepoint,
     staff,
     services,
@@ -44,9 +46,11 @@ api_router.include_router(clinical_audit.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(integrations.router)
 api_router.include_router(integrations_microsoft.router)
+api_router.include_router(integrations_ringcentral.router)
 api_router.include_router(services.router)
 api_router.include_router(sharepoint.router)
 api_router.include_router(staff.router)
 api_router.include_router(tasks.router)
+api_router.include_router(reception.router)
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)
