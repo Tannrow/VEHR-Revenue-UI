@@ -5,7 +5,7 @@ export default function MicrosoftIntegrationPage() {
     <SharePointBrowser
       eyebrow="Integration Hub"
       title="Microsoft Graph"
-      subtitle="Connected Valley Health SharePoint browsing without iframe embedding."
+      subtitle="Connected document browsing without embedded iframes."
     />
   );
 }

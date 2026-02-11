@@ -106,55 +106,66 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col gap-5 px-4 py-5 lg:flex-row lg:items-stretch lg:gap-6 lg:px-6">
         <Sidebar role={currentUser?.role} />
         <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-xl border border-[var(--ui-gray-divider)] bg-[var(--ui-gray-panel)]">
-          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--ui-gray-divider)] px-6 py-4">
-            <div className="space-y-1">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                {BRANDING.name}
-              </div>
-              <div className="text-sm font-semibold text-slate-900">
-                {BRANDING.tagline}
-              </div>
+          <header className="grid grid-cols-1 items-center gap-3 border-b border-[var(--ui-gray-divider)] px-6 py-4 lg:grid-cols-[1fr_1.3fr_1fr]">
+            <div className="text-lg font-semibold tracking-tight text-slate-900">
+              {BRANDING.name}
             </div>
-            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-              <div className="relative w-full sm:w-72">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.8}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4"
-                  >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="M20 20l-3.5-3.5" />
-                  </svg>
+            <div className="relative w-full">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M20 20l-3.5-3.5" />
+                </svg>
+              </span>
+              <input
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                placeholder="Search clients, tasks, documents"
+                type="search"
+              />
+            </div>
+            <div className="flex items-center justify-start gap-2 lg:justify-end">
+              <button
+                type="button"
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300"
+                aria-label="Notifications"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+                  <path d="M9 17a3 3 0 0 0 6 0" />
+                </svg>
+              </button>
+              <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left">
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-900 text-xs font-semibold text-white">
+                  {userInitials}
                 </span>
-                <input
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                  placeholder="Search patients, encounters, tasks"
-                  type="search"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-900 text-xs font-semibold text-white">
-                    {userInitials}
+                <span>
+                  <span className="block text-xs font-semibold text-slate-900">
+                    {currentUser?.full_name || currentUser?.email || "Session User"}
                   </span>
-                  <span className="hidden sm:block">
-                    <span className="block text-xs font-semibold text-slate-900">
-                      {currentUser?.full_name || currentUser?.email || "Session User"}
-                    </span>
-                    <span className="block text-[11px] text-slate-500">
-                      {currentUser?.role || "member"}
-                    </span>
+                  <span className="block text-[11px] text-slate-500">
+                    {currentUser?.role || "member"}
                   </span>
-                </div>
+                </span>
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300"
+                  className="rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
                 >
                   Sign Out
                 </button>

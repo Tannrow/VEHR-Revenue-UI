@@ -1,122 +1,170 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MetricCard from "../_components/MetricCard";
 import { apiFetch } from "@/lib/api";
 
-type SummaryResponse = {
-  total_events: number;
-  by_action: { key: string; count: number }[];
-  by_entity_type: { key: string; count: number }[];
+type ClientRecord = {
+  id: string;
 };
 
-type UsageInsights = {
-  template_count: number;
-  submission_count: number;
+type TaskPriority = "High" | "Medium" | "Low";
+
+type OperationTask = {
+  id: string;
+  title: string;
+  owner: string;
+  due: string;
+  priority: TaskPriority;
+  overdue?: boolean;
 };
 
-type ConnectorCatalog = {
-  total: number;
+type ActivityItem = {
+  id: string;
+  text: string;
+  time: string;
 };
+
+const taskQueue: OperationTask[] = [
+  {
+    id: "task-1",
+    title: "Follow up on incomplete intake packet",
+    owner: "Admissions",
+    due: "Today 10:30 AM",
+    priority: "High",
+  },
+  {
+    id: "task-2",
+    title: "Confirm insurance information for pending referral",
+    owner: "Care Coordination",
+    due: "Today 1:00 PM",
+    priority: "Medium",
+  },
+  {
+    id: "task-3",
+    title: "Return outreach call to family contact",
+    owner: "Client Services",
+    due: "Today 3:15 PM",
+    priority: "Low",
+  },
+  {
+    id: "task-4",
+    title: "Escalate unsigned consent follow-up",
+    owner: "Compliance",
+    due: "Yesterday 4:00 PM",
+    priority: "High",
+    overdue: true,
+  },
+  {
+    id: "task-5",
+    title: "Second follow-up on no-show consultation",
+    owner: "Intake",
+    due: "Yesterday 2:30 PM",
+    priority: "Medium",
+    overdue: true,
+  },
+];
+
+const recentActivity: ActivityItem[] = [
+  { id: "a1", text: "Referral moved to Intake Scheduled", time: "9:12 AM" },
+  { id: "a2", text: "Client profile updated with contact preference", time: "8:45 AM" },
+  { id: "a3", text: "Document policy acknowledgement completed", time: "Yesterday" },
+  { id: "a4", text: "Follow-up task reassigned to Admissions", time: "Yesterday" },
+];
+
+function taskPriorityClass(priority: TaskPriority): string {
+  if (priority === "High") return "ui-status-error";
+  if (priority === "Medium") return "ui-status-warning";
+  return "ui-status-info";
+}
 
 export default function DashboardPage() {
-  const [auditSummary, setAuditSummary] = useState<SummaryResponse | null>(null);
-  const [formUsage, setFormUsage] = useState<UsageInsights | null>(null);
-  const [connectors, setConnectors] = useState<ConnectorCatalog | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [activeClients, setActiveClients] = useState<number>(0);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function load() {
+    async function loadClientCount() {
       try {
-        setError(null);
-        const [auditRes, formsRes, integrationsRes] = await Promise.all([
-          apiFetch<SummaryResponse>("/api/v1/audit/summary?hours=24", { cache: "no-store" }),
-          apiFetch<UsageInsights>("/api/v1/forms/templates/insights/usage", { cache: "no-store" }),
-          apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", { cache: "no-store" }),
-        ]);
+        const data = await apiFetch<ClientRecord[]>("/api/v1/patients", { cache: "no-store" });
         if (!isMounted) return;
-        setAuditSummary(auditRes);
-        setFormUsage(formsRes);
-        setConnectors(integrationsRes);
-      } catch (err) {
+        setActiveClients(data.length);
+      } catch {
         if (!isMounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load dashboard metrics");
+        setActiveClients(0);
       }
     }
 
-    load();
+    void loadClientCount();
     return () => {
       isMounted = false;
     };
   }, []);
 
+  const tasksDueToday = useMemo(
+    () => taskQueue.filter((task) => !task.overdue).length,
+    [],
+  );
+  const overdueFollowUps = useMemo(
+    () => taskQueue.filter((task) => task.overdue).length,
+    [],
+  );
+  const openReferrals = 12;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
-          Operations
+          {"Encompass 360"}
         </p>
-        <h1 className="text-[2rem] font-semibold tracking-tight text-slate-900">Executive Dashboard</h1>
+        <h1 className="text-[2rem] font-semibold tracking-tight text-slate-900">Operations</h1>
         <p className="text-sm text-slate-500">
-          Clinical workload, compliance signals, and integration readiness in one control plane.
+          Focused CRM operations view for daily execution.
         </p>
       </div>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50/80">
-          <CardContent className="pt-6 text-sm text-rose-700">{error}</CardContent>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard
-          label="Audit Events (24h)"
-          value={`${auditSummary?.total_events ?? 0}`}
-          hint="Captured compliance entries"
-        />
-        <MetricCard
-          label="Form Submissions"
-          value={`${formUsage?.submission_count ?? 0}`}
-          hint={`${formUsage?.template_count ?? 0} templates in library`}
-        />
-        <MetricCard
-          label="Connector Footprint"
-          value={`${connectors?.total ?? 0}`}
-          hint="Integration adapters available"
-        />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Tasks due today" value={`${tasksDueToday}`} hint="Action queue" />
+        <MetricCard label="Overdue follow-ups" value={`${overdueFollowUps}`} hint="Needs immediate attention" />
+        <MetricCard label="Active clients" value={`${activeClients}`} hint="Current relationship records" />
+        <MetricCard label="Open referrals" value={`${openReferrals}`} hint="Prospects in pipeline" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <Card className="border-slate-200/80 bg-white">
-          <CardHeader className="border-b border-slate-100">
-            <CardTitle className="text-base text-slate-900">Action Velocity</CardTitle>
+      <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
+        <Card className="bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg text-slate-900">Task List</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1.5 pt-4">
-            {(auditSummary?.by_action ?? []).slice(0, 6).map((item) => (
-              <div
-                key={item.key}
-                className="flex items-center justify-between border-b border-slate-100 px-1 py-2 text-sm last:border-b-0"
-              >
-                <span className="text-slate-700">{item.key}</span>
-                <span className="font-mono text-xs text-slate-500">{item.count}</span>
+          <CardContent className="space-y-3 pt-0">
+            {taskQueue.map((task) => (
+              <div key={task.id} className="rounded-lg bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">{task.title}</p>
+                  <span className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${taskPriorityClass(task.priority)}`}>
+                    {task.priority}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <span>Owner: {task.owner}</span>
+                  <span>Due: {task.due}</span>
+                  {task.overdue ? <span className="text-[var(--ui-status-error)]">Overdue</span> : null}
+                </div>
               </div>
             ))}
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200/80 bg-white">
-          <CardHeader className="border-b border-slate-100">
-            <CardTitle className="text-base text-slate-900">Entity Coverage</CardTitle>
+        <Card className="bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg text-slate-900">Recent Activity</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1.5 pt-4">
-            {(auditSummary?.by_entity_type ?? []).slice(0, 6).map((item) => (
-              <div key={item.key} className="border-b border-slate-100 px-1 py-2 last:border-b-0">
-                <div className="text-sm font-semibold text-slate-800">{item.key}</div>
-                <div className="text-xs text-slate-500">{item.count} events</div>
+          <CardContent className="space-y-2 pt-0">
+            {recentActivity.map((activity) => (
+              <div key={activity.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                <p className="text-sm text-slate-700">{activity.text}</p>
+                <p className="mt-1 text-xs text-slate-500">{activity.time}</p>
               </div>
             ))}
           </CardContent>

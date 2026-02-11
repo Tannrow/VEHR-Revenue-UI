@@ -16,8 +16,11 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: BRANDING.fullName,
-  description: `${BRANDING.name} clinical operations console.`,
+  title: {
+    default: BRANDING.fullName,
+    template: `%s | ${BRANDING.name}`,
+  },
+  description: `${BRANDING.name} \u2014 ${BRANDING.tagline}.`,
 };
 
 export default function RootLayout({

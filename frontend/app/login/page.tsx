@@ -113,16 +113,16 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen px-6 py-16 sm:px-10">
       <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.15fr_1fr]">
-        <Card className="border-slate-200/70 bg-white/95 shadow-[0_30px_80px_rgba(15,23,42,0.08)]">
+        <Card className="bg-white shadow-sm">
           <CardHeader className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
-              Secure Access
+              {BRANDING.name}
             </p>
             <CardTitle className="text-3xl tracking-tight text-slate-900">
               Sign in to {BRANDING.name}
             </CardTitle>
             <p className="text-sm text-slate-500">
-              Use your organization credentials to access forms, charts, and audit workflows.
+              {BRANDING.tagline}
             </p>
           </CardHeader>
           <CardContent>
@@ -179,16 +179,16 @@ export default function LoginPage() {
                 />
               </div>
 
-              <Button type="submit" className="h-10 w-full rounded-full" disabled={isSubmitting || isCheckingSession}>
+              <Button type="submit" className="h-10 w-full rounded-lg" disabled={isSubmitting || isCheckingSession}>
                 {isSubmitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200/70 bg-slate-50/70 shadow-sm">
+        <Card className="bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg text-slate-900">Session Notes</CardTitle>
+            <CardTitle className="text-lg text-slate-900">Access Notes</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-slate-600">
             <p>Tokens are saved in browser storage for this workspace session.</p>
@@ -196,7 +196,7 @@ export default function LoginPage() {
               If login returns an organization selection error, re-submit with your
               `organization_id`.
             </p>
-            <p>After successful login you will be redirected to your requested page.</p>
+            <p>After successful login you will be redirected to your CRM workspace.</p>
           </CardContent>
         </Card>
       </div>

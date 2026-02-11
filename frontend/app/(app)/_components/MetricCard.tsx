@@ -11,7 +11,7 @@ type MetricCardProps = {
 
 export default function MetricCard({ label, value, hint, icon }: MetricCardProps) {
   return (
-    <Card className="border-slate-200/80 bg-white">
+    <Card className="bg-white shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-1">
         <CardTitle className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
           {label}

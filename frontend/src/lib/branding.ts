@@ -1,9 +1,9 @@
-const fullName = "The Daily Dose (EHR)";
+const fullName = "Encompass 360";
 
 export const BRANDING = {
-  name: "The Daily Dose",
+  name: "Encompass 360",
   fullName,
-  tagline: "Clinical Operations Console",
+  tagline: "For Clinicians \u00b7 By Clinicians",
   internalNote: `Internal use only \u2022 ${fullName}`,
   environmentLabel: "Internal Preview",
 };

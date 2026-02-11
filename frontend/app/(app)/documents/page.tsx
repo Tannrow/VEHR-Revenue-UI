@@ -1,6 +1,6 @@
 import SharePointBrowser from "@/app/components/sharepoint-browser";
 
-export default function SharePointPage() {
+export default function DocumentsPage() {
   return (
     <SharePointBrowser
       eyebrow="Encompass 360"

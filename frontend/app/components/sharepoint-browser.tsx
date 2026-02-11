@@ -100,7 +100,7 @@ function toErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function SharePointBrowser({
-  eyebrow = "SharePoint",
+  eyebrow = "Documents",
   title,
   subtitle,
 }: SharePointBrowserProps) {
@@ -241,7 +241,7 @@ export default function SharePointBrowser({
         await loadDriveItems(firstDrive, "root", []);
       }
     } catch (error) {
-      setWorkspaceError(toErrorMessage(error, "Unable to load SharePoint workspace."));
+      setWorkspaceError(toErrorMessage(error, "Unable to load document workspace."));
     } finally {
       setIsLoadingWorkspace(false);
     }
@@ -343,13 +343,13 @@ export default function SharePointBrowser({
               {workspace?.site.name || "Valley Health Home Page"}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Browse your organization SharePoint documents through Microsoft Graph.
+              Browse internal clinic resources and policies through Microsoft Graph.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {workspace?.site.web_url ? (
                 <Button asChild size="sm" variant="outline">
                   <a href={workspace.site.web_url} target="_blank" rel="noopener noreferrer">
-                    Open in SharePoint
+                    Open document portal
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -398,7 +398,7 @@ export default function SharePointBrowser({
           <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
             <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
             <span>
-              Embedded SharePoint iframes are blocked by policy; this workspace uses Microsoft Graph APIs only.
+              Embedded document views may be blocked by policy; this workspace uses secure document APIs.
             </span>
           </div>
         </CardContent>
@@ -407,7 +407,7 @@ export default function SharePointBrowser({
       <div className="grid gap-4 xl:grid-cols-[280px_1fr_1fr]">
         <Card className="border-slate-200/70 shadow-sm">
           <CardHeader className="border-b border-slate-200/70 bg-slate-50/70 py-3">
-            <CardTitle className="text-sm text-slate-900">Document Libraries</CardTitle>
+            <CardTitle className="text-sm text-slate-900">Libraries</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 pt-3">
             {isLoadingWorkspace ? (
@@ -422,7 +422,7 @@ export default function SharePointBrowser({
                   onClick={() => void loadDriveItems(drive, "root", [])}
                   className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
                     selectedDrive?.id === drive.id
-                      ? "border-cyan-300 bg-cyan-50 text-cyan-900"
+                      ? "border-blue-300 bg-blue-50 text-blue-900"
                       : "border-slate-200 bg-white text-slate-800 hover:border-slate-300"
                   }`}
                 >
@@ -481,7 +481,7 @@ export default function SharePointBrowser({
                   <div
                     key={item.id}
                     className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
-                      selectedFile?.id === item.id ? "border-cyan-300 bg-cyan-50" : "border-slate-200 bg-white"
+                      selectedFile?.id === item.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"
                     }`}
                   >
                     <button
@@ -532,7 +532,7 @@ export default function SharePointBrowser({
                   {selectedFile.web_url ? (
                     <Button asChild size="sm" variant="outline">
                       <a href={selectedFile.web_url} target="_blank" rel="noopener noreferrer">
-                        Open in SharePoint
+                        Open source document
                         <ExternalLink className="h-4 w-4" />
                       </a>
                     </Button>
@@ -545,7 +545,7 @@ export default function SharePointBrowser({
                 {previewKind === "pdf" && previewBlobUrl ? (
                   <iframe
                     src={previewBlobUrl}
-                    title="SharePoint PDF Preview"
+                    title="Document PDF Preview"
                     className="h-[32rem] w-full rounded-lg border border-slate-200"
                   />
                 ) : null}
@@ -562,18 +562,18 @@ export default function SharePointBrowser({
                   <div className="space-y-2">
                     <iframe
                       src={previewFrameUrl}
-                      title="SharePoint Office Preview"
+                      title="Document Office Preview"
                       className="h-[32rem] w-full rounded-lg border border-slate-200"
                     />
                     <p className="text-xs text-slate-500">
-                      If preview is blocked by policy, use Open in SharePoint.
+                      If preview is blocked by policy, use Open source document.
                     </p>
                   </div>
                 ) : null}
 
                 {previewKind === "external" ? (
                   <p className="text-xs text-slate-500">
-                    In-app preview is available for PDF and image files. Use Open in SharePoint for Office documents.
+                    In-app preview is available for PDF and image files. Use Open source document for Office files.
                   </p>
                 ) : null}
               </>
