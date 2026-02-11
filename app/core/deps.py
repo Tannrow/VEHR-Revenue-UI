@@ -3,7 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.rbac import has_permission
+from app.core.rbac import has_permission_for_organization
 from app.core.security import TokenData, decode_access_token
 from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
@@ -91,8 +91,16 @@ def get_current_organization(
 
 
 def require_permission(permission: str):
-    def _require(membership: OrganizationMembership = Depends(get_current_membership)) -> None:
-        if not has_permission(membership.role, permission):
+    def _require(
+        membership: OrganizationMembership = Depends(get_current_membership),
+        db: Session = Depends(get_db),
+    ) -> None:
+        if not has_permission_for_organization(
+            db,
+            organization_id=membership.organization_id,
+            role=membership.role,
+            permission=permission,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",

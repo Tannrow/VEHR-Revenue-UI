@@ -59,6 +59,10 @@ class Organization(Base):
         "OrganizationMembership",
         back_populates="organization",
     )
+    roles: Mapped[list["OrganizationRole"]] = relationship(
+        "OrganizationRole",
+        back_populates="organization",
+    )
     clinical_audit_runs: Mapped[list["ClinicalAuditRun"]] = relationship(
         "ClinicalAuditRun",
         back_populates="organization",

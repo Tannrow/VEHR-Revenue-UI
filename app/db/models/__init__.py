@@ -13,6 +13,8 @@ from app.db.models.integration_account import IntegrationAccount  # noqa: F401
 from app.db.models.invite import Invite  # noqa: F401
 from app.db.models.organization import Organization  # noqa: F401
 from app.db.models.organization_membership import OrganizationMembership  # noqa: F401
+from app.db.models.organization_role import OrganizationRole  # noqa: F401
+from app.db.models.organization_role_permission import OrganizationRolePermission  # noqa: F401
 from app.db.models.organization_tile import OrganizationTile  # noqa: F401
 from app.db.models.organization_tile_node import OrganizationTileNode  # noqa: F401
 from app.db.models.patient import Patient  # noqa: F401

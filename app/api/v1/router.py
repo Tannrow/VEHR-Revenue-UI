@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    admin_center,
     audit,
     auth,
     clinical_audit,
@@ -18,6 +19,7 @@ from app.api.v1.endpoints import (
     patients,
     portal,
     sharepoint,
+    staff,
     services,
     uploads,
     webhooks,
@@ -25,6 +27,7 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
+api_router.include_router(admin_center.router)
 api_router.include_router(organizations.router)
 api_router.include_router(organization_home.router)
 api_router.include_router(patients.router)
@@ -42,5 +45,6 @@ api_router.include_router(integrations.router)
 api_router.include_router(integrations_microsoft.router)
 api_router.include_router(services.router)
 api_router.include_router(sharepoint.router)
+api_router.include_router(staff.router)
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)

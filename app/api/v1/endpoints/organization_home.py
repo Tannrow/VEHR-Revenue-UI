@@ -16,6 +16,7 @@ from app.core.rbac import (
     ROLE_STAFF,
     ROLE_THERAPIST,
     has_permission,
+    normalize_role_key,
 )
 from app.core.time import utc_now
 from app.db.models.announcement import Announcement
@@ -1147,7 +1148,7 @@ def me_work_summary(
     organization=Depends(get_current_organization),
     membership=Depends(get_current_membership),
 ) -> WorkSummaryResponse:
-    show_widget = membership.role in CLINICAL_OR_SUPERVISORY_ROLES
+    show_widget = normalize_role_key(membership.role) in CLINICAL_OR_SUPERVISORY_ROLES
     if not show_widget:
         return WorkSummaryResponse(show_widget=False, items=[])
 

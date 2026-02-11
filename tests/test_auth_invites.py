@@ -80,16 +80,16 @@ def test_invite_acceptance_and_role_assignment_rules(tmp_path) -> None:
             admin_token = create_access_token({"sub": admin.id, "org_id": org.id})
 
         with TestClient(app) as client:
-            invalid_allowed_roles = client.post(
+            admin_role_invite = client.post(
                 "/api/v1/admin/invites",
                 json={"email": "newuser@example.com", "allowed_roles": [ROLE_ADMIN]},
                 headers=_auth_header(admin_token),
             )
-            assert invalid_allowed_roles.status_code == 400
+            assert admin_role_invite.status_code == 201
 
             created = client.post(
                 "/api/v1/admin/invites",
-                json={"email": "newuser@example.com"},
+                json={"email": "newuser@example.com", "allowed_roles": [ROLE_COUNSELOR]},
                 headers=_auth_header(admin_token),
             )
             assert created.status_code == 201

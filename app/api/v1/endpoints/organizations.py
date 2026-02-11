@@ -9,6 +9,7 @@ from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.session import get_db
 from app.services.audit import log_event
+from app.services.rbac_roles import ensure_org_roles_seeded
 
 
 router = APIRouter(tags=["Organizations"])
@@ -64,6 +65,7 @@ def create_organization(
     )
     db.add(admin_membership)
     db.commit()
+    ensure_org_roles_seeded(db, organization_id=organization.id)
 
     log_event(
         db,

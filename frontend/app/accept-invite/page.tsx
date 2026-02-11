@@ -19,14 +19,28 @@ type TokenResponse = {
   user_id: string;
 };
 
-const ROLE_OPTIONS = ["Counselor", "Case Manager"] as const;
+type InvitePreviewResponse = {
+  email: string;
+  allowed_roles: string[];
+  expires_at: string;
+  status: string;
+};
+
+function roleLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
 
 export default function AcceptInvitePage() {
   const router = useRouter();
   const [token, setToken] = useState("");
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
+  const [roleOptions, setRoleOptions] = useState<string[]>([]);
 
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number]>("Counselor");
+  const [role, setRole] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -36,6 +50,39 @@ export default function AcceptInvitePage() {
     const params = new URLSearchParams(window.location.search);
     setToken(params.get("token")?.trim() || "");
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!token) return;
+
+    async function loadInvitePreview() {
+      try {
+        const preview = await apiFetch<InvitePreviewResponse>(
+          `/api/v1/auth/invites/preview?token=${encodeURIComponent(token)}`,
+          { cache: "no-store" },
+        );
+        if (!isMounted) return;
+        const options = preview.allowed_roles ?? [];
+        setInviteEmail(preview.email);
+        setRoleOptions(options);
+        if (options[0]) {
+          setRole(options[0]);
+        }
+      } catch (loadError) {
+        if (!isMounted) return;
+        if (loadError instanceof ApiError || loadError instanceof Error) {
+          setError(loadError.message || "Unable to load invite.");
+        } else {
+          setError("Unable to load invite.");
+        }
+      }
+    }
+
+    void loadInvitePreview();
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,6 +94,10 @@ export default function AcceptInvitePage() {
     }
     if (!password.trim()) {
       setError("Password is required.");
+      return;
+    }
+    if (!role) {
+      setError("Role is required.");
       return;
     }
     if (password !== confirmPassword) {
@@ -88,6 +139,9 @@ export default function AcceptInvitePage() {
             <p className="text-sm text-slate-500">
               Set your profile and password to activate your account.
             </p>
+            {inviteEmail ? (
+              <p className="text-sm text-slate-500">Invited email: {inviteEmail}</p>
+            ) : null}
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -117,11 +171,12 @@ export default function AcceptInvitePage() {
                   id="role"
                   className="h-9 w-full rounded-md border border-slate-200 px-3 text-sm"
                   value={role}
-                  onChange={(event) => setRole(event.target.value as (typeof ROLE_OPTIONS)[number])}
+                  onChange={(event) => setRole(event.target.value)}
+                  disabled={roleOptions.length === 0}
                 >
-                  {ROLE_OPTIONS.map((roleOption) => (
+                  {roleOptions.map((roleOption) => (
                     <option key={roleOption} value={roleOption}>
-                      {roleOption}
+                      {roleLabel(roleOption)}
                     </option>
                   ))}
                 </select>

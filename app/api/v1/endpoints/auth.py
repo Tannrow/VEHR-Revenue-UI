@@ -14,8 +14,9 @@ from app.core.deps import get_current_membership, require_permission
 from app.core.rbac import (
     ROLE_ADMIN,
     ROLE_CASE_MANAGER,
-    ROLE_COUNSELOR,
-    is_valid_role,
+    normalize_role_key,
+    permission_catalog,
+    role_label,
 )
 from app.core.time import utc_now
 from app.core.security import create_access_token, hash_password, verify_password
@@ -32,6 +33,12 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import log_event
 from app.services.email import EmailDeliveryError, send_email
+from app.services.rbac_roles import (
+    ensure_org_roles_seeded,
+    list_org_roles,
+    normalize_role_for_org,
+    update_role_permissions,
+)
 
 
 router = APIRouter(tags=["Auth"])
@@ -39,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 INVITE_EXPIRY_HOURS = 72
 PASSWORD_RESET_EXPIRY_MINUTES = 60
-LOW_RISK_INVITE_ROLES = {ROLE_COUNSELOR, ROLE_CASE_MANAGER}
+DEFAULT_INVITE_ROLE = ROLE_CASE_MANAGER
 
 
 class LoginRequest(BaseModel):
@@ -102,7 +109,7 @@ class InviteRead(BaseModel):
 
 class AcceptInviteRequest(BaseModel):
     token: str
-    role: str
+    role: str | None = None
     full_name: str | None = None
     password: str
 
@@ -123,6 +130,24 @@ class ResetPasswordRequest(BaseModel):
 
 class UserRoleUpdate(BaseModel):
     role: str
+
+
+class RolePermissionRead(BaseModel):
+    key: str
+    name: str
+    is_system: bool
+    permissions: list[str]
+
+
+class RolePermissionUpdate(BaseModel):
+    permissions: list[str]
+
+
+class InvitePreviewRead(BaseModel):
+    email: str
+    allowed_roles: list[str]
+    expires_at: str
+    status: str
 
 
 class MessageResponse(BaseModel):
@@ -159,19 +184,26 @@ def _is_expired(expires_at) -> bool:
     return expires_at < now
 
 
-def _allowed_invite_roles(payload_roles: list[str] | None) -> list[str]:
-    roles = payload_roles or sorted(LOW_RISK_INVITE_ROLES)
+def _allowed_invite_roles(
+    payload_roles: list[str] | None,
+    *,
+    db: Session,
+    organization_id: str,
+) -> list[str]:
+    ensure_org_roles_seeded(db, organization_id=organization_id)
+    available_roles = {row.key for row in list_org_roles(db, organization_id=organization_id)}
+    roles = payload_roles or [DEFAULT_INVITE_ROLE]
     normalized: list[str] = []
     for role in roles:
-        role_name = role.strip()
+        role_name = normalize_role_key(role)
         if role_name in normalized:
             continue
-        if role_name not in LOW_RISK_INVITE_ROLES:
+        if role_name not in available_roles:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "Invite roles must be low-risk roles only: "
-                    f"{', '.join(sorted(LOW_RISK_INVITE_ROLES))}"
+                    "Invite roles must be valid organization roles: "
+                    f"{', '.join(sorted(available_roles))}"
                 ),
             )
         normalized.append(role_name)
@@ -379,6 +411,7 @@ def bootstrap(request: BootstrapRequest, db: Session = Depends(get_db)) -> Token
     )
     db.add(membership)
     db.commit()
+    ensure_org_roles_seeded(db, organization_id=org.id)
 
     for model in (Patient, Encounter, FormTemplate, FormSubmission, AuditEvent):
         db.execute(
@@ -472,7 +505,7 @@ def me(
         id=membership.user.id,
         email=membership.user.email,
         full_name=membership.user.full_name,
-        role=membership.role,
+        role=normalize_role_key(membership.role),
         organization_id=membership.organization_id,
     )
 
@@ -484,7 +517,13 @@ def create_user(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("users:manage")),
 ) -> UserRead:
-    if not is_valid_role(request.role):
+    try:
+        role_value = normalize_role_for_org(
+            db,
+            organization_id=membership.organization_id,
+            role=request.role,
+        )
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid role",
@@ -511,7 +550,7 @@ def create_user(
     membership_record = OrganizationMembership(
         organization_id=membership.organization_id,
         user_id=user.id,
-        role=request.role,
+        role=role_value,
     )
     db.add(membership_record)
     db.commit()
@@ -523,7 +562,7 @@ def create_user(
         entity_id=user.id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
-        metadata={"role": membership_record.role},
+        metadata={"role": membership_record.role, "role_label": role_label(membership_record.role)},
     )
 
     return UserRead(
@@ -541,6 +580,7 @@ def list_users(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("users:manage")),
 ) -> list[UserRead]:
+    ensure_org_roles_seeded(db, organization_id=membership.organization_id)
     records = (
         db.execute(
             select(OrganizationMembership, User).where(
@@ -555,7 +595,7 @@ def list_users(
             id=user.id,
             email=user.email,
             full_name=user.full_name,
-            role=membership_record.role,
+            role=normalize_role_key(membership_record.role),
             is_active=user.is_active,
         )
         for membership_record, user in records
@@ -570,7 +610,13 @@ def update_user_role(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("users:manage")),
 ) -> UserRead:
-    if not is_valid_role(request.role):
+    try:
+        role_value = normalize_role_for_org(
+            db,
+            organization_id=membership.organization_id,
+            role=request.role,
+        )
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     membership_record = db.execute(
@@ -582,7 +628,7 @@ def update_user_role(
     if not membership_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User membership not found")
 
-    membership_record.role = request.role
+    membership_record.role = role_value
     db.add(membership_record)
     db.commit()
     db.refresh(membership_record)
@@ -594,7 +640,7 @@ def update_user_role(
         entity_id=user_id,
         organization_id=membership.organization_id,
         actor=membership.user.email,
-        metadata={"role": request.role},
+        metadata={"role": role_value, "role_label": role_label(role_value)},
     )
 
     user = db.get(User, user_id)
@@ -602,8 +648,69 @@ def update_user_role(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
-        role=membership_record.role,
+        role=normalize_role_key(membership_record.role),
         is_active=user.is_active,
+    )
+
+
+@router.get("/admin/permissions/catalog", response_model=list[str])
+def get_permission_catalog(
+    _: None = Depends(require_permission("admin:role_permissions")),
+) -> list[str]:
+    return permission_catalog()
+
+
+@router.get("/admin/roles", response_model=list[RolePermissionRead])
+def list_role_permissions(
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("admin:role_permissions")),
+) -> list[RolePermissionRead]:
+    roles = list_org_roles(db, organization_id=membership.organization_id)
+    return [
+        RolePermissionRead(
+            key=row.key,
+            name=row.name,
+            is_system=row.is_system,
+            permissions=list(row.permissions),
+        )
+        for row in roles
+    ]
+
+
+@router.put("/admin/roles/{role_key}/permissions", response_model=RolePermissionRead)
+def replace_role_permissions(
+    role_key: str,
+    payload: RolePermissionUpdate,
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("admin:role_permissions")),
+) -> RolePermissionRead:
+    try:
+        updated = update_role_permissions(
+            db,
+            organization_id=membership.organization_id,
+            role_key=role_key,
+            permissions=payload.permissions,
+        )
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+
+    log_event(
+        db,
+        action="role.permissions_updated",
+        entity_type="role",
+        entity_id=updated.key,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"permissions": list(updated.permissions)},
+    )
+
+    return RolePermissionRead(
+        key=updated.key,
+        name=updated.name,
+        is_system=updated.is_system,
+        permissions=list(updated.permissions),
     )
 
 
@@ -629,7 +736,11 @@ def create_invite(
     _: None = Depends(require_permission("users:manage")),
 ) -> InviteRead:
     email = _normalize_email(request.email)
-    allowed_roles = _allowed_invite_roles(request.allowed_roles)
+    allowed_roles = _allowed_invite_roles(
+        request.allowed_roles,
+        db=db,
+        organization_id=membership.organization_id,
+    )
 
     raw_token = _issue_raw_token()
     token_hash = _hash_token(raw_token)
@@ -749,6 +860,35 @@ def revoke_invite(
     return _to_invite_read(row)
 
 
+@router.get("/auth/invites/preview", response_model=InvitePreviewRead)
+def preview_invite(
+    token: str,
+    db: Session = Depends(get_db),
+) -> InvitePreviewRead:
+    token_hash = _hash_token(token)
+    invite = db.execute(
+        select(Invite).where(
+            Invite.token_hash == token_hash,
+            Invite.status == "pending",
+        )
+    ).scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
+    if _is_expired(invite.expires_at):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite token expired")
+
+    allowed_roles = _roles_from_json(invite.allowed_roles_json)
+    if not allowed_roles:
+        allowed_roles = [DEFAULT_INVITE_ROLE]
+
+    return InvitePreviewRead(
+        email=invite.email,
+        allowed_roles=[normalize_role_key(item) for item in allowed_roles],
+        expires_at=invite.expires_at.isoformat(),
+        status=invite.status,
+    )
+
+
 @router.post("/auth/accept-invite", response_model=TokenResponse)
 def accept_invite(request: AcceptInviteRequest, db: Session = Depends(get_db)) -> TokenResponse:
     token_hash = _hash_token(request.token)
@@ -767,20 +907,33 @@ def accept_invite(request: AcceptInviteRequest, db: Session = Depends(get_db)) -
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite token expired")
 
-    role = request.role.strip()
+    ensure_org_roles_seeded(db, organization_id=invite.organization_id)
     allowed_roles = _roles_from_json(invite.allowed_roles_json)
-    if role not in allowed_roles:
+    if not allowed_roles:
+        allowed_roles = [DEFAULT_INVITE_ROLE]
+
+    if request.role and request.role.strip():
+        try:
+            role = normalize_role_for_org(
+                db,
+                organization_id=invite.organization_id,
+                role=request.role,
+            )
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+    elif len(allowed_roles) == 1:
+        role = normalize_role_key(allowed_roles[0])
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role selection is required for this invite",
+        )
+
+    if role not in {normalize_role_key(item) for item in allowed_roles}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Selected role is not allowed for this invite",
         )
-    if role not in LOW_RISK_INVITE_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role must be admin-assigned",
-        )
-    if not is_valid_role(role):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     user = db.execute(select(User).where(User.email == invite.email)).scalar_one_or_none()
     if user is None:
@@ -834,7 +987,7 @@ def accept_invite(request: AcceptInviteRequest, db: Session = Depends(get_db)) -
         entity_id=invite.id,
         organization_id=invite.organization_id,
         actor=user.email,
-        metadata={"role": role},
+        metadata={"role": role, "role_label": role_label(role)},
     )
 
     token = create_access_token({"sub": user.id, "org_id": invite.organization_id})
