@@ -176,3 +176,43 @@ def test_ringcentral_webhook_and_reception_flow(tmp_path, monkeypatch) -> None:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_ringcentral_webhook_resolves_org_without_query_param(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("RINGCENTRAL_WEBHOOK_SECRET", "webhook-secret-value")
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        _receptionist_token, org_id = _seed_reception_user(session_factory)
+        webhook_payload = {
+            "event": "/restapi/v1.0/account/~/extension/~/telephony/sessions",
+            "eventId": "evt-002",
+            "body": {
+                "telephonySessionId": "session-def",
+                "id": "call-def",
+                "from": {"phoneNumber": "+15550003333"},
+                "to": {"phoneNumber": "+15550004444"},
+                "direction": "Inbound",
+                "status": {"code": "Missed"},
+                "accountId": "acct-123",
+            },
+        }
+
+        with TestClient(app) as client:
+            webhook_response = client.post(
+                "/api/v1/integrations/ringcentral/webhook?secret=webhook-secret-value",
+                json=webhook_payload,
+            )
+            assert webhook_response.status_code == 200
+            event_id = webhook_response.json()["event_id"]
+
+        with session_factory() as db:
+            stored_event = db.execute(
+                select(RingCentralEvent).where(RingCentralEvent.id == event_id)
+            ).scalar_one_or_none()
+            assert stored_event is not None
+            assert stored_event.organization_id == org_id
+            assert stored_event.call_id == "call-def"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

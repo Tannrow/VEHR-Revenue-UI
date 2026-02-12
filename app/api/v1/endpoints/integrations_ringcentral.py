@@ -20,6 +20,7 @@ from app.db.models.ringcentral_event import RingCentralEvent
 from app.db.session import get_db
 from app.services.audit import log_event
 from app.services.ringcentral import (
+    RINGCENTRAL_PROVIDER,
     RingCentralConfigurationError,
     RingCentralIntegrationError,
     RingCentralTokenPayload,
@@ -149,7 +150,13 @@ def _extract_webhook_fields(payload: dict[str, Any]) -> dict[str, Any]:
     direction = str(party.get("direction", "")).strip() or str(body.get("direction", "")).strip() or None
     started_at = _parse_iso_datetime(party.get("startTime")) or _parse_iso_datetime(body.get("startTime"))
     ended_at = _parse_iso_datetime(party.get("endTime")) or _parse_iso_datetime(body.get("endTime"))
-    account_id = str(body.get("ownerId", "")).strip() or str(body.get("accountId", "")).strip() or None
+    account_id = (
+        str(body.get("ownerId", "")).strip()
+        or str(body.get("accountId", "")).strip()
+        or str(payload.get("ownerId", "")).strip()
+        or str(payload.get("accountId", "")).strip()
+        or None
+    )
 
     return {
         "event_type": event_type,
@@ -184,6 +191,46 @@ def _validate_webhook_secret(request: Request) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid RingCentral webhook secret",
         )
+
+
+def _resolve_webhook_integration_row(
+    *,
+    db: Session,
+    organization_id: str | None,
+    payload_account_id: str | None,
+) -> IntegrationToken:
+    if organization_id:
+        row = get_ringcentral_token_row(db=db, organization_id=organization_id)
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="RingCentral integration is not connected",
+            )
+        return row
+
+    if not payload_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="organization_id is required when webhook payload does not include accountId",
+        )
+
+    rows = db.execute(
+        select(IntegrationToken).where(
+            IntegrationToken.provider == RINGCENTRAL_PROVIDER,
+            IntegrationToken.account_id == payload_account_id,
+        )
+    ).scalars().all()
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No RingCentral integration found for webhook account",
+        )
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Webhook account is linked to multiple organizations",
+        )
+    return rows[0]
 
 
 def _ensure_membership_for_state(*, db: Session, organization_id: str, user_id: str) -> OrganizationMembership:
@@ -325,14 +372,10 @@ def ringcentral_disconnect(
 @router.post("/integrations/ringcentral/webhook", response_model=RingCentralWebhookIngestRead)
 async def ringcentral_webhook(
     request: Request,
-    organization_id: str = Query(..., alias="organization_id"),
+    organization_id: str | None = Query(default=None, alias="organization_id"),
     db: Session = Depends(get_db),
 ) -> RingCentralWebhookIngestRead:
     _validate_webhook_secret(request)
-
-    row = get_ringcentral_token_row(db=db, organization_id=organization_id)
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RingCentral integration is not connected")
 
     try:
         payload_raw = await request.json()
@@ -342,6 +385,12 @@ async def ringcentral_webhook(
         payload_raw = {}
 
     extracted = _extract_webhook_fields(payload_raw)
+    row = _resolve_webhook_integration_row(
+        db=db,
+        organization_id=organization_id,
+        payload_account_id=extracted["account_id"],
+    )
+    resolved_org_id = row.organization_id
     payload_account_id = extracted["account_id"]
     if row.account_id and payload_account_id and row.account_id != payload_account_id:
         raise HTTPException(
@@ -350,7 +399,7 @@ async def ringcentral_webhook(
         )
 
     event = RingCentralEvent(
-        organization_id=organization_id,
+        organization_id=resolved_org_id,
         event_type=extracted["event_type"],
         rc_event_id=extracted["rc_event_id"],
         session_id=extracted["session_id"],
@@ -372,7 +421,7 @@ async def ringcentral_webhook(
         action="integration.ringcentral.webhook_ingested",
         entity_type="ringcentral_event",
         entity_id=event.id,
-        organization_id=organization_id,
+        organization_id=resolved_org_id,
         actor="ringcentral:webhook",
         metadata={
             "event_type": event.event_type,
