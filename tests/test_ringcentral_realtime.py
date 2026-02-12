@@ -176,6 +176,41 @@ def test_ringcentral_webhook_pushes_event_to_bus(tmp_path, monkeypatch) -> None:
         engine.dispose()
 
 
+def test_ringcentral_test_event_publishes_call_and_presence(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        admin_token, org_id, _user_id = _create_user_membership(
+            session_factory,
+            org_name="RingCentral Test Event Org",
+            email="ringcentral-test-event-admin@example.com",
+            role=ROLE_ADMIN,
+        )
+
+        listener_id, queue = asyncio.run(call_center_event_bus.subscribe(org_id))
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/webhooks/ringcentral/test-event",
+                    headers={"Authorization": f"Bearer {admin_token}"},
+                )
+                assert response.status_code == 200
+                assert response.json() == {"ok": True}
+
+            first = asyncio.run(asyncio.wait_for(queue.get(), timeout=2.0))
+            second = asyncio.run(asyncio.wait_for(queue.get(), timeout=2.0))
+            events = {str(first.get("event")), str(second.get("event"))}
+            assert events == {"call", "presence"}
+            assert first["data"]["organization_id"] == org_id
+            assert second["data"]["organization_id"] == org_id
+        finally:
+            asyncio.run(call_center_event_bus.unsubscribe(org_id, listener_id))
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
 def test_call_center_sse_stream_emits_event(tmp_path, monkeypatch) -> None:
     _set_required_env(monkeypatch)
     engine, session_factory = _build_session(tmp_path)

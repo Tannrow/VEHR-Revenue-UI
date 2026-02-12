@@ -60,3 +60,16 @@ class CallCenterEventBus:
 
 
 call_center_event_bus = CallCenterEventBus()
+
+
+async def publish_event(organization_id: str, event_dict: dict[str, object]) -> None:
+    event_name = str(event_dict.get("event", "message"))
+    data = event_dict.get("data")
+    payload = data if isinstance(data, dict) else dict(event_dict)
+    source = str(event_dict.get("source", "api"))
+    await call_center_event_bus.publish(
+        organization_id=organization_id,
+        event=event_name,
+        data=payload,
+        source=source,
+    )

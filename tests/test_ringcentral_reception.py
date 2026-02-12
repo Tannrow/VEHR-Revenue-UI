@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import json
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -14,6 +17,7 @@ from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.reception_call_workflow import ReceptionCallWorkflow
 from app.db.models.ringcentral_credential import RingCentralCredential
 from app.db.models.ringcentral_event import RingCentralEvent
+from app.db.models.ringcentral_subscription import RingCentralSubscription
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.session import get_db
@@ -207,6 +211,80 @@ def test_ringcentral_webhook_validation_handshake(tmp_path, monkeypatch) -> None
             )
             assert response.status_code == 200
             assert response.headers.get("Validation-Token") == "validation-token-123"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_ringcentral_webhook_resolves_org_from_subscription_and_validates_signature(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        _receptionist_token, org_id = _seed_reception_user(session_factory)
+        with session_factory() as db:
+            membership = db.execute(
+                select(OrganizationMembership).where(OrganizationMembership.organization_id == org_id)
+            ).scalar_one()
+            db.add(
+                RingCentralSubscription(
+                    organization_id=org_id,
+                    user_id=membership.user_id,
+                    rc_subscription_id="sub-org-resolve-1",
+                    event_filters_json='["/restapi/v1.0/account/~/extension/~/telephony/sessions"]',
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+                    status="ACTIVE",
+                )
+            )
+            db.commit()
+
+        webhook_payload = {
+            "subscriptionId": "sub-org-resolve-1",
+            "event": "/restapi/v1.0/account/~/extension/~/telephony/sessions",
+            "eventId": "evt-subscription-map-1",
+            "body": {
+                "telephonySessionId": "session-sub-map-1",
+                "id": "call-sub-map-1",
+                "from": {"phoneNumber": "+15551234567"},
+                "to": {"phoneNumber": "+15557654321"},
+                "direction": "Inbound",
+                "status": {"code": "Ringing"},
+            },
+        }
+        raw_body = json.dumps(webhook_payload).encode("utf-8")
+        signature = hmac.new(
+            b"webhook-secret-value",
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        with TestClient(app) as client:
+            ok_response = client.post(
+                "/api/v1/webhooks/ringcentral?secret=webhook-secret-value",
+                content=raw_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-RingCentral-Signature": signature,
+                },
+            )
+            assert ok_response.status_code == 200
+
+            bad_response = client.post(
+                "/api/v1/webhooks/ringcentral?secret=webhook-secret-value",
+                content=raw_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-RingCentral-Signature": "invalid-signature",
+                },
+            )
+            assert bad_response.status_code == 401
+
+        with session_factory() as db:
+            stored_event = db.execute(
+                select(RingCentralEvent).where(RingCentralEvent.rc_event_id == "evt-subscription-map-1")
+            ).scalar_one_or_none()
+            assert stored_event is not None
+            assert stored_event.organization_id == org_id
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)

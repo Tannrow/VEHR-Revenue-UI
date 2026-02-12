@@ -282,7 +282,33 @@ Connect flow:
 Webhook configuration:
 
 - Endpoint:
+  `https://api.360-encompass.com/api/v1/webhooks/ringcentral?secret=<RINGCENTRAL_WEBHOOK_SHARED_SECRET>`
+- Optional compatibility endpoint:
   `https://api.360-encompass.com/api/v1/integrations/ringcentral/webhook?organization_id=<ORG_ID>&secret=<RINGCENTRAL_WEBHOOK_SHARED_SECRET>`
 - Point RingCentral event subscriptions to this URL.
 - After a test call event, verify rows are created in `call_events` (and `ringcentral_events` legacy mirror).
 - Open `Calls & Reception` and confirm events appear without manual refresh (SSE stream).
+
+Real-time infrastructure API checks (backend only):
+
+1. Ensure subscription:
+
+```bash
+curl -X POST "https://api.360-encompass.com/api/v1/integrations/ringcentral/ensure-subscription" \
+  -H "Authorization: Bearer <token>"
+```
+
+2. RingCentral webhook test (shared secret in query):
+
+```bash
+curl -X POST "https://api.360-encompass.com/api/v1/webhooks/ringcentral?secret=<RINGCENTRAL_WEBHOOK_SHARED_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"/restapi/v1.0/account/~/extension/~/telephony/sessions","eventId":"evt-test-1","body":{"id":"call-test-1","telephonySessionId":"session-test-1"}}'
+```
+
+3. Dev-only test-event publisher (pushes one fake call + one fake presence event into org queue):
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/webhooks/ringcentral/test-event" \
+  -H "Authorization: Bearer <token>"
+```

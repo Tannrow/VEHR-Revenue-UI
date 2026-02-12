@@ -15,6 +15,7 @@ from app.db.models.audit_event import AuditEvent
 from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.ringcentral_credential import RingCentralCredential
+from app.db.models.ringcentral_subscription import RingCentralSubscription
 from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
@@ -276,6 +277,54 @@ def test_ringcentral_callback_error_redirects_with_connected_zero(tmp_path, monk
             parsed_target = parse_qs(urlparse(target).query)
             assert parsed_target["connected"] == ["0"]
             assert parsed_target["err"] == ["access_denied"]
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_ringcentral_ensure_subscription_creates_and_persists(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        admin_token, org_id, user_id = _create_user_membership(
+            session_factory,
+            org_name="RingCentral Subscription Org",
+            email="ringcentral-subscription-admin@example.com",
+            role=ROLE_ADMIN,
+        )
+
+        expiry = datetime.now(timezone.utc) + timedelta(days=2)
+
+        monkeypatch.setattr(
+            "app.services.ringcentral_realtime.get_valid_access_token",
+            lambda **kwargs: ("access-token-value", SimpleNamespace()),
+        )
+        monkeypatch.setattr(
+            "app.services.ringcentral_realtime.create_subscription",
+            lambda **kwargs: ("sub-created-123", expiry),
+        )
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/ringcentral/ensure-subscription",
+                headers=_auth_header(admin_token),
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "ACTIVE"
+            assert payload["rc_subscription_id"] == "sub-created-123"
+
+        with session_factory() as db:
+            row = db.execute(
+                select(RingCentralSubscription).where(
+                    RingCentralSubscription.organization_id == org_id,
+                    RingCentralSubscription.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+            assert row is not None
+            assert row.status == "ACTIVE"
+            assert row.rc_subscription_id == "sub-created-123"
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)

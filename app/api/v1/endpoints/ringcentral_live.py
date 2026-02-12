@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -27,7 +30,7 @@ from app.db.models.ringcentral_subscription import RingCentralSubscription
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import log_event
-from app.services.call_center_bus import call_center_event_bus
+from app.services.call_center_bus import call_center_event_bus, publish_event
 from app.services.ringcentral_realtime import (
     RingCentralOAuthTokenPayload,
     RingCentralRealtimeError,
@@ -192,14 +195,80 @@ def _resolve_webhook_secret(request: Request) -> str:
     ).strip()
 
 
+def _resolve_webhook_signature(request: Request) -> str:
+    return (
+        request.headers.get("X-RingCentral-Signature")
+        or request.headers.get("X-Webhook-Signature")
+        or ""
+    ).strip()
+
+
+def _extract_subscription_id(payload: dict[str, Any], request: Request) -> str | None:
+    for key in ["subscriptionId", "subscription_id"]:
+        value = str(payload.get(key, "")).strip()
+        if value:
+            return value
+
+    subscription_obj = payload.get("subscription")
+    if isinstance(subscription_obj, dict):
+        value = str(subscription_obj.get("id", "")).strip()
+        if value:
+            return value
+
+    body = payload.get("body")
+    if isinstance(body, dict):
+        for key in ["subscriptionId", "subscription_id"]:
+            value = str(body.get(key, "")).strip()
+            if value:
+                return value
+
+    header_value = request.headers.get("X-RingCentral-Subscription-Id", "").strip()
+    if header_value:
+        return header_value
+    return None
+
+
+def _is_valid_webhook_signature(*, raw_body: bytes, shared_secret: str, signature_header: str) -> bool:
+    if not signature_header:
+        return True
+
+    expected_hex = hmac.new(shared_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    expected_prefixed = f"sha256={expected_hex}"
+    expected_base64 = base64.b64encode(
+        hmac.new(shared_secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
+    ).decode("utf-8")
+
+    provided = signature_header.strip()
+    return (
+        hmac.compare_digest(provided, expected_hex)
+        or hmac.compare_digest(provided, expected_prefixed)
+        or hmac.compare_digest(provided, expected_base64)
+    )
+
+
 def _resolve_webhook_org(
     *,
     db: Session,
     organization_id: str | None,
+    payload_subscription_id: str | None,
     payload_account_id: str | None,
 ) -> str:
     if organization_id:
         return organization_id
+
+    if payload_subscription_id:
+        rows = db.execute(
+            select(RingCentralSubscription).where(
+                RingCentralSubscription.rc_subscription_id == payload_subscription_id
+            )
+        ).scalars().all()
+        if len(rows) == 1:
+            return rows[0].organization_id
+        if len(rows) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Webhook subscription is linked to multiple organizations",
+            )
 
     if payload_account_id:
         rows = db.execute(
@@ -730,6 +799,20 @@ def ringcentral_ensure_subscription(
     _: None = Depends(require_permission("admin:integrations")),
 ) -> RingCentralEnsureSubscriptionRead:
     config = _load_config_or_raise()
+    existing = get_subscription(
+        db=db,
+        organization_id=membership.organization_id,
+        user_id=membership.user_id,
+    )
+    now = _now_utc()
+    existing_is_active = False
+    if existing and existing.status == "ACTIVE":
+        if not existing.expires_at:
+            existing_is_active = True
+        else:
+            expiry = existing.expires_at if existing.expires_at.tzinfo else existing.expires_at.replace(tzinfo=timezone.utc)
+            existing_is_active = expiry > now
+
     try:
         subscription = ensure_subscription(
             db=db,
@@ -740,6 +823,16 @@ def ringcentral_ensure_subscription(
         )
     except RingCentralRealtimeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    subscription_created = force or not existing_is_active
+    logger.info(
+        "ringcentral_subscription subscription_created=%s rc_subscription_id=%s expires_at=%s organization_id=%s user_id=%s",
+        subscription_created,
+        subscription.rc_subscription_id,
+        subscription.expires_at.isoformat() if subscription.expires_at else None,
+        membership.organization_id,
+        membership.user_id,
+    )
 
     return RingCentralEnsureSubscriptionRead(
         status=subscription.status,
@@ -806,21 +899,40 @@ async def ringcentral_webhook(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="RINGCENTRAL_WEBHOOK_SHARED_SECRET is not configured",
         )
-    if _resolve_webhook_secret(request) != config.webhook_shared_secret:
+    shared_secret = _resolve_webhook_secret(request)
+    if shared_secret != config.webhook_shared_secret:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid RingCentral webhook secret")
+    raw_body = await request.body()
+    signature_header = _resolve_webhook_signature(request)
+    if signature_header and not _is_valid_webhook_signature(
+        raw_body=raw_body,
+        shared_secret=config.webhook_shared_secret,
+        signature_header=signature_header,
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid RingCentral webhook signature")
 
     try:
-        payload_raw = await request.json()
+        decoded = raw_body.decode("utf-8") if raw_body else ""
+        payload_raw = json.loads(decoded) if decoded else {}
     except Exception:
         payload_raw = {}
     if not isinstance(payload_raw, dict):
         payload_raw = {}
 
+    payload_subscription_id = _extract_subscription_id(payload_raw, request)
     payload_account_id = extract_account_id_from_payload(payload_raw)
     resolved_org_id = _resolve_webhook_org(
         db=db,
         organization_id=organization_id,
+        payload_subscription_id=payload_subscription_id,
         payload_account_id=payload_account_id,
+    )
+    event_type = str(payload_raw.get("event", "")).strip() or "unknown"
+    logger.info(
+        "ringcentral_webhook webhook_received=%s event_type=%s org_id=%s",
+        True,
+        event_type,
+        resolved_org_id,
     )
 
     credentials_for_org = db.execute(
@@ -927,37 +1039,68 @@ async def ringcentral_webhook(
             )
         ).scalar_one_or_none()
         overlay_status = disposition_row.status if disposition_row else ("MISSED" if event.state == "missed" else "NEW")
-        await call_center_event_bus.publish(
-            organization_id=resolved_org_id,
-            event="call",
-            data={
-                "call_id": event.rc_call_id,
-                "state": event.state,
-                "disposition": event.disposition,
-                "from_number": event.from_number,
-                "to_number": event.to_number,
-                "direction": event.direction,
-                "extension_id": event.extension_id,
-                "started_at": event.started_at.isoformat() if event.started_at else None,
-                "ended_at": event.ended_at.isoformat() if event.ended_at else None,
-                "overlay_status": overlay_status,
-                "notes": disposition_row.notes if disposition_row else None,
-                "assigned_to_user_id": disposition_row.assigned_to_user_id if disposition_row else None,
+        await publish_event(
+            resolved_org_id,
+            {
+                "event": "call",
+                "data": {
+                    "event_type": event.event_filter or "telephony_session",
+                    "session_id": event.session_id,
+                    "rc_event_id": event.rc_event_id,
+                    "organization_id": resolved_org_id,
+                    "subscription_id": payload_subscription_id,
+                    "received_at": _now_utc().isoformat(),
+                    "event_filter": event.event_filter,
+                    "call_id": event.rc_call_id,
+                    "state": event.state,
+                    "disposition": event.disposition,
+                    "from_number": event.from_number,
+                    "to_number": event.to_number,
+                    "direction": event.direction,
+                    "extension_id": event.extension_id,
+                    "started_at": event.started_at.isoformat() if event.started_at else None,
+                    "ended_at": event.ended_at.isoformat() if event.ended_at else None,
+                    "overlay_status": overlay_status,
+                    "notes": disposition_row.notes if disposition_row else None,
+                    "assigned_to_user_id": disposition_row.assigned_to_user_id if disposition_row else None,
+                },
+                "source": "webhook",
             },
-            source="webhook",
         )
 
     for event in presence_events:
-        await call_center_event_bus.publish(
-            organization_id=resolved_org_id,
-            event="presence",
-            data={
-                "extension_id": event.extension_id,
-                "status": event.status,
-                "dnd_status": event.dnd_status,
-                "event_time": event.event_time.isoformat(),
+        await publish_event(
+            resolved_org_id,
+            {
+                "event": "presence",
+                "data": {
+                    "event_type": event.event_filter or "presence",
+                    "organization_id": resolved_org_id,
+                    "subscription_id": payload_subscription_id,
+                    "received_at": _now_utc().isoformat(),
+                    "event_filter": event.event_filter,
+                    "extension_id": event.extension_id,
+                    "status": event.status,
+                    "dnd_status": event.dnd_status,
+                    "event_time": event.event_time.isoformat(),
+                },
+                "source": "webhook",
             },
-            source="webhook",
+        )
+
+    if not call_events and not presence_events:
+        await publish_event(
+            resolved_org_id,
+            {
+                "event": "unknown",
+                "data": {
+                    "event_type": event_type,
+                    "organization_id": resolved_org_id,
+                    "subscription_id": payload_subscription_id,
+                    "received_at": _now_utc().isoformat(),
+                },
+                "source": "webhook",
+            },
         )
 
     log_event(
@@ -968,6 +1111,8 @@ async def ringcentral_webhook(
         organization_id=resolved_org_id,
         actor="ringcentral:webhook",
         metadata={
+            "event_type": event_type,
+            "subscription_id": payload_subscription_id,
             "payload_account_id": payload_account_id,
             "call_events": len(call_events),
             "presence_events": len(presence_events),
@@ -991,13 +1136,57 @@ async def ringcentral_test_push(
     if not _is_dev_mode():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not available in production")
 
-    await call_center_event_bus.publish(
-        organization_id=membership.organization_id,
-        event=str(payload.get("event", "call")),
-        data=payload.get("data", payload),
-        source="api",
+    await publish_event(
+        membership.organization_id,
+        {
+            "event": str(payload.get("event", "call")),
+            "data": payload.get("data", payload) if isinstance(payload.get("data", payload), dict) else payload,
+            "source": "api",
+        },
     )
     return {"pushed": True}
+
+
+@router.post("/webhooks/ringcentral/test-event")
+async def ringcentral_test_event(
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("admin:integrations")),
+):
+    if not _is_dev_mode():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not available in production")
+
+    now_iso = _now_utc().isoformat()
+    await publish_event(
+        membership.organization_id,
+        {
+            "event": "call",
+            "data": {
+                "event_type": "telephony_session",
+                "organization_id": membership.organization_id,
+                "call_id": f"dev-call-{membership.user_id[:8]}",
+                "state": "ringing",
+                "from_number": "+15550001111",
+                "to_number": "+15550002222",
+                "received_at": now_iso,
+            },
+            "source": "api",
+        },
+    )
+    await publish_event(
+        membership.organization_id,
+        {
+            "event": "presence",
+            "data": {
+                "event_type": "presence",
+                "organization_id": membership.organization_id,
+                "extension_id": "dev-ext-1",
+                "status": "available",
+                "received_at": now_iso,
+            },
+            "source": "api",
+        },
+    )
+    return {"ok": True}
 
 
 @router.get("/call-center/snapshot", response_model=CallCenterSnapshotRead)
