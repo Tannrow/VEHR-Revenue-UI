@@ -16,7 +16,7 @@ import {
   resolveModuleForPath,
   visibleModuleNavItems,
 } from "@/lib/modules";
-import { MePreferences, patchMePreferences } from "@/lib/preferences";
+import { MePreferences, fetchMePreferences, patchMePreferences } from "@/lib/preferences";
 
 type MeResponse = {
   id: string;
@@ -81,7 +81,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       try {
         const [me, prefs] = await Promise.all([
           apiFetch<MeResponse>("/api/v1/auth/me", { cache: "no-store" }),
-          apiFetch<MePreferences>("/api/v1/me/preferences", { cache: "no-store" }),
+          fetchMePreferences(),
         ]);
         if (!isMounted) return;
         setCurrentUser(me);
