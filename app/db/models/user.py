@@ -38,6 +38,10 @@ class User(Base):
         "RingCentralSubscription",
         back_populates="user",
     )
+    preferences: Mapped[list["UserPreference"]] = relationship(
+        "UserPreference",
+        back_populates="user",
+    )
     ai_threads: Mapped[list["AiThread"]] = relationship(
         "AiThread",
         back_populates="user",

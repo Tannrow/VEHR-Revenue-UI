@@ -99,6 +99,10 @@ class Organization(Base):
         "OrganizationMembership",
         back_populates="organization",
     )
+    user_preferences: Mapped[list["UserPreference"]] = relationship(
+        "UserPreference",
+        back_populates="organization",
+    )
     roles: Mapped[list["OrganizationRole"]] = relationship(
         "OrganizationRole",
         back_populates="organization",

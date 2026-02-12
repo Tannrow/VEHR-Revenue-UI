@@ -45,6 +45,7 @@ from app.db.models.service import Service  # noqa: F401
 from app.db.models.service_document_template import ServiceDocumentTemplate  # noqa: F401
 from app.db.models.task import Task  # noqa: F401
 from app.db.models.user import User  # noqa: F401
+from app.db.models.user_preference import UserPreference  # noqa: F401
 from app.db.models.scribe_capture import ScribeCapture  # noqa: F401
 from app.db.models.scribe_note_draft import ScribeNoteDraft  # noqa: F401
 from app.db.models.scribe_transcript import ScribeTranscript  # noqa: F401

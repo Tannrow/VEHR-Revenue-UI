@@ -332,7 +332,7 @@ export default function CopilotDrawer() {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        aria-label={isOpen ? "Close Copilot" : "Open Copilot"}
+        aria-label={isOpen ? "Close Tanner" : "Open Tanner"}
         data-testid="copilot-trigger"
         className="fixed bottom-6 right-6 z-[2147483000] inline-flex h-14 min-w-[56px] items-center justify-center gap-1 rounded-full bg-slate-900 px-3 text-white shadow-lg transition-transform hover:scale-105"
       >
@@ -342,7 +342,7 @@ export default function CopilotDrawer() {
           <path d="M7 16h6" />
           <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-6l-4 3v-3H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
         </svg>
-        <span className="text-xs font-semibold">AI</span>
+        <span className="text-xs font-semibold">T</span>
       </button>
 
       <aside
@@ -353,7 +353,7 @@ export default function CopilotDrawer() {
       >
         <section className="flex w-[280px] flex-col border-r border-slate-200 bg-slate-50">
           <div className="border-b border-slate-200 px-4 py-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">VEHR Copilot</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tanner</div>
             <div className="mt-1 text-sm text-slate-700">Support Threads</div>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
@@ -383,7 +383,7 @@ export default function CopilotDrawer() {
 
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="border-b border-slate-200 px-4 py-3">
-            <div className="text-sm font-semibold text-slate-900">Copilot Assistant</div>
+            <div className="text-sm font-semibold text-slate-900">Tanner Assistant</div>
             <div className="text-xs text-slate-500">Context: {context.module} | {context.path}</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {QUICK_ACTIONS.map((action) => (
@@ -420,7 +420,7 @@ export default function CopilotDrawer() {
               <textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="Ask VEHR Copilot..."
+                placeholder="Ask Tanner..."
                 rows={2}
                 className="min-h-[72px] flex-1 resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
               />

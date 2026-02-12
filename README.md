@@ -422,3 +422,39 @@ curl -X POST "http://127.0.0.1:8000/api/v1/scribe/captures/<capture-id>/draft-no
   -H "Content-Type: application/json" \
   -d "{\"note_type\":\"SOAP\"}"
 ```
+
+Navigation + user preferences API
+
+`user_preferences` stores UI preferences per `(organization_id, user_id)`:
+
+- `last_active_module`
+- `sidebar_collapsed`
+- `copilot_enabled`
+
+Module IDs:
+
+- `care_delivery`
+- `call_center`
+- `workforce`
+- `revenue_cycle`
+- `governance`
+- `administration`
+
+Endpoints:
+
+- `GET /api/v1/me/preferences`
+- `PATCH /api/v1/me/preferences`
+
+Example:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/me/preferences" \
+  -H "Authorization: Bearer <token>"
+```
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/me/preferences" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d "{\"last_active_module\":\"care_delivery\",\"sidebar_collapsed\":false,\"copilot_enabled\":true}"
+```

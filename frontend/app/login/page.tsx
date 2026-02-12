@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { persistAccessToken } from "@/lib/auth";
-import { BRANDING } from "@/lib/branding";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { fetchMePreferences, resolvePostLoginRoute } from "@/lib/preferences";
 
 type TokenResponse = {
   access_token: string;
@@ -26,26 +23,28 @@ type MeResponse = {
   organization_id: string;
 };
 
-function resolveNextPath(value: string | null): string {
+function resolveNextPath(value: string | null): string | null {
   if (!value || !value.startsWith("/")) {
-    return "/dashboard";
+    return null;
   }
   return value;
 }
 
 export default function LoginPage() {
   const router = useRouter();
-  const [nextPath, setNextPath] = useState("/dashboard");
+  const [requestedNextPath, setRequestedNextPath] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [organizationId, setOrganizationId] = useState("");
+  const [needsOrganizationId, setNeedsOrganizationId] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setNextPath(resolveNextPath(new URLSearchParams(window.location.search).get("next")));
+    setRequestedNextPath(resolveNextPath(new URLSearchParams(window.location.search).get("next")));
   }, []);
 
   useEffect(() => {
@@ -54,8 +53,9 @@ export default function LoginPage() {
     async function checkExistingSession() {
       try {
         await apiFetch<MeResponse>("/api/v1/auth/me", { cache: "no-store" });
+        const preferences = await fetchMePreferences();
         if (!isMounted) return;
-        router.replace(nextPath);
+        router.replace(resolvePostLoginRoute(preferences, requestedNextPath));
       } catch {
         if (!isMounted) return;
       } finally {
@@ -69,7 +69,7 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [nextPath, router]);
+  }, [requestedNextPath, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,6 +79,11 @@ export default function LoginPage() {
     const normalizedPassword = password.trim();
     if (!normalizedEmail || !normalizedPassword) {
       setError("Email and password are required.");
+      return;
+    }
+
+    if (needsOrganizationId && !organizationId.trim()) {
+      setError("Organization ID is required for your account.");
       return;
     }
 
@@ -98,12 +103,17 @@ export default function LoginPage() {
       });
 
       persistAccessToken(response.access_token);
-      router.replace(nextPath);
+      const preferences = await fetchMePreferences();
+      router.replace(resolvePostLoginRoute(preferences, requestedNextPath));
     } catch (submitError) {
-      if (submitError instanceof ApiError || submitError instanceof Error) {
-        setError(submitError.message || "Login failed.");
+      const message = submitError instanceof ApiError || submitError instanceof Error
+        ? submitError.message || "Login failed."
+        : "Login failed.";
+      if (message.toLowerCase().includes("organization_id required")) {
+        setNeedsOrganizationId(true);
+        setError("Please enter your organization ID to continue.");
       } else {
-        setError("Login failed.");
+        setError(message);
       }
     } finally {
       setIsSubmitting(false);
@@ -111,94 +121,88 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen px-6 py-16 sm:px-10">
-      <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.15fr_1fr]">
-        <Card className="bg-white shadow-sm">
-          <CardHeader className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
-              {BRANDING.name}
-            </p>
-            <CardTitle className="text-3xl tracking-tight text-slate-900">
-              Sign in to {BRANDING.name}
-            </CardTitle>
-            <p className="text-sm text-slate-500">
-              {BRANDING.tagline}
-            </p>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              {isCheckingSession ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                  Checking existing session...
-                </div>
-              ) : null}
-              {error ? (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {error}
-                </div>
-              ) : null}
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-100 px-4 py-10">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.08),_transparent_42%),radial-gradient(circle_at_80%_20%,_rgba(14,116,144,0.12),_transparent_36%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)]" />
 
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" htmlFor="email">
-                  Email
-                </label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="clinician@your-org.com"
-                  autoComplete="email"
-                  required
-                />
+      <div className="relative z-10 w-full max-w-md">
+        <div className="rounded-2xl border border-slate-200 bg-white/95 px-7 py-8 shadow-[0_20px_40px_-20px_rgba(15,23,42,0.35)] backdrop-blur">
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold tracking-[0.18em] text-white">
+              E360
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Encompass 360</h1>
+            <p className="mt-1 text-sm text-slate-600">For clinicians. By clinicians.</p>
+          </div>
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            {isCheckingSession ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Checking existing session...
               </div>
+            ) : null}
 
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" htmlFor="password">
-                  Password
-                </label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
+            {error ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {error}
               </div>
+            ) : null}
 
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500" htmlFor="email">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@encompass360.com"
+                autoComplete="email"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500" htmlFor="password">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                required
+              />
+            </div>
+
+            {needsOrganizationId ? (
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" htmlFor="organization_id">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500" htmlFor="organization_id">
                   Organization ID
                 </label>
-                <Input
+                <input
                   id="organization_id"
+                  type="text"
                   value={organizationId}
                   onChange={(event) => setOrganizationId(event.target.value)}
-                  placeholder="Optional unless user belongs to multiple organizations"
+                  className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  required
                 />
               </div>
+            ) : null}
 
-              <Button type="submit" className="h-10 w-full rounded-lg" disabled={isSubmitting || isCheckingSession}>
-                {isSubmitting ? "Signing in..." : "Sign in"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg text-slate-900">Access Notes</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-slate-600">
-            <p>Tokens are saved in browser storage for this workspace session.</p>
-            <p>
-              If login returns an organization selection error, re-submit with your
-              `organization_id`.
-            </p>
-            <p>After successful login you will be redirected to your CRM workspace.</p>
-          </CardContent>
-        </Card>
+            <button
+              type="submit"
+              disabled={isSubmitting || isCheckingSession}
+              className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-900 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-65"
+            >
+              {isSubmitting ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

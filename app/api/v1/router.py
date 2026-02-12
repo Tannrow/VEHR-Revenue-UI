@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     health,
     integrations,
     integrations_microsoft,
+    me_preferences,
     ringcentral_live,
     organization_home,
     organizations,
@@ -32,6 +33,7 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
+api_router.include_router(me_preferences.router)
 api_router.include_router(ai_copilot.router)
 api_router.include_router(admin_center.router)
 api_router.include_router(organizations.router)
