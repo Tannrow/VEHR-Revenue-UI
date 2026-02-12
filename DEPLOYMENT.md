@@ -49,10 +49,12 @@ alembic upgrade head
 `RINGCENTRAL_CLIENT_ID` = RingCentral OAuth app client ID  
 `RINGCENTRAL_CLIENT_SECRET` = RingCentral OAuth app client secret  
 `RINGCENTRAL_SERVER_URL` = `https://platform.ringcentral.com`  
-`RINGCENTRAL_REDIRECT_URI` = `https://api.360-encompass.com/api/v1/integrations/ringcentral/callback`  
+`RINGCENTRAL_REDIRECT_URI` = `https://api.360-encompass.com/api/v1/integrations/ringcentral/callback` (must exactly match RingCentral app setting)  
+`RINGCENTRAL_POST_CONNECT_REDIRECT` = `https://360-encompass.com/admin-center` (optional)
+  
+Optional (required for webhook subscription flow):  
 `RINGCENTRAL_WEBHOOK_SHARED_SECRET` = shared secret for webhook authentication  
 `PUBLIC_WEBHOOK_BASE_URL` = `https://api.360-encompass.com`  
-`RINGCENTRAL_POST_CONNECT_REDIRECT` = `https://360-encompass.com/admin-center` (optional)
 
 Notes:
 `AUTO_CREATE_TABLES` stays off so Alembic is the schema source of truth.  
@@ -82,7 +84,7 @@ Render supplies `PORT` automatically for the Docker container.
 7. RingCentral OAuth + webhook checklist:
    - Confirm all RingCentral env vars above are set in API service config.
    - In Admin Center, open Integrations status and click **Connect RingCentral**.
-   - Complete RingCentral consent and confirm redirect returns with `?ringcentral=connected`.
+   - Complete RingCentral consent and confirm redirect returns with `?connected=1` (or `?connected=0&err=<code>`).
    - Confirm a row exists in `ringcentral_credentials` for your `(organization_id, user_id)`.
    - Click **Ensure subscription** and confirm status is `ACTIVE`.
    - Configure RingCentral webhook target URL:

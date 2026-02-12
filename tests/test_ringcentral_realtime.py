@@ -23,6 +23,7 @@ from app.services.ringcentral_realtime import (
     load_ringcentral_runtime_config,
     make_state,
     parse_state,
+    validate_ringcentral_startup_configuration,
 )
 
 
@@ -120,6 +121,17 @@ def test_ringcentral_token_encrypt_decrypt_roundtrip(monkeypatch) -> None:
     encrypted = encrypt_token(raw_token, key_env="INTEGRATION_TOKEN_KEY")
     assert encrypted != raw_token
     assert decrypt_token(encrypted, key_env="INTEGRATION_TOKEN_KEY") == raw_token
+
+
+def test_ringcentral_startup_validation_fails_when_required_env_missing(monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("RINGCENTRAL_CLIENT_ID", raising=False)
+    try:
+        validate_ringcentral_startup_configuration()
+    except RingCentralRealtimeError as exc:
+        assert exc.detail == "RINGCENTRAL_CLIENT_ID is not configured"
+    else:
+        raise AssertionError("Expected startup configuration validation failure")
 
 
 def test_ringcentral_webhook_pushes_event_to_bus(tmp_path, monkeypatch) -> None:

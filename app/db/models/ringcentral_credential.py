@@ -35,7 +35,7 @@ class RingCentralCredential(Base):
     rc_extension_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     access_token_enc: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token_enc: Mapped[str] = mapped_column(Text, nullable=False)
-    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    token_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

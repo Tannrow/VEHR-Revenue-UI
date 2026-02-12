@@ -10,6 +10,10 @@ from sqlalchemy import text
 from app.api.v1.router import api_router
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
+from app.services.ringcentral_realtime import (
+    RingCentralRealtimeError,
+    validate_ringcentral_startup_configuration,
+)
 from app.services.storage import should_validate_s3_on_startup, validate_s3_connection
 
 logger = logging.getLogger(__name__)
@@ -59,6 +63,11 @@ async def lifespan(_app: FastAPI):
     import app.db.models  # register models
 
     _log_auth_dependency_versions()
+    try:
+        validate_ringcentral_startup_configuration()
+    except RingCentralRealtimeError as exc:
+        logger.exception("RingCentral startup validation failed")
+        raise RuntimeError(exc.detail) from exc
 
     if should_validate_s3_on_startup():
         # Optional production guard: fail boot if bucket/credentials are invalid.

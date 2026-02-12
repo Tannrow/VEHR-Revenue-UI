@@ -49,8 +49,8 @@ class RingCentralRuntimeConfig:
     client_secret: str
     server_url: str
     redirect_uri: str
-    webhook_shared_secret: str
-    public_webhook_base_url: str
+    webhook_shared_secret: str | None
+    public_webhook_base_url: str | None
     scopes: str
     default_return_to: str
     integration_token_key: str
@@ -60,7 +60,7 @@ class RingCentralRuntimeConfig:
 class RingCentralOAuthTokenPayload:
     access_token: str
     refresh_token: str
-    expires_at: datetime | None
+    expires_at: datetime
     scopes: str | None
     account_id: str | None
     extension_id: str | None
@@ -129,22 +129,32 @@ def _webhook_shared_secret_from_env() -> str:
 
 
 def load_ringcentral_runtime_config() -> RingCentralRuntimeConfig:
-    shared_secret = _webhook_shared_secret_from_env()
-    if not shared_secret:
-        raise RingCentralRealtimeError("RINGCENTRAL_WEBHOOK_SHARED_SECRET is not configured", status_code=500)
-
     integration_key = _required_env("INTEGRATION_TOKEN_KEY")
     return RingCentralRuntimeConfig(
         client_id=_required_env("RINGCENTRAL_CLIENT_ID"),
         client_secret=_required_env("RINGCENTRAL_CLIENT_SECRET"),
         server_url=_required_env("RINGCENTRAL_SERVER_URL"),
         redirect_uri=_required_env("RINGCENTRAL_REDIRECT_URI"),
-        webhook_shared_secret=shared_secret,
-        public_webhook_base_url=_required_env("PUBLIC_WEBHOOK_BASE_URL"),
+        webhook_shared_secret=_webhook_shared_secret_from_env() or None,
+        public_webhook_base_url=os.getenv("PUBLIC_WEBHOOK_BASE_URL", "").strip() or None,
         scopes=os.getenv("RINGCENTRAL_SCOPES", "").strip() or DEFAULT_RINGCENTRAL_SCOPES,
         default_return_to=os.getenv("RINGCENTRAL_POST_CONNECT_REDIRECT", "").strip() or DEFAULT_STATE_RETURN_TO,
         integration_token_key=integration_key,
     )
+
+
+def validate_ringcentral_startup_configuration() -> None:
+    config = load_ringcentral_runtime_config()
+    probe_plaintext = "ringcentral-startup-probe"
+    try:
+        probe_encrypted = encrypt_token(probe_plaintext, key_env="INTEGRATION_TOKEN_KEY")
+        probe_roundtrip = decrypt_token(probe_encrypted, key_env="INTEGRATION_TOKEN_KEY")
+    except TokenEncryptionError as exc:
+        raise RingCentralRealtimeError(f"INTEGRATION_TOKEN_KEY validation failed: {exc}", status_code=500) from exc
+    if probe_roundtrip != probe_plaintext:
+        raise RingCentralRealtimeError("INTEGRATION_TOKEN_KEY validation failed", status_code=500)
+    if not config.redirect_uri:
+        raise RingCentralRealtimeError("RINGCENTRAL_REDIRECT_URI is not configured", status_code=500)
 
 
 def _state_signing_secret(config: RingCentralRuntimeConfig) -> str:
@@ -252,6 +262,13 @@ def _parse_expiration(raw_value: Any) -> datetime | None:
     return _now_utc() + timedelta(seconds=max(seconds, 0))
 
 
+def _parse_token_expiration(raw_value: Any) -> datetime:
+    parsed = _parse_expiration(raw_value)
+    if parsed:
+        return parsed
+    return _now_utc() + timedelta(hours=1)
+
+
 def exchange_authorization_code(
     *,
     config: RingCentralRuntimeConfig,
@@ -282,7 +299,7 @@ def exchange_authorization_code(
     if not access_token or not refresh_token:
         raise RingCentralRealtimeError("token_exchange_missing_tokens", 502)
 
-    expires_at = _parse_expiration(body.get("expires_in"))
+    expires_at = _parse_token_expiration(body.get("expires_in"))
     scopes = str(body.get("scope", "")).strip() or config.scopes
     return RingCentralOAuthTokenPayload(
         access_token=access_token,
@@ -323,7 +340,7 @@ def refresh_access_token(
     if not access_token:
         raise RingCentralRealtimeError("token_refresh_missing_access_token", 502)
 
-    expires_at = _parse_expiration(body.get("expires_in"))
+    expires_at = _parse_token_expiration(body.get("expires_in"))
     scopes = str(body.get("scope", "")).strip() or config.scopes
     return RingCentralOAuthTokenPayload(
         access_token=access_token,
@@ -553,6 +570,10 @@ def _subscription_item_url(config: RingCentralRuntimeConfig, rc_subscription_id:
 
 
 def build_webhook_address(config: RingCentralRuntimeConfig) -> str:
+    if not config.webhook_shared_secret:
+        raise RingCentralRealtimeError("RINGCENTRAL_WEBHOOK_SHARED_SECRET is not configured", status_code=500)
+    if not config.public_webhook_base_url:
+        raise RingCentralRealtimeError("PUBLIC_WEBHOOK_BASE_URL is not configured", status_code=500)
     query = urlencode({"secret": config.webhook_shared_secret})
     return f"{config.public_webhook_base_url.rstrip('/')}/api/v1/webhooks/ringcentral?{query}"
 
@@ -563,6 +584,8 @@ def _subscription_payload(
     event_filters: list[str],
     expires_in: int = SUBSCRIPTION_EXPIRES_IN_SECONDS,
 ) -> dict[str, object]:
+    if not config.webhook_shared_secret:
+        raise RingCentralRealtimeError("RINGCENTRAL_WEBHOOK_SHARED_SECRET is not configured", status_code=500)
     return {
         "eventFilters": event_filters,
         "deliveryMode": {

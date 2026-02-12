@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
@@ -133,6 +134,32 @@ def test_ringcentral_connect_requires_permissions(tmp_path, monkeypatch) -> None
         engine.dispose()
 
 
+def test_ringcentral_connect_get_redirects_to_authorize(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        admin_token, _org_id, _user_id = _create_user_membership(
+            session_factory,
+            org_name="RingCentral Redirect Org",
+            email="ringcentral-redirect-admin@example.com",
+            role=ROLE_ADMIN,
+        )
+        with TestClient(app) as client:
+            response = client.get(
+                f"/api/v1/integrations/ringcentral/connect?access_token={admin_token}",
+                follow_redirects=False,
+            )
+            assert response.status_code == 303
+            location = response.headers["location"]
+            assert location.startswith("https://platform.ringcentral.com/restapi/oauth/authorize?")
+            parsed_query = parse_qs(urlparse(location).query)
+            assert parsed_query.get("state")
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
 def test_ringcentral_callback_stores_encrypted_tokens(tmp_path, monkeypatch) -> None:
     _set_required_env(monkeypatch)
     engine, session_factory = _build_session(tmp_path)
@@ -200,7 +227,8 @@ def test_ringcentral_callback_stores_encrypted_tokens(tmp_path, monkeypatch) -> 
             assert callback_response.status_code == 303
             callback_target = callback_response.headers["location"]
             parsed_target = parse_qs(urlparse(callback_target).query)
-            assert parsed_target["ringcentral"] == ["connected"]
+            assert parsed_target["connected"] == ["1"]
+            assert "err" not in parsed_target
 
         with session_factory() as db:
             row = db.execute(
@@ -221,6 +249,33 @@ def test_ringcentral_callback_stores_encrypted_tokens(tmp_path, monkeypatch) -> 
             ).scalar_one_or_none()
             assert audit_event is not None
             assert audit_event.organization_id == org_id
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_ringcentral_callback_error_redirects_with_connected_zero(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        _admin_token, _org_id, _user_id = _create_user_membership(
+            session_factory,
+            org_name="RingCentral Callback Error Org",
+            email="ringcentral-callback-error-admin@example.com",
+            role=ROLE_ADMIN,
+        )
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/v1/integrations/ringcentral/callback",
+                params={"error": "access_denied"},
+                follow_redirects=False,
+            )
+            assert response.status_code == 303
+            target = response.headers["location"]
+            parsed_target = parse_qs(urlparse(target).query)
+            assert parsed_target["connected"] == ["0"]
+            assert parsed_target["err"] == ["access_denied"]
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
@@ -253,6 +308,7 @@ def test_ringcentral_status_is_org_scoped(tmp_path, monkeypatch) -> None:
                     rc_extension_id="ext-a",
                     access_token_enc="encrypted-access",
                     refresh_token_enc="encrypted-refresh",
+                    token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
                     scopes="ReadAccounts",
                 )
             )

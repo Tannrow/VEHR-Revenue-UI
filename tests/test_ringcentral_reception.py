@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -88,6 +90,7 @@ def _seed_reception_user(session_factory) -> tuple[str, str]:
                 rc_extension_id="ext-123",
                 access_token_enc="encrypted-access",
                 refresh_token_enc="encrypted-refresh",
+                token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
                 scopes="ReadAccounts ReadCallLog ReadPresence",
             )
         )

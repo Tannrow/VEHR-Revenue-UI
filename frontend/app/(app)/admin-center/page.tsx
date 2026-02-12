@@ -145,10 +145,16 @@ export default function AdminCenterPage() {
   }, []);
 
   useEffect(() => {
+    const connected = searchParams.get("connected");
+    const err = searchParams.get("err");
     const ringCentralState = searchParams.get("ringcentral");
     const reason = searchParams.get("reason");
-    if (ringCentralState === "connected") {
+    if (connected === "1" || ringCentralState === "connected") {
       setRingCentralMessage("RingCentral connected.");
+      return;
+    }
+    if (connected === "0") {
+      setRingCentralMessage(err ? `RingCentral error: ${err}` : "RingCentral connection failed.");
       return;
     }
     if (ringCentralState === "error") {

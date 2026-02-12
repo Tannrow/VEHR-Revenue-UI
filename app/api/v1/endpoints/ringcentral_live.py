@@ -21,7 +21,6 @@ from app.core.security import decode_access_token
 from app.db.models.call_disposition import CallDisposition
 from app.db.models.call_event import CallEvent
 from app.db.models.organization_membership import OrganizationMembership
-from app.db.models.reception_call_workflow import ReceptionCallWorkflow
 from app.db.models.ringcentral_credential import RingCentralCredential
 from app.db.models.ringcentral_event import RingCentralEvent
 from app.db.models.ringcentral_subscription import RingCentralSubscription
@@ -38,7 +37,6 @@ from app.services.ringcentral_realtime import (
     extract_account_id_from_payload,
     fetch_account_and_extension,
     get_credential,
-    get_valid_access_token,
     get_subscription,
     load_ringcentral_runtime_config,
     make_state,
@@ -73,7 +71,10 @@ class RingCentralStatusRead(BaseModel):
     organization_id: str
     user_id: str
     scope: str | None = None
+    rc_account_id: str | None = None
+    rc_extension_id: str | None = None
     expires_at: datetime | None = None
+    # Backward compatibility for existing frontend consumers.
     account_id: str | None = None
     extension_id: str | None = None
     token_expires_at: datetime | None = None
@@ -88,6 +89,7 @@ class RingCentralEnsureSubscriptionRead(BaseModel):
 
 
 class RingCentralDisconnectRead(BaseModel):
+    ok: bool
     disconnected: bool
 
 
@@ -157,7 +159,7 @@ def _sanitize_reason(raw_reason: str) -> str:
     return compact[:80] or "unknown_error"
 
 
-def _callback_redirect_url(*, return_to: str, result: str, reason: str | None = None) -> str:
+def _callback_redirect_url(*, return_to: str, connected: bool, err: str | None = None) -> str:
     parsed = urlparse(return_to)
     hostname = (parsed.hostname or "").strip().lower()
     is_localhost_port = hostname in {"localhost", "127.0.0.1"} and parsed.port is not None
@@ -168,9 +170,9 @@ def _callback_redirect_url(*, return_to: str, result: str, reason: str | None = 
     ):
         return_to = "https://360-encompass.com/admin-center"
     separator = "&" if "?" in return_to else "?"
-    payload = {"ringcentral": result}
-    if reason:
-        payload["reason"] = _sanitize_reason(reason)
+    payload = {"connected": "1" if connected else "0"}
+    if err and not connected:
+        payload["err"] = _sanitize_reason(err)
     return f"{return_to}{separator}{urlencode(payload)}"
 
 
@@ -286,6 +288,44 @@ def _resolve_stream_membership(
         organization_id=membership.organization_id,
         role=membership.role,
         permission="calls:read",
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return membership
+
+
+def _resolve_connect_membership(
+    *,
+    db: Session,
+    access_token: str | None,
+    credentials: HTTPAuthorizationCredentials | None,
+    request: Request | None = None,
+) -> OrganizationMembership:
+    cookie_token = ""
+    if request is not None:
+        cookie_token = (request.cookies.get("vehr_access_token") or request.cookies.get("access_token") or "").strip()
+    token_value = access_token or (credentials.credentials if credentials else "") or cookie_token
+    if not token_value:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
+    try:
+        token_data = decode_access_token(token_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
+
+    membership = db.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == token_data.organization_id,
+            OrganizationMembership.user_id == token_data.user_id,
+        )
+    ).scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization access denied")
+    if not membership.user or not membership.user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
+    if not has_permission_for_organization(
+        db,
+        organization_id=membership.organization_id,
+        role=membership.role,
+        permission="admin:integrations",
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     return membership
@@ -436,7 +476,33 @@ def _build_call_center_snapshot(
     )
 
 
-@router.get("/integrations/ringcentral/connect", response_model=RingCentralConnectRead)
+@router.get("/integrations/ringcentral/connect")
+def ringcentral_connect_redirect(
+    request: Request,
+    return_to: str | None = Query(default=None),
+    access_token: str | None = Query(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    membership = _resolve_connect_membership(
+        db=db,
+        access_token=access_token,
+        credentials=credentials,
+        request=request,
+    )
+    config = _load_config_or_raise()
+    state = make_state(
+        config=config,
+        organization_id=membership.organization_id,
+        user_id=membership.user_id,
+        return_to=return_to or config.default_return_to,
+    )
+    return RedirectResponse(
+        build_authorization_url(config=config, state=state),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.post("/integrations/ringcentral/connect", response_model=RingCentralConnectRead)
 def ringcentral_connect(
     return_to: str | None = Query(default=None),
@@ -464,35 +530,37 @@ def ringcentral_callback(
     error_description: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    logger.info("callback_hit")
     config = _load_config_or_raise()
-
-    if error:
-        return RedirectResponse(
-            _callback_redirect_url(
-                return_to=config.default_return_to,
-                result="error",
-                reason=error_description or error,
-            ),
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-    if not code or not state:
-        return RedirectResponse(
-            _callback_redirect_url(
-                return_to=config.default_return_to,
-                result="error",
-                reason="missing_code_or_state",
-            ),
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+    callback_hit = True
+    state_verified = False
+    state_org_id: str | None = None
+    state_user_id: str | None = None
+    token_exchange_ok = False
+    db_upsert_ok = False
+    readback_ok = False
+    parsed_state = None
+    logger.info(
+        "ringcentral_oauth_callback callback_hit=%s state_verified=%s state_org_id=%s "
+        "state_user_id=%s token_exchange_ok=%s db_upsert_ok=%s readback_ok=%s",
+        callback_hit,
+        state_verified,
+        state_org_id,
+        state_user_id,
+        token_exchange_ok,
+        db_upsert_ok,
+        readback_ok,
+    )
 
     try:
+        if error:
+            raise RingCentralRealtimeError(error_description or error or "oauth_error", 400)
+        if not code or not state:
+            raise RingCentralRealtimeError("missing_code_or_state", 400)
+
         parsed_state = parse_state(config=config, state=state)
-        logger.info(
-            "state_verified org_id=%s user_id=%s",
-            parsed_state.organization_id,
-            parsed_state.user_id,
-        )
+        state_verified = True
+        state_org_id = parsed_state.organization_id
+        state_user_id = parsed_state.user_id
 
         membership = db.execute(
             select(OrganizationMembership).where(
@@ -504,7 +572,7 @@ def ringcentral_callback(
             raise RingCentralRealtimeError("state_membership_not_found", 400)
 
         token_payload = exchange_authorization_code(config=config, code=code)
-        logger.info("token_exchange_ok")
+        token_exchange_ok = True
         account_id, extension_id = fetch_account_and_extension(
             config=config,
             access_token=token_payload.access_token,
@@ -523,23 +591,25 @@ def ringcentral_callback(
             user_id=parsed_state.user_id,
             token=merged_payload,
         )
-        logger.info("db_upsert_ok")
+        db_upsert_ok = True
         readback_credential(
             db=db,
             organization_id=parsed_state.organization_id,
             user_id=parsed_state.user_id,
         )
-        logger.info("readback_ok")
+        readback_ok = True
 
-        try:
-            ensure_subscription(
-                db=db,
-                config=config,
-                organization_id=parsed_state.organization_id,
-                user_id=parsed_state.user_id,
-            )
-        except RingCentralRealtimeError:
-            logger.exception("ringcentral_subscription_ensure_failed")
+        logger.info(
+            "ringcentral_oauth_callback_success callback_hit=%s state_verified=%s state_org_id=%s "
+            "state_user_id=%s token_exchange_ok=%s db_upsert_ok=%s readback_ok=%s",
+            callback_hit,
+            state_verified,
+            state_org_id,
+            state_user_id,
+            token_exchange_ok,
+            db_upsert_ok,
+            readback_ok,
+        )
 
         log_event(
             db,
@@ -554,27 +624,53 @@ def ringcentral_callback(
             },
         )
         return RedirectResponse(
-            _callback_redirect_url(return_to=parsed_state.return_to, result="connected"),
+            _callback_redirect_url(return_to=parsed_state.return_to, connected=True),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except RingCentralRealtimeError as exc:
         db.rollback()
+        err_code = _sanitize_reason(exc.detail)
+        logger.exception(
+            "ringcentral_oauth_callback_failed callback_hit=%s state_verified=%s state_org_id=%s "
+            "state_user_id=%s token_exchange_ok=%s db_upsert_ok=%s readback_ok=%s err=%s",
+            callback_hit,
+            state_verified,
+            state_org_id,
+            state_user_id,
+            token_exchange_ok,
+            db_upsert_ok,
+            readback_ok,
+            err_code,
+        )
+        return_to = parsed_state.return_to if parsed_state else config.default_return_to
         return RedirectResponse(
             _callback_redirect_url(
-                return_to=config.default_return_to,
-                result="error",
-                reason=exc.detail,
+                return_to=return_to,
+                connected=False,
+                err=err_code,
             ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception:
         db.rollback()
-        logger.exception("ringcentral_callback_unexpected_error")
+        logger.exception(
+            "ringcentral_oauth_callback_failed callback_hit=%s state_verified=%s state_org_id=%s "
+            "state_user_id=%s token_exchange_ok=%s db_upsert_ok=%s readback_ok=%s err=%s",
+            callback_hit,
+            state_verified,
+            state_org_id,
+            state_user_id,
+            token_exchange_ok,
+            db_upsert_ok,
+            readback_ok,
+            "unexpected_error",
+        )
+        return_to = parsed_state.return_to if parsed_state else config.default_return_to
         return RedirectResponse(
             _callback_redirect_url(
-                return_to=config.default_return_to,
-                result="error",
-                reason="unexpected_error",
+                return_to=return_to,
+                connected=False,
+                err="unexpected_error",
             ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
@@ -596,6 +692,12 @@ def ringcentral_status(
         organization_id=membership.organization_id,
         user_id=membership.user_id,
     )
+    logger.info(
+        "ringcentral_status status_check_found_credential=%s organization_id=%s user_id=%s",
+        bool(row),
+        membership.organization_id,
+        membership.user_id,
+    )
     if not row:
         return RingCentralStatusRead(
             connected=False,
@@ -610,6 +712,8 @@ def ringcentral_status(
         user_id=membership.user_id,
         scope=row.scopes,
         expires_at=row.token_expires_at,
+        rc_account_id=row.rc_account_id,
+        rc_extension_id=row.rc_extension_id,
         account_id=row.rc_account_id,
         extension_id=row.rc_extension_id,
         token_expires_at=row.token_expires_at,
@@ -678,7 +782,7 @@ def ringcentral_disconnect(
         actor=membership.user.email,
         metadata={"disconnected": disconnected},
     )
-    return RingCentralDisconnectRead(disconnected=disconnected)
+    return RingCentralDisconnectRead(ok=True, disconnected=disconnected)
 
 
 @router.post("/webhooks/ringcentral")
@@ -697,6 +801,11 @@ async def ringcentral_webhook(
         )
 
     config = _load_config_or_raise()
+    if not config.webhook_shared_secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="RINGCENTRAL_WEBHOOK_SHARED_SECRET is not configured",
+        )
     if _resolve_webhook_secret(request) != config.webhook_shared_secret:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid RingCentral webhook secret")
 

@@ -255,15 +255,18 @@ curl "http://127.0.0.1:8000/api/v1/uploads/<key-from-presign-response>/download"
   -H "Authorization: Bearer <token>"
 ```
 
-RingCentral integration (OAuth + webhook)
+RingCentral integration (OAuth + realtime)
 
-Required API env vars:
+Required API env vars (startup fails fast if missing):
 
 - INTEGRATION_TOKEN_KEY
 - RINGCENTRAL_CLIENT_ID
 - RINGCENTRAL_CLIENT_SECRET
 - RINGCENTRAL_SERVER_URL (default: https://platform.ringcentral.com)
-- RINGCENTRAL_REDIRECT_URI (example: https://api.360-encompass.com/api/v1/integrations/ringcentral/callback)
+- RINGCENTRAL_REDIRECT_URI (must exactly match the RingCentral app callback URL, example: https://api.360-encompass.com/api/v1/integrations/ringcentral/callback)
+
+Optional (required only for webhook subscription flow):
+
 - RINGCENTRAL_WEBHOOK_SHARED_SECRET
 - PUBLIC_WEBHOOK_BASE_URL (example: https://api.360-encompass.com)
 
@@ -272,7 +275,7 @@ Connect flow:
 1. Sign in as an admin user with `admin:integrations`.
 2. Open Admin Center and click `Connect RingCentral`.
 3. Complete OAuth consent in RingCentral.
-4. Confirm redirect back to frontend includes `?ringcentral=connected`.
+4. Confirm redirect back to frontend includes `?connected=1` (or `?connected=0&err=<code>` on failure).
 5. Verify `ringcentral_credentials` has one row for `(organization_id, user_id)`.
 6. Click `Ensure subscription` in Admin Center and confirm subscription shows `ACTIVE`.
 
