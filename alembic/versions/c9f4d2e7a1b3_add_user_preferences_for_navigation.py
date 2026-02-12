@@ -24,61 +24,31 @@ def _index_exists(inspector, table_name: str, index_name: str) -> bool:
     return any(index["name"] == index_name for index in inspector.get_indexes(table_name))
 
 
-def _has_org_user_unique(inspector, table_name: str) -> bool:
-    target_cols = {"organization_id", "user_id"}
-    for constraint in inspector.get_unique_constraints(table_name):
-        cols = set(constraint.get("column_names") or [])
-        if cols == target_cols:
-            return True
-    return False
-
-
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
-    if not _table_exists(inspector, "user_preferences"):
-        op.create_table(
-            "user_preferences",
-            sa.Column("id", sa.String(length=36), nullable=False),
-            sa.Column("organization_id", sa.String(length=36), nullable=False),
-            sa.Column("user_id", sa.String(length=36), nullable=False),
-            sa.Column("last_active_module", sa.String(length=64), nullable=True),
-            sa.Column("sidebar_collapsed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-            sa.Column("copilot_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-            sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-            sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
-            sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
-            sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("organization_id", "user_id", name="uq_user_preferences_org_user"),
-        )
+    if _table_exists(inspector, "user_preferences"):
+        return
 
-    inspector = sa.inspect(bind)
-    if _table_exists(inspector, "user_preferences") and not _has_org_user_unique(inspector, "user_preferences"):
-        op.create_unique_constraint(
-            "uq_user_preferences_org_user",
-            "user_preferences",
-            ["organization_id", "user_id"],
-        )
-
-    inspector = sa.inspect(bind)
-    if _table_exists(inspector, "user_preferences") and not _index_exists(
-        inspector, "user_preferences", "ix_user_preferences_organization_id"
-    ):
-        op.create_index("ix_user_preferences_organization_id", "user_preferences", ["organization_id"])
-
-    inspector = sa.inspect(bind)
-    if _table_exists(inspector, "user_preferences") and not _index_exists(
-        inspector, "user_preferences", "ix_user_preferences_user_id"
-    ):
-        op.create_index("ix_user_preferences_user_id", "user_preferences", ["user_id"])
-
-    inspector = sa.inspect(bind)
-    if _table_exists(inspector, "user_preferences") and not _index_exists(
-        inspector, "user_preferences", "ix_user_preferences_last_active_module"
-    ):
-        op.create_index("ix_user_preferences_last_active_module", "user_preferences", ["last_active_module"])
+    op.create_table(
+        "user_preferences",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("organization_id", sa.String(length=36), nullable=False),
+        sa.Column("user_id", sa.String(length=36), nullable=False),
+        sa.Column("last_active_module", sa.String(length=64), nullable=True),
+        sa.Column("sidebar_collapsed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("copilot_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("organization_id", "user_id", name="uq_user_preferences_org_user"),
+    )
+    op.create_index("ix_user_preferences_organization_id", "user_preferences", ["organization_id"])
+    op.create_index("ix_user_preferences_user_id", "user_preferences", ["user_id"])
+    op.create_index("ix_user_preferences_last_active_module", "user_preferences", ["last_active_module"])
 
 
 def downgrade() -> None:
