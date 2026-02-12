@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1 import tanner_ai
 from app.api.v1.endpoints import (
     ai_copilot,
     admin_center,
@@ -60,3 +61,4 @@ api_router.include_router(reception.router)
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)
 api_router.include_router(scribe.router)
+api_router.include_router(tanner_ai.router)

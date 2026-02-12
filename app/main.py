@@ -15,6 +15,10 @@ from app.services.ringcentral_realtime import (
     validate_ringcentral_startup_configuration,
 )
 from app.services.storage import should_validate_s3_on_startup, validate_s3_connection
+from app.services.tanner_ai.service import (
+    TannerAIConfigurationError,
+    validate_tanner_ai_startup_configuration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,12 @@ async def lifespan(_app: FastAPI):
     except RingCentralRealtimeError as exc:
         logger.exception("RingCentral startup validation failed")
         raise RuntimeError(exc.detail) from exc
+
+    try:
+        validate_tanner_ai_startup_configuration()
+    except TannerAIConfigurationError as exc:
+        logger.exception("Tanner AI startup validation failed")
+        raise RuntimeError(str(exc)) from exc
 
     if should_validate_s3_on_startup():
         # Optional production guard: fail boot if bucket/credentials are invalid.

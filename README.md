@@ -458,3 +458,43 @@ curl -X PATCH "http://127.0.0.1:8000/api/v1/me/preferences" \
   -H "Content-Type: application/json" \
   -d "{\"last_active_module\":\"care_delivery\",\"sidebar_collapsed\":false,\"copilot_enabled\":true}"
 ```
+
+Tanner AI (OpenAI Integration)
+
+Required env vars:
+
+- OPENAI_API_KEY
+
+Endpoints:
+
+- `GET /api/v1/tanner-ai/health`
+- `POST /api/v1/tanner-ai/transcribe`
+- `POST /api/v1/tanner-ai/generate`
+- `POST /api/v1/tanner-ai/note`
+- `POST /api/v1/tanner-ai/assistant`
+
+Test transcription:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/tanner-ai/transcribe" \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@visit.webm"
+```
+
+Test note generation:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/tanner-ai/note" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d "{\"transcript\":\"Client reports improved mood and sleep over the last week.\",\"note_type\":\"SOAP\"}"
+```
+
+Example usage snippet:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/tanner-ai/assistant" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"Summarize the team huddle notes into action items.\",\"context\":\"Morning operations meeting\"}"
+```

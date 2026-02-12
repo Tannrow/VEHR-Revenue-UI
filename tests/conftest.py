@@ -11,3 +11,4 @@ os.environ.setdefault(
     "RINGCENTRAL_REDIRECT_URI",
     "https://api.360-encompass.com/api/v1/integrations/ringcentral/callback",
 )
+os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
