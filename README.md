@@ -340,3 +340,15 @@ curl "http://127.0.0.1:8000/api/v1/call-center/export?date=2026-02-12" \
 GET /api/v1/call-center/stream?access_token=<token>
 Accept: text/event-stream
 ```
+
+Call Center visual snapshot test (frontend):
+
+```bash
+npm --prefix frontend run test:visual
+```
+
+Update the baseline screenshot:
+
+```bash
+npm --prefix frontend run test:visual:update
+```

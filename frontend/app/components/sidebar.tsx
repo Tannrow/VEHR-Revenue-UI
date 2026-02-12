@@ -10,6 +10,8 @@ type NavItem = {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  external?: boolean;
+  visibleToRoles?: string[];
 };
 
 type NavSection = {
@@ -208,7 +210,15 @@ const navSections: NavSection[] = [
     label: "Workforce",
     items: [
       { href: "/time-attendance", label: "Time & Attendance", icon: IconClock },
+      { href: "https://tsheets.intuit.com/ip/#_SwitchJC", label: "Clock In/Out", icon: IconClock, external: true },
       { href: "/payroll", label: "Payroll", icon: IconPayroll },
+      {
+        href: "https://tsheets.intuit.com/",
+        label: "QuickBooks Time (Managers)",
+        icon: IconPayroll,
+        external: true,
+        visibleToRoles: ["admin", "office_manager", "supervisor", "sud_supervisor"],
+      },
     ],
   },
   {
@@ -221,9 +231,19 @@ type SidebarProps = {
   role?: string | null;
 };
 
+function normalizeRole(role: string | null | undefined): string {
+  return (role || "").trim().toLowerCase();
+}
+
+function isItemVisible(item: NavItem, role: string | null | undefined): boolean {
+  if (!item.visibleToRoles || item.visibleToRoles.length === 0) return true;
+  const normalizedRole = normalizeRole(role);
+  return item.visibleToRoles.some((entry) => normalizeRole(entry) === normalizedRole);
+}
+
 export default function Sidebar({ role = null }: SidebarProps) {
   const pathname = usePathname();
-  void role;
+  const normalizedRole = normalizeRole(role);
 
   return (
     <aside className="flex h-full min-h-0 flex-col gap-6 overflow-hidden rounded-xl border border-slate-900 bg-[var(--ui-nav-bg)] p-5 text-[var(--ui-nav-inactive-fg)] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
@@ -242,13 +262,16 @@ export default function Sidebar({ role = null }: SidebarProps) {
           <div key={section.label} className="space-y-2">
             <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{section.label}</p>
             <div className="space-y-1">
-              {section.items.map((item) => {
-                const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+              {section.items.filter((item) => isItemVisible(item, normalizedRole)).map((item) => {
+                const isInternal = item.href.startsWith("/");
+                const isActive = isInternal && (pathname === item.href || pathname?.startsWith(`${item.href}/`));
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    target={item.external ? "_blank" : undefined}
+                    rel={item.external ? "noopener noreferrer" : undefined}
                     className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 ${
                       isActive
                         ? "bg-[var(--ui-nav-active-bg)] text-[var(--ui-nav-active-fg)]"
