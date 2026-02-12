@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -134,18 +134,26 @@ def _extract_webhook_fields(payload: dict[str, Any]) -> dict[str, Any]:
     elif isinstance(body.get("to"), dict):
         to_number = str(body["to"].get("phoneNumber", "")).strip() or None
 
-    disposition = None
+    disposition_code: str | None = None
+    disposition_reason: str | None = None
     party_status = party.get("status")
     if isinstance(party_status, dict):
-        disposition = str(party_status.get("code", "")).strip() or None
-    if not disposition:
+        disposition_code = str(party_status.get("code", "")).strip() or None
+        disposition_reason = str(party_status.get("reason", "")).strip() or None
+    if not disposition_code:
         body_status = body.get("status")
         if isinstance(body_status, dict):
-            disposition = str(body_status.get("code", "")).strip() or None
+            disposition_code = str(body_status.get("code", "")).strip() or None
+            disposition_reason = str(body_status.get("reason", "")).strip() or None
         elif isinstance(body_status, str):
-            disposition = body_status.strip() or None
-    if not disposition:
-        disposition = str(body.get("disposition", "")).strip() or None
+            disposition_code = body_status.strip() or None
+    if not disposition_code:
+        disposition_code = str(body.get("disposition", "")).strip() or None
+
+    disposition = _normalize_ringcentral_disposition(
+        code=disposition_code,
+        reason=disposition_reason,
+    )
 
     direction = str(party.get("direction", "")).strip() or str(body.get("direction", "")).strip() or None
     started_at = _parse_iso_datetime(party.get("startTime")) or _parse_iso_datetime(body.get("startTime"))
@@ -191,6 +199,50 @@ def _validate_webhook_secret(request: Request) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid RingCentral webhook secret",
         )
+
+
+def _ringcentral_validation_token(request: Request) -> str | None:
+    token = request.headers.get("Validation-Token")
+    if token and token.strip():
+        return token.strip()
+    return None
+
+
+def _normalize_ringcentral_disposition(*, code: str | None, reason: str | None) -> str | None:
+    raw_code = (code or "").strip().lower()
+    raw_reason = (reason or "").strip().lower()
+
+    missed_markers = {
+        "missed",
+        "noanswer",
+        "no_answer",
+        "voicemail",
+        "busy",
+        "declined",
+        "rejected",
+    }
+    answered_markers = {"answered", "connected"}
+    ringing_markers = {"ringing", "proceeding"}
+
+    if raw_reason in missed_markers:
+        return "missed"
+    if raw_reason in answered_markers:
+        return "answered"
+    if raw_reason in ringing_markers:
+        return "ringing"
+
+    if raw_code in missed_markers:
+        return "missed"
+    if raw_code in answered_markers:
+        return "answered"
+    if raw_code in ringing_markers:
+        return "ringing"
+    if raw_code == "disconnected":
+        if raw_reason in {"none", ""}:
+            return "disconnected"
+        return "missed" if raw_reason in missed_markers else "disconnected"
+
+    return raw_code or None
 
 
 def _resolve_webhook_integration_row(
@@ -375,6 +427,14 @@ async def ringcentral_webhook(
     organization_id: str | None = Query(default=None, alias="organization_id"),
     db: Session = Depends(get_db),
 ) -> RingCentralWebhookIngestRead:
+    validation_token = _ringcentral_validation_token(request)
+    if validation_token:
+        return JSONResponse(
+            content={"validated": True},
+            headers={"Validation-Token": validation_token},
+            status_code=status.HTTP_200_OK,
+        )
+
     _validate_webhook_secret(request)
 
     try:

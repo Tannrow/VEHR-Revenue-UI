@@ -178,6 +178,23 @@ def test_ringcentral_webhook_and_reception_flow(tmp_path, monkeypatch) -> None:
         engine.dispose()
 
 
+def test_ringcentral_webhook_validation_handshake(tmp_path) -> None:
+    engine, _session_factory = _build_session(tmp_path)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/ringcentral/webhook",
+                headers={"Validation-Token": "validation-token-123"},
+                json={},
+            )
+            assert response.status_code == 200
+            assert response.headers.get("Validation-Token") == "validation-token-123"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
 def test_ringcentral_webhook_resolves_org_without_query_param(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RINGCENTRAL_WEBHOOK_SECRET", "webhook-secret-value")
     engine, session_factory = _build_session(tmp_path)
@@ -212,6 +229,46 @@ def test_ringcentral_webhook_resolves_org_without_query_param(tmp_path, monkeypa
             assert stored_event is not None
             assert stored_event.organization_id == org_id
             assert stored_event.call_id == "call-def"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_ringcentral_webhook_normalizes_noanswer_to_missed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("RINGCENTRAL_WEBHOOK_SECRET", "webhook-secret-value")
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        receptionist_token, org_id = _seed_reception_user(session_factory)
+        webhook_payload = {
+            "event": "/restapi/v1.0/account/~/extension/~/telephony/sessions",
+            "eventId": "evt-003",
+            "body": {
+                "telephonySessionId": "session-ghi",
+                "id": "call-ghi",
+                "from": {"phoneNumber": "+15550005555"},
+                "to": {"phoneNumber": "+15550006666"},
+                "direction": "Inbound",
+                "status": {"code": "Disconnected", "reason": "NoAnswer"},
+                "accountId": "acct-123",
+            },
+        }
+
+        with TestClient(app) as client:
+            webhook_response = client.post(
+                f"/api/v1/integrations/ringcentral/webhook?organization_id={org_id}&secret=webhook-secret-value",
+                json=webhook_payload,
+            )
+            assert webhook_response.status_code == 200
+
+            calls_response = client.get(
+                "/api/v1/reception/calls",
+                headers=_auth_header(receptionist_token),
+            )
+            assert calls_response.status_code == 200
+            calls = calls_response.json()
+            assert calls
+            assert calls[0]["disposition"] == "missed"
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)

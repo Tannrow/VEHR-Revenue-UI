@@ -171,10 +171,11 @@ export default function CallsReceptionPage() {
     setError(null);
 
     try {
+      const cacheBuster = Date.now();
       const [me, presenceRes, callsRes] = await Promise.all([
-        apiFetch<MeResponse>("/api/v1/auth/me", { cache: "no-store" }),
-        apiFetch<PresenceResponse>("/api/v1/reception/presence", { cache: "no-store" }),
-        apiFetch<CallRow[]>("/api/v1/reception/calls", { cache: "no-store" }),
+        apiFetch<MeResponse>(`/api/v1/auth/me?t=${cacheBuster}`, { cache: "no-store" }),
+        apiFetch<PresenceResponse>(`/api/v1/reception/presence?t=${cacheBuster}`, { cache: "no-store" }),
+        apiFetch<CallRow[]>(`/api/v1/reception/calls?t=${cacheBuster}`, { cache: "no-store" }),
       ]);
       setCurrentUser(me);
       setPresence(presenceRes.items);
@@ -198,8 +199,23 @@ export default function CallsReceptionPage() {
     void loadReceptionData({ showSpinner: true });
     const timer = window.setInterval(() => {
       void loadReceptionData({ showSpinner: false });
-    }, 30000);
+    }, 10000);
     return () => window.clearInterval(timer);
+  }, [loadReceptionData]);
+
+  useEffect(() => {
+    function refreshWhenActive() {
+      if (document.visibilityState === "visible") {
+        void loadReceptionData({ showSpinner: false });
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    return () => {
+      window.removeEventListener("focus", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
   }, [loadReceptionData]);
 
   useEffect(() => {
