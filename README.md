@@ -312,3 +312,15 @@ curl -X POST "https://api.360-encompass.com/api/v1/webhooks/ringcentral?secret=<
 curl -X POST "http://127.0.0.1:8000/api/v1/webhooks/ringcentral/test-event" \
   -H "Authorization: Bearer <token>"
 ```
+
+4. Snapshot + stream (no polling):
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/call-center/snapshot" \
+  -H "Authorization: Bearer <token>"
+```
+
+```text
+GET /api/v1/call-center/stream?access_token=<token>
+Accept: text/event-stream
+```

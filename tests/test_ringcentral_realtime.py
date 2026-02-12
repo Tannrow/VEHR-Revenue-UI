@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -10,13 +12,15 @@ from sqlalchemy.orm import sessionmaker
 from app.core.rbac import ROLE_ADMIN, ROLE_RECEPTIONIST
 from app.core.security import create_access_token, hash_password
 from app.db.base import Base
+from app.db.models.call_disposition import CallDisposition
+from app.db.models.call_event import CallEvent
 from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
 from app.api.v1.endpoints.ringcentral_live import call_center_stream
-from app.services.call_center_bus import call_center_event_bus
+from app.services.call_center_bus import call_center_event_bus, publish_event
 from app.services.integration_tokens import decrypt_token, encrypt_token
 from app.services.ringcentral_realtime import (
     RingCentralRealtimeError,
@@ -209,6 +213,121 @@ def test_ringcentral_test_event_publishes_call_and_presence(tmp_path, monkeypatc
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_call_center_snapshot_returns_live_calls_dispositions_and_presence(tmp_path, monkeypatch) -> None:
+    _set_required_env(monkeypatch)
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        snapshot_token, org_id, _user_id = _create_user_membership(
+            session_factory,
+            org_name="RingCentral Snapshot Org",
+            email="ringcentral-snapshot-reception@example.com",
+            role=ROLE_ADMIN,
+        )
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.ringcentral_live.ensure_subscription",
+            lambda **kwargs: SimpleNamespace(status="ACTIVE", rc_subscription_id="sub-snapshot-1", expires_at=None),
+        )
+
+        with session_factory() as db:
+            db.add_all(
+                [
+                    CallEvent(
+                        organization_id=org_id,
+                        type="call",
+                        rc_call_id="call-missed",
+                        payload_json=json.dumps({"state": "missed", "from_number": "+15550001111"}),
+                        received_at=datetime.now(timezone.utc),
+                    ),
+                    CallEvent(
+                        organization_id=org_id,
+                        type="call",
+                        rc_call_id="call-ringing",
+                        payload_json=json.dumps({"state": "ringing", "from_number": "+15550002222"}),
+                        received_at=datetime.now(timezone.utc) + timedelta(seconds=1),
+                    ),
+                    CallEvent(
+                        organization_id=org_id,
+                        type="call",
+                        rc_call_id="call-active",
+                        payload_json=json.dumps({"state": "connected", "from_number": "+15550003333"}),
+                        received_at=datetime.now(timezone.utc) + timedelta(seconds=2),
+                    ),
+                    CallEvent(
+                        organization_id=org_id,
+                        type="call",
+                        rc_call_id="call-completed",
+                        payload_json=json.dumps(
+                            {
+                                "state": "ended",
+                                "from_number": "+15550004444",
+                                "ended_at": "2026-02-12T00:00:00Z",
+                            }
+                        ),
+                        received_at=datetime.now(timezone.utc) + timedelta(seconds=3),
+                    ),
+                ]
+            )
+            db.add(
+                CallDisposition(
+                    organization_id=org_id,
+                    rc_call_id="call-missed",
+                    status="MISSED",
+                    notes="Needs callback",
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/v1/call-center/snapshot",
+                headers={"Authorization": f"Bearer {snapshot_token}"},
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert isinstance(payload.get("liveCalls"), list)
+            assert isinstance(payload.get("dispositions"), list)
+            assert isinstance(payload.get("presence"), list)
+
+            ordered_ids = [item["call_id"] for item in payload["liveCalls"]]
+            assert ordered_ids[0] == "call-missed"
+            assert ordered_ids[1] == "call-ringing"
+            assert ordered_ids[2] == "call-active"
+            assert "call-completed" in ordered_ids[3:]
+
+            disposition_ids = {item["call_id"] for item in payload["dispositions"]}
+            assert "call-missed" in disposition_ids
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_call_center_event_bus_fanout_to_multiple_listeners() -> None:
+    organization_id = "org-multi-listener"
+    listener_a, queue_a = asyncio.run(call_center_event_bus.subscribe(organization_id))
+    listener_b, queue_b = asyncio.run(call_center_event_bus.subscribe(organization_id))
+    try:
+        asyncio.run(
+            publish_event(
+                organization_id,
+                {
+                    "event": "call",
+                    "data": {"call_id": "multi-call", "state": "ringing"},
+                    "source": "api",
+                },
+            )
+        )
+        event_a = asyncio.run(asyncio.wait_for(queue_a.get(), timeout=1.0))
+        event_b = asyncio.run(asyncio.wait_for(queue_b.get(), timeout=1.0))
+        assert event_a["event"] == "call"
+        assert event_b["event"] == "call"
+        assert event_a["data"]["call_id"] == "multi-call"
+        assert event_b["data"]["call_id"] == "multi-call"
+    finally:
+        asyncio.run(call_center_event_bus.unsubscribe(organization_id, listener_a))
+        asyncio.run(call_center_event_bus.unsubscribe(organization_id, listener_b))
 
 
 def test_call_center_sse_stream_emits_event(tmp_path, monkeypatch) -> None:

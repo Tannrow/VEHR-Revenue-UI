@@ -14,7 +14,7 @@ from urllib.parse import urlencode, urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -123,7 +123,18 @@ class CallCenterCallRead(BaseModel):
     notes: str | None = None
 
 
+class CallDispositionSnapshotRead(BaseModel):
+    call_id: str
+    status: str
+    assigned_to_user_id: str | None = None
+    notes: str | None = None
+    updated_at: datetime
+
+
 class CallCenterSnapshotRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    live_calls: list[CallCenterCallRead] = Field(default_factory=list, alias="liveCalls")
+    dispositions: list[CallDispositionSnapshotRead] = Field(default_factory=list)
     presence: list[CallCenterPresenceItemRead]
     active_calls: list[CallCenterCallRead]
     call_log: list[CallCenterCallRead]
@@ -466,8 +477,35 @@ def _build_call_center_snapshot(
             notes=disposition.notes if disposition else None,
         )
 
-    call_log = sorted(latest_by_call_id.values(), key=lambda item: item.last_event_at, reverse=True)
+    def _call_priority(item: CallCenterCallRead) -> int:
+        state = item.state.strip().lower()
+        if item.overlay_status == "MISSED":
+            return 0
+        if state == "ringing":
+            return 1
+        if state in ACTIVE_CALL_STATES and item.ended_at is None:
+            return 2
+        return 3
+
+    call_log = sorted(
+        latest_by_call_id.values(),
+        key=lambda item: (_call_priority(item), -item.last_event_at.timestamp()),
+    )
     active_calls = [row for row in call_log if row.state in ACTIVE_CALL_STATES and row.ended_at is None]
+    disposition_items = sorted(
+        [
+            CallDispositionSnapshotRead(
+                call_id=row.rc_call_id,
+                status=row.status,
+                assigned_to_user_id=row.assigned_to_user_id,
+                notes=row.notes,
+                updated_at=row.updated_at,
+            )
+            for row in disposition_rows
+        ],
+        key=lambda item: item.updated_at,
+        reverse=True,
+    )
 
     membership_rows = db.execute(
         select(OrganizationMembership, User).where(
@@ -537,6 +575,8 @@ def _build_call_center_snapshot(
 
     presence_items.sort(key=lambda row: ((row.full_name or "").lower(), row.email.lower()))
     return CallCenterSnapshotRead(
+        live_calls=call_log,
+        dispositions=disposition_items,
         presence=presence_items,
         active_calls=active_calls,
         call_log=call_log,
@@ -1195,16 +1235,23 @@ def call_center_snapshot(
     db: Session = Depends(get_db),
     _: None = Depends(require_permission("calls:read")),
 ) -> CallCenterSnapshotRead:
+    config = _load_config_or_raise()
+    try:
+        ensured_subscription = ensure_subscription(
+            db=db,
+            config=config,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+            force=False,
+        )
+    except RingCentralRealtimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
     snapshot = _build_call_center_snapshot(
         db=db,
         organization_id=membership.organization_id,
     )
-    subscription = get_subscription(
-        db=db,
-        organization_id=membership.organization_id,
-        user_id=membership.user_id,
-    )
-    snapshot.subscription_status = subscription.status if subscription else snapshot.subscription_status
+    snapshot.subscription_status = ensured_subscription.status
     return snapshot
 
 
@@ -1307,7 +1354,7 @@ async def call_center_stream(
                                 db=db,
                                 organization_id=organization_id,
                             )
-                            yield _sse_message("snapshot", snapshot.model_dump())
+                            yield _sse_message("snapshot", snapshot.model_dump(by_alias=True))
         finally:
             await call_center_event_bus.unsubscribe(organization_id, listener_id)
 
