@@ -36,6 +36,20 @@ services:
         sync: false
       - key: S3_VALIDATE_ON_STARTUP
         value: "true"
+      - key: INTEGRATION_TOKEN_KEY
+        sync: false
+      - key: RINGCENTRAL_CLIENT_ID
+        value: 5XvBxFN98oMfWMhTC0wn0s
+      - key: RINGCENTRAL_CLIENT_SECRET
+        sync: false
+      - key: RINGCENTRAL_SERVER_URL
+        value: https://platform.ringcentral.com
+      - key: RINGCENTRAL_REDIRECT_URI
+        value: https://api.360-encompass.com/api/v1/integrations/ringcentral/callback
+      - key: RINGCENTRAL_WEBHOOK_SECRET
+        sync: false
+      - key: RINGCENTRAL_POST_CONNECT_REDIRECT
+        value: https://360-encompass.com/admin-center
 
   - type: web
     name: the-trapp-house-web
