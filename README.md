@@ -133,6 +133,21 @@ POST /api/v1/auth/bootstrap with:
 Use the returned token as:
 Authorization: Bearer <token>
 
+Invite emails (SMTP configuration)
+
+To send user invites by email, set all of the following API env vars:
+
+- FRONTEND_BASE_URL (example: https://360-encompass.com; used to build invite links)
+- SMTP_HOST
+- SMTP_PORT
+- SMTP_USER
+- SMTP_PASS
+- SMTP_FROM
+- SMTP_TLS (true/false)
+
+If any SMTP var is missing, invite records are still created but email is not sent.  
+Admin Center now shows this explicitly and provides a manual invite link fallback.
+
 Auto-reload
 
 --reload is enabled for development

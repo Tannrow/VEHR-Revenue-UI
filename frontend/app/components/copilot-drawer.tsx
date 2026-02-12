@@ -1,119 +1,117 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import { ApiError, apiFetch } from "@/lib/api";
 
-type AiThreadSummary = {
-  id: string;
-  title: string | null;
-  created_at: string;
-  updated_at: string;
-  last_message_at: string | null;
-  last_message_preview: string | null;
+type TannerAssistantResponse = {
+  reply: string;
 };
 
-type AiMessage = {
+type TannerTranscriptionResponse = {
+  transcript: string;
+};
+
+type TannerChatMessage = {
   id: string;
-  thread_id: string;
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant";
   content: string;
   created_at: string;
 };
 
-type AiChatResponse = {
-  thread: AiThreadSummary;
-  assistant_message: AiMessage;
-  tool_results: Record<string, unknown>;
-  fallback: boolean;
-};
+type TannerTab = "chat" | "charting";
+type TannerNoteType = "SOAP" | "DAP";
 
-type AiContextPayload = {
-  path: string;
-  module: string;
-  entity_type?: string;
-  entity_id?: string;
-  quick_action?: string;
-};
-
-const STORAGE_OPEN_KEY = "vehr_copilot_drawer_open";
-const STORAGE_THREAD_KEY = "vehr_copilot_thread_id";
+const STORAGE_OPEN_KEY = "vehr_tanner_drawer_open";
+const STORAGE_TAB_KEY = "vehr_tanner_active_tab";
 
 const QUICK_ACTIONS = [
-  { label: "Find policy", value: "find_policy", seed: "Find policy for " },
-  { label: "Draft note", value: "draft_note", seed: "Draft SOAP note for " },
-  { label: "Draft letter", value: "draft_letter", seed: "Draft letter for " },
+  { label: "Find policy", seed: "Find policy for " },
+  { label: "Draft note", seed: "Draft SOAP note for " },
+  { label: "Draft letter", seed: "Draft letter for " },
 ] as const;
 
-function deriveContext(pathname: string | null): AiContextPayload {
+function deriveContext(pathname: string | null): { path: string; module: string } {
   const safePath = pathname && pathname.startsWith("/") ? pathname : "/";
   const parts = safePath.split("/").filter(Boolean);
-  const moduleName = parts[0] ?? "dashboard";
-  const idLike = parts.find((item) => /^[a-z0-9-]{8,}$/i.test(item));
-
   return {
     path: safePath,
-    module: moduleName,
-    entity_type: parts.length >= 2 ? moduleName : undefined,
-    entity_id: idLike,
+    module: parts[0] ?? "dashboard",
   };
 }
 
-function formatRelativeDate(value: string | null): string {
-  if (!value) return "";
-  const stamp = new Date(value);
-  if (Number.isNaN(stamp.getTime())) return "";
-  return stamp.toLocaleString();
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError || error instanceof Error) {
+    return error.message || fallback;
+  }
+  return fallback;
 }
 
-function messageBubbleClass(role: AiMessage["role"]): string {
-  if (role === "assistant") {
-    return "mr-auto bg-slate-100 text-slate-800";
+function formatRelativeDate(value: string): string {
+  const stamp = new Date(value);
+  if (Number.isNaN(stamp.getTime())) return "";
+  return stamp.toLocaleTimeString();
+}
+
+function formatNoteOutput(note: Record<string, string>, noteType: TannerNoteType): string {
+  if (noteType === "SOAP") {
+    return [
+      `S: ${note.S ?? ""}`,
+      `O: ${note.O ?? ""}`,
+      `A: ${note.A ?? ""}`,
+      `P: ${note.P ?? ""}`,
+    ].join("\n\n");
   }
-  if (role === "tool") {
-    return "mr-auto bg-amber-100 text-amber-900";
-  }
-  return "ml-auto bg-cyan-700 text-white";
+  return [
+    `D: ${note.D ?? ""}`,
+    `A: ${note.A ?? ""}`,
+    `P: ${note.P ?? ""}`,
+  ].join("\n\n");
 }
 
 export default function CopilotDrawer() {
   const pathname = usePathname();
+  const context = useMemo(() => deriveContext(pathname), [pathname]);
 
   const [isOpen, setIsOpen] = useState(false);
-  const [threads, setThreads] = useState<AiThreadSummary[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<AiMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [pendingQuickAction, setPendingQuickAction] = useState<string | null>(null);
-  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [activeTab, setActiveTab] = useState<TannerTab>("chat");
+
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatMessages, setChatMessages] = useState<TannerChatMessage[]>([]);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const context = useMemo(() => deriveContext(pathname), [pathname]);
-  const historyRef = useRef<HTMLDivElement | null>(null);
-  const streamTimersRef = useRef<number[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isGeneratingNote, setIsGeneratingNote] = useState(false);
+  const [chartingError, setChartingError] = useState<string | null>(null);
+  const [noteType, setNoteType] = useState<TannerNoteType>("SOAP");
+  const [transcript, setTranscript] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
 
-  const clearStreamingTimers = useCallback(() => {
-    for (const id of streamTimersRef.current) {
-      window.clearInterval(id);
-    }
-    streamTimersRef.current = [];
+  const chatHistoryRef = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recorderChunksRef = useRef<Blob[]>([]);
+
+  const canRecord = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return typeof window.MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
   }, []);
 
   useEffect(() => {
     try {
       const rawOpen = window.localStorage.getItem(STORAGE_OPEN_KEY);
-      if (rawOpen === "1") {
-        setIsOpen(true);
-      }
-      const rawThread = window.localStorage.getItem(STORAGE_THREAD_KEY);
-      if (rawThread) {
-        setActiveThreadId(rawThread);
+      if (rawOpen === "1") setIsOpen(true);
+      const rawTab = window.localStorage.getItem(STORAGE_TAB_KEY);
+      if (rawTab === "chat" || rawTab === "charting") {
+        setActiveTab(rawTab);
       }
     } catch {
-      // Ignore localStorage access errors.
+      // ignore storage failures
     }
   }, []);
 
@@ -121,220 +119,208 @@ export default function CopilotDrawer() {
     try {
       window.localStorage.setItem(STORAGE_OPEN_KEY, isOpen ? "1" : "0");
     } catch {
-      // Ignore localStorage access errors.
+      // ignore storage failures
     }
   }, [isOpen]);
 
   useEffect(() => {
     try {
-      if (activeThreadId) {
-        window.localStorage.setItem(STORAGE_THREAD_KEY, activeThreadId);
-      } else {
-        window.localStorage.removeItem(STORAGE_THREAD_KEY);
-      }
+      window.localStorage.setItem(STORAGE_TAB_KEY, activeTab);
     } catch {
-      // Ignore localStorage access errors.
+      // ignore storage failures
     }
-  }, [activeThreadId]);
+  }, [activeTab]);
 
   useEffect(() => {
-    if (!historyRef.current) return;
-    historyRef.current.scrollTop = historyRef.current.scrollHeight;
-  }, [messages]);
+    if (!chatHistoryRef.current) return;
+    chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+  }, [chatMessages]);
 
   useEffect(() => {
     return () => {
-      clearStreamingTimers();
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {
+        // ignore teardown recorder failures
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
     };
-  }, [clearStreamingTimers]);
+  }, []);
 
-  const loadThreads = useCallback(
-    async (preferredThreadId?: string) => {
-      if (!isOpen) return;
-      setIsLoadingThreads(true);
-      try {
-        const rows = await apiFetch<AiThreadSummary[]>("/api/v1/ai/threads", { cache: "no-store" });
-        setThreads(rows);
-
-        if (preferredThreadId) {
-          setActiveThreadId(preferredThreadId);
-          return;
-        }
-
-        if (!rows.length) {
-          setActiveThreadId(null);
-          setMessages([]);
-          return;
-        }
-
-        setActiveThreadId((prev) => {
-          if (prev && rows.some((item) => item.id === prev)) {
-            return prev;
-          }
-          return rows[0]?.id ?? null;
-        });
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load threads");
-      } finally {
-        setIsLoadingThreads(false);
-      }
-    },
-    [isOpen]
-  );
-
-  const loadMessages = useCallback(
-    async (threadId: string) => {
-      setIsLoadingMessages(true);
-      setError(null);
-      try {
-        const rows = await apiFetch<AiMessage[]>(`/api/v1/ai/threads/${encodeURIComponent(threadId)}/messages`, {
-          cache: "no-store",
-        });
-        setMessages(rows);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load messages");
-      } finally {
-        setIsLoadingMessages(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (!isOpen) return;
-    void loadThreads();
-  }, [isOpen, loadThreads]);
-
-  useEffect(() => {
-    if (!isOpen || !activeThreadId) return;
-    void loadMessages(activeThreadId);
-  }, [activeThreadId, isOpen, loadMessages]);
-
-  function runAssistantStreaming(message: AiMessage): Promise<void> {
-    clearStreamingTimers();
-
-    const streamMessageId = `stream-${message.id}`;
-    const fullText = message.content || "";
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        ...message,
-        id: streamMessageId,
-        content: "",
-      },
-    ]);
-
-    if (!fullText) {
-      return Promise.resolve();
-    }
-
-    const chunkSize = Math.max(1, Math.ceil(fullText.length / 80));
-
-    return new Promise((resolve) => {
-      let cursor = 0;
-      const timer = window.setInterval(() => {
-        cursor = Math.min(fullText.length, cursor + chunkSize);
-        const nextContent = fullText.slice(0, cursor);
-        setMessages((prev) =>
-          prev.map((entry) =>
-            entry.id === streamMessageId
-              ? {
-                  ...entry,
-                  content: nextContent,
-                }
-              : entry
-          )
-        );
-
-        if (cursor >= fullText.length) {
-          window.clearInterval(timer);
-          streamTimersRef.current = streamTimersRef.current.filter((id) => id !== timer);
-          setMessages((prev) => prev.map((entry) => (entry.id === streamMessageId ? message : entry)));
-          resolve();
-        }
-      }, 18);
-
-      streamTimersRef.current.push(timer);
-    });
-  }
-
-  async function handleSend(event: FormEvent<HTMLFormElement>) {
+  async function handleSendChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const content = draft.trim();
-    if (!content || isSending) return;
+    const message = chatDraft.trim();
+    if (!message || isSending) return;
 
-    const optimisticMessageId = `optimistic-user-${Date.now()}`;
-    const optimisticThreadId = activeThreadId ?? "pending-thread";
-
+    setChatError(null);
     setIsSending(true);
-    setError(null);
-    setDraft("");
+    setChatDraft("");
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: optimisticMessageId,
-        thread_id: optimisticThreadId,
-        role: "user",
-        content,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-
-    const quickAction = pendingQuickAction || undefined;
-    setPendingQuickAction(null);
+    const optimisticUser: TannerChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: message,
+      created_at: new Date().toISOString(),
+    };
+    setChatMessages((current) => [...current, optimisticUser]);
 
     try {
-      const response = await apiFetch<AiChatResponse>("/api/v1/ai/chat", {
+      const response = await apiFetch<TannerAssistantResponse>("/api/v1/tanner-ai/assistant", {
         method: "POST",
         body: JSON.stringify({
-          thread_id: activeThreadId,
-          message: content,
-          context: {
-            ...context,
-            quick_action: quickAction,
-          },
+          message,
+          context: `module=${context.module}; path=${context.path}`,
         }),
       });
 
-      const nextThreadId = response.thread.id;
-      setActiveThreadId(nextThreadId);
-      setMessages((prev) =>
-        prev.map((entry) =>
-          entry.id === optimisticMessageId
-            ? {
-                ...entry,
-                thread_id: nextThreadId,
-              }
-            : entry
-        )
-      );
-
-      await loadThreads(nextThreadId);
-      await runAssistantStreaming(response.assistant_message);
-      await loadMessages(nextThreadId);
-    } catch (sendError) {
-      const details = sendError instanceof ApiError ? sendError.message : sendError instanceof Error ? sendError.message : "Failed to send message";
-      setError(details);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: response.reply,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    } catch (error) {
+      setChatError(toErrorMessage(error, "Tanner AI request failed"));
     } finally {
       setIsSending(false);
     }
   }
 
-  function handleQuickAction(value: string, seed: string) {
-    setPendingQuickAction(value);
-    setDraft((prev) => (prev.trim() ? prev : seed));
+  function useQuickAction(seed: string) {
+    setChatDraft((current) => (current.trim() ? current : seed));
   }
+
+  async function startRecording() {
+    if (!canRecord || isRecording) return;
+    setChartingError(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      recorderChunksRef.current = [];
+
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) {
+          recorderChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recorderChunksRef.current, { type: "audio/webm" });
+        setRecordedBlob(blob);
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      setSelectedFile(null);
+      setRecordedBlob(null);
+      recorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      setChartingError(toErrorMessage(error, "Unable to start recording"));
+    }
+  }
+
+  function stopRecording() {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      return;
+    }
+    setIsRecording(false);
+    mediaRecorderRef.current.stop();
+  }
+
+  function buildAudioFormData(): FormData | null {
+    const formData = new FormData();
+    if (recordedBlob) {
+      formData.append("file", recordedBlob, `visit-${Date.now()}.webm`);
+      return formData;
+    }
+    if (selectedFile) {
+      formData.append("file", selectedFile, selectedFile.name);
+      return formData;
+    }
+    return null;
+  }
+
+  async function transcribeVisitAudio() {
+    setChartingError(null);
+    const formData = buildAudioFormData();
+    if (!formData) {
+      setChartingError("Upload or record visit audio first.");
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const response = await apiFetch<TannerTranscriptionResponse>("/api/v1/tanner-ai/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+      setTranscript(response.transcript);
+    } catch (error) {
+      setChartingError(toErrorMessage(error, "Unable to transcribe visit audio"));
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
+  async function generateStructuredNote() {
+    const cleanedTranscript = transcript.trim();
+    if (!cleanedTranscript) {
+      setChartingError("Transcript is required before note generation.");
+      return;
+    }
+
+    setChartingError(null);
+    setIsGeneratingNote(true);
+    try {
+      const response = await apiFetch<Record<string, string>>("/api/v1/tanner-ai/note", {
+        method: "POST",
+        body: JSON.stringify({
+          transcript: cleanedTranscript,
+          note_type: noteType,
+        }),
+      });
+      setNoteDraft(formatNoteOutput(response, noteType));
+    } catch (error) {
+      setChartingError(toErrorMessage(error, "Unable to generate structured note"));
+    } finally {
+      setIsGeneratingNote(false);
+    }
+  }
+
+  async function copyNoteToClipboard() {
+    if (!noteDraft.trim()) return;
+    try {
+      await navigator.clipboard.writeText(noteDraft);
+    } catch {
+      // ignore clipboard failures
+    }
+  }
+
+  const hasAudioReady = !!selectedFile || !!recordedBlob;
 
   return (
     <>
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        aria-label={isOpen ? "Close Tanner" : "Open Tanner"}
+        aria-label={isOpen ? "Close Tanner AI" : "Open Tanner AI"}
         data-testid="copilot-trigger"
-        className="fixed bottom-6 right-6 z-[2147483000] inline-flex h-14 min-w-[56px] items-center justify-center gap-1 rounded-full bg-slate-900 px-3 text-white shadow-lg transition-transform hover:scale-105"
+        className={`fixed bottom-6 right-6 z-[2147483000] inline-flex h-14 min-w-[56px] items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-white shadow-lg transition-all hover:scale-105 ${
+          isOpen ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
           <path d="M7 8h10" />
@@ -342,98 +328,230 @@ export default function CopilotDrawer() {
           <path d="M7 16h6" />
           <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-6l-4 3v-3H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
         </svg>
-        <span className="text-xs font-semibold">T</span>
+        <span className="text-xs font-semibold">AI</span>
       </button>
 
       <aside
-        className={`fixed right-4 top-4 z-[2147482999] flex h-[calc(100vh-2rem)] w-[min(96vw,860px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-transform duration-300 ${
+        className={`fixed right-4 top-4 z-[2147482999] flex h-[calc(100vh-2rem)] w-[min(96vw,900px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-transform duration-300 ${
           isOpen ? "translate-x-0" : "translate-x-[110%]"
         }`}
         aria-hidden={!isOpen}
       >
-        <section className="flex w-[280px] flex-col border-r border-slate-200 bg-slate-50">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tanner</div>
-            <div className="mt-1 text-sm text-slate-700">Support Threads</div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {isLoadingThreads ? <div className="px-2 py-4 text-xs text-slate-500">Loading threads...</div> : null}
-            {!isLoadingThreads && threads.length === 0 ? <div className="px-2 py-4 text-xs text-slate-500">No threads yet.</div> : null}
-            <div className="space-y-1">
-              {threads.map((thread) => {
-                const isActive = thread.id === activeThreadId;
-                return (
-                  <button
-                    key={thread.id}
-                    type="button"
-                    onClick={() => setActiveThreadId(thread.id)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                      isActive ? "border-cyan-300 bg-cyan-50" : "border-transparent bg-white hover:border-slate-200"
-                    }`}
-                  >
-                    <div className="truncate text-sm font-medium text-slate-900">{thread.title || "Staff Support"}</div>
-                    <div className="truncate text-xs text-slate-500">{thread.last_message_preview || "No messages yet"}</div>
-                    <div className="mt-1 text-[10px] text-slate-400">{formatRelativeDate(thread.last_message_at || thread.updated_at)}</div>
-                  </button>
-                );
-              })}
+        <header className="border-b border-slate-200 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tanner AI</div>
+              <div className="mt-1 text-sm text-slate-700">Chat + Visit Charting</div>
+              <div className="text-xs text-slate-500">
+                Context: {context.module} | {context.path}
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              Close
+            </button>
           </div>
-        </section>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("chat")}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                activeTab === "chat"
+                  ? "border-cyan-300 bg-cyan-50 text-cyan-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              Tanner Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("charting")}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                activeTab === "charting"
+                  ? "border-cyan-300 bg-cyan-50 text-cyan-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              Tanner Charting
+            </button>
+          </div>
+        </header>
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-slate-200 px-4 py-3">
-            <div className="text-sm font-semibold text-slate-900">Tanner Assistant</div>
-            <div className="text-xs text-slate-500">Context: {context.module} | {context.path}</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {QUICK_ACTIONS.map((action) => (
+        {activeTab === "chat" ? (
+          <section className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <div className="flex flex-wrap gap-2">
+                {QUICK_ACTIONS.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => useQuickAction(action.seed)}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 transition-colors hover:border-slate-300"
+                  >
+                    {action.label}
+                  </button>
+                ))}
                 <button
-                  key={action.value}
                   type="button"
-                  onClick={() => handleQuickAction(action.value, action.seed)}
-                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                    pendingQuickAction === action.value
-                      ? "border-cyan-300 bg-cyan-50 text-cyan-700"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  onClick={() => setChatMessages([])}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 transition-colors hover:border-slate-300"
+                >
+                  Clear chat
+                </button>
+              </div>
+            </div>
+
+            <div ref={chatHistoryRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              {!chatMessages.length ? (
+                <div className="text-xs text-slate-500">Ask Tanner AI anything related to staff workflow.</div>
+              ) : null}
+              {chatMessages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`max-w-[92%] rounded-xl px-3 py-2 text-sm ${
+                    message.role === "assistant"
+                      ? "mr-auto bg-slate-100 text-slate-800"
+                      : "ml-auto bg-cyan-700 text-white"
                   }`}
                 >
-                  {action.label}
-                </button>
+                  <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                  <div className="mt-1 text-[10px] opacity-70">{formatRelativeDate(message.created_at)}</div>
+                </div>
               ))}
             </div>
-          </header>
 
-          <div ref={historyRef} className="flex-1 space-y-3 overflow-y-auto bg-white px-4 py-4">
-            {isLoadingMessages ? <div className="text-xs text-slate-500">Loading messages...</div> : null}
-            {!isLoadingMessages && !messages.length ? <div className="text-xs text-slate-500">Start a new message to open a thread.</div> : null}
-            {messages.map((message) => (
-              <div key={message.id} className={`max-w-[92%] rounded-xl px-3 py-2 text-sm ${messageBubbleClass(message.role)}`}>
-                <div className="whitespace-pre-wrap break-words">{message.content}</div>
-                <div className="mt-1 text-[10px] opacity-70">{formatRelativeDate(message.created_at)}</div>
+            <footer className="border-t border-slate-200 p-4">
+              {chatError ? (
+                <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                  {chatError}
+                </div>
+              ) : null}
+              <form onSubmit={handleSendChat} className="flex items-end gap-2">
+                <textarea
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder="Ask Tanner AI..."
+                  rows={2}
+                  className="min-h-[72px] flex-1 resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                />
+                <button
+                  type="submit"
+                  disabled={isSending || !chatDraft.trim()}
+                  className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSending ? "Sending..." : "Send"}
+                </button>
+              </form>
+            </footer>
+          </section>
+        ) : (
+          <section className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1fr_1fr]">
+            <div className="min-h-0 overflow-y-auto border-r border-slate-200 px-4 py-4">
+              {chartingError ? (
+                <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                  {chartingError}
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Visit Audio</div>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setSelectedFile(file);
+                    setRecordedBlob(null);
+                  }}
+                  className="block w-full text-sm text-slate-700"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void startRecording()}
+                    disabled={!canRecord || isRecording}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRecording ? "Recording..." : "Start recording"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    disabled={!isRecording}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Stop recording
+                  </button>
+                </div>
+                {!canRecord ? (
+                  <div className="text-xs text-slate-500">Browser recording is unavailable on this device.</div>
+                ) : null}
+                <div className="text-xs text-slate-600">
+                  Source: {recordedBlob ? "Recorded visit audio" : selectedFile ? selectedFile.name : "No audio selected"}
+                </div>
               </div>
-            ))}
-          </div>
 
-          <footer className="border-t border-slate-200 p-4">
-            {error ? <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">{error}</div> : null}
-            <form onSubmit={handleSend} className="flex items-end gap-2">
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Ask Tanner..."
-                rows={2}
-                className="min-h-[72px] flex-1 resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-200"
-              />
-              <button
-                type="submit"
-                disabled={isSending || !draft.trim()}
-                className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSending ? "Sending..." : "Send"}
-              </button>
-            </form>
-          </footer>
-        </section>
+              <div className="mt-4 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Transcription</div>
+                <button
+                  type="button"
+                  onClick={() => void transcribeVisitAudio()}
+                  disabled={!hasAudioReady || isTranscribing}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isTranscribing ? "Transcribing..." : "Transcribe visit"}
+                </button>
+                <textarea
+                  value={transcript}
+                  onChange={(event) => setTranscript(event.target.value)}
+                  placeholder="Transcript appears here..."
+                  className="min-h-[200px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto px-4 py-4">
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Structured Note</div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={noteType}
+                    onChange={(event) => setNoteType(event.target.value as TannerNoteType)}
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                  >
+                    <option value="SOAP">SOAP</option>
+                    <option value="DAP">DAP</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void generateStructuredNote()}
+                    disabled={isGeneratingNote || !transcript.trim()}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isGeneratingNote ? "Generating..." : `Generate ${noteType}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyNoteToClipboard()}
+                    disabled={!noteDraft.trim()}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Copy note
+                  </button>
+                </div>
+                <textarea
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  placeholder="Generated SOAP/DAP note appears here..."
+                  className="min-h-[360px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+            </div>
+          </section>
+        )}
       </aside>
     </>
   );

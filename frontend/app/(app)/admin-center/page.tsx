@@ -21,6 +21,18 @@ type UserRow = {
   is_active: boolean;
 };
 
+type InviteResponse = {
+  id: string;
+  email: string;
+  allowed_roles: string[];
+  status: string;
+  expires_at: string;
+  accepted_at?: string | null;
+  email_sent?: boolean | null;
+  email_delivery_reason?: string | null;
+  invite_link?: string | null;
+};
+
 type RoleRow = {
   key: string;
   name: string;
@@ -90,6 +102,7 @@ export default function AdminCenterPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("");
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [inviteLinkFallback, setInviteLinkFallback] = useState<string | null>(null);
   const [isInviting, setIsInviting] = useState(false);
 
   const [pendingRoleByUser, setPendingRoleByUser] = useState<Record<string, string>>({});
@@ -192,9 +205,10 @@ export default function AdminCenterPage() {
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setInviteMessage(null);
+    setInviteLinkFallback(null);
     setIsInviting(true);
     try {
-      await apiFetch("/api/v1/admin/invites", {
+      const response = await apiFetch<InviteResponse>("/api/v1/admin/invites", {
         method: "POST",
         body: JSON.stringify({
           email: inviteEmail,
@@ -202,7 +216,19 @@ export default function AdminCenterPage() {
         }),
       });
       setInviteEmail("");
-      setInviteMessage("Invite sent.");
+      if (response.email_sent) {
+        setInviteMessage("Invite email sent.");
+      } else if (response.email_delivery_reason === "smtp_not_configured") {
+        setInviteMessage("Invite created, but SMTP is not configured so no email was sent.");
+        if (response.invite_link) {
+          setInviteLinkFallback(response.invite_link);
+        }
+      } else {
+        setInviteMessage("Invite created, but email delivery failed.");
+        if (response.invite_link) {
+          setInviteLinkFallback(response.invite_link);
+        }
+      }
     } catch (error) {
       setInviteMessage(toMessage(error, "Unable to send invite."));
     } finally {
@@ -461,6 +487,14 @@ export default function AdminCenterPage() {
                   </Button>
                 </form>
                 {inviteMessage ? <p className="text-sm text-slate-700">{inviteMessage}</p> : null}
+                {inviteLinkFallback ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="font-semibold">Manual invite link (email it to the user):</p>
+                    <a className="break-all underline" href={inviteLinkFallback} target="_blank" rel="noopener noreferrer">
+                      {inviteLinkFallback}
+                    </a>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   {users.map((user) => (

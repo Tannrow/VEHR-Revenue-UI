@@ -10,6 +10,7 @@ from openai import OpenAI
 
 TRANSCRIPTION_MODEL = "whisper-1"
 GENERATION_MODEL = "gpt-4o"
+GENERATION_FALLBACK_MODEL = "gpt-4o-mini"
 ALLOWED_NOTE_TYPES = {"SOAP", "DAP", "CUSTOM"}
 
 
@@ -83,23 +84,36 @@ class TannerAIService:
         self._client = client or OpenAI(api_key=key)
 
     def _chat_completion(self, *, messages: list[dict[str, str]], temperature: float) -> str:
-        try:
-            response = self._client.chat.completions.create(
-                model=GENERATION_MODEL,
-                messages=messages,
-                temperature=temperature,
-            )
-        except Exception as exc:
-            raise TannerAIServiceError("tanner_ai_generation_failed", status_code=503) from exc
+        model_candidates = [GENERATION_MODEL, GENERATION_FALLBACK_MODEL]
+        seen_models: set[str] = set()
+        last_error: Exception | None = None
 
-        if not response.choices:
-            raise TannerAIServiceError("tanner_ai_empty_response", status_code=502)
+        for model_name in model_candidates:
+            normalized = model_name.strip()
+            if not normalized or normalized in seen_models:
+                continue
+            seen_models.add(normalized)
+            try:
+                response = self._client.chat.completions.create(
+                    model=normalized,
+                    messages=messages,
+                    temperature=temperature,
+                )
+            except Exception as exc:
+                last_error = exc
+                continue
 
-        message = response.choices[0].message
-        text = _extract_text_content(getattr(message, "content", ""))
-        if not text:
-            raise TannerAIServiceError("tanner_ai_empty_response", status_code=502)
-        return text
+            if not response.choices:
+                continue
+
+            message = response.choices[0].message
+            text = _extract_text_content(getattr(message, "content", ""))
+            if text:
+                return text
+
+        if last_error is not None:
+            raise TannerAIServiceError("tanner_ai_generation_failed", status_code=503) from last_error
+        raise TannerAIServiceError("tanner_ai_empty_response", status_code=502)
 
     def transcribe_audio(self, file_path: str) -> str:
         path = Path(file_path)

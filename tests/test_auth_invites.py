@@ -293,3 +293,56 @@ def test_change_password_and_reset_password(tmp_path) -> None:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_invite_reports_email_delivery_status_when_smtp_not_configured(tmp_path) -> None:
+    database_file = tmp_path / "auth_invite_email_status.sqlite"
+    engine = create_engine(
+        f"sqlite:///{database_file}",
+        connect_args={"check_same_thread": False},
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    from app.db import models as _models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            org = Organization(name="Invite Email Status Org")
+            db.add(org)
+            db.flush()
+            admin = _create_user_membership(
+                db,
+                organization_id=org.id,
+                email="admin-email-status@example.com",
+                role=ROLE_ADMIN,
+                password="AdminPass123!",
+            )
+            db.commit()
+            admin_token = create_access_token({"sub": admin.id, "org_id": org.id})
+
+        with TestClient(app) as client:
+            created = client.post(
+                "/api/v1/admin/invites",
+                json={"email": "status-user@example.com", "allowed_roles": [ROLE_COUNSELOR]},
+                headers=_auth_header(admin_token),
+            )
+            assert created.status_code == 201
+            payload = created.json()
+            assert payload["email_sent"] is False
+            assert payload["email_delivery_reason"] == "smtp_not_configured"
+            assert isinstance(payload.get("invite_link"), str)
+            assert "/accept-invite?token=" in payload["invite_link"]
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

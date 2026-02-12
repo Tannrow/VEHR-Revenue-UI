@@ -105,6 +105,9 @@ class InviteRead(BaseModel):
     status: str
     expires_at: str
     accepted_at: str | None = None
+    email_sent: bool | None = None
+    email_delivery_reason: str | None = None
+    invite_link: str | None = None
 
 
 class AcceptInviteRequest(BaseModel):
@@ -294,7 +297,7 @@ def _attempt_invite_email_delivery(
     actor_email: str,
     invite_link: str,
     context: str,
-) -> None:
+) -> tuple[bool, str | None]:
     log_event(
         db,
         action="invite.email_attempted",
@@ -311,7 +314,7 @@ def _attempt_invite_email_delivery(
             invite_link=invite_link,
         )
         if sent:
-            return
+            return True, None
 
         logger.warning(
             "Invite email not sent because SMTP configuration is incomplete invite_id=%s email=%s context=%s",
@@ -332,6 +335,7 @@ def _attempt_invite_email_delivery(
                 "reason": "smtp_not_configured",
             },
         )
+        return False, "smtp_not_configured"
     except EmailDeliveryError as exc:
         logger.error(
             "Invite email delivery failed invite_id=%s email=%s context=%s error=%s",
@@ -354,6 +358,7 @@ def _attempt_invite_email_delivery(
                 "error": str(exc),
             },
         )
+        return False, "smtp_error"
     except Exception as exc:
         logger.exception(
             "Unexpected invite email error invite_id=%s email=%s context=%s error=%s",
@@ -376,6 +381,7 @@ def _attempt_invite_email_delivery(
                 "error": str(exc),
             },
         )
+        return False, "unexpected_error"
 
 
 @router.post("/auth/bootstrap", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -757,11 +763,12 @@ def create_invite(
     db.commit()
     db.refresh(row)
 
-    _attempt_invite_email_delivery(
+    invite_link = _build_invite_link(raw_token)
+    email_sent, email_delivery_reason = _attempt_invite_email_delivery(
         db=db,
         invite=row,
         actor_email=membership.user.email,
-        invite_link=_build_invite_link(raw_token),
+        invite_link=invite_link,
         context="create",
     )
 
@@ -774,7 +781,11 @@ def create_invite(
         actor=membership.user.email,
         metadata={"email": email, "allowed_roles": allowed_roles},
     )
-    return _to_invite_read(row)
+    response = _to_invite_read(row)
+    response.email_sent = email_sent
+    response.email_delivery_reason = email_delivery_reason
+    response.invite_link = invite_link if not email_sent else None
+    return response
 
 
 @router.post("/admin/invites/{invite_id}/resend", response_model=InviteRead)
@@ -806,11 +817,12 @@ def resend_invite(
     db.commit()
     db.refresh(row)
 
-    _attempt_invite_email_delivery(
+    invite_link = _build_invite_link(raw_token)
+    email_sent, email_delivery_reason = _attempt_invite_email_delivery(
         db=db,
         invite=row,
         actor_email=membership.user.email,
-        invite_link=_build_invite_link(raw_token),
+        invite_link=invite_link,
         context="resend",
     )
 
@@ -822,7 +834,11 @@ def resend_invite(
         organization_id=membership.organization_id,
         actor=membership.user.email,
     )
-    return _to_invite_read(row)
+    response = _to_invite_read(row)
+    response.email_sent = email_sent
+    response.email_delivery_reason = email_delivery_reason
+    response.invite_link = invite_link if not email_sent else None
+    return response
 
 
 @router.post("/admin/invites/{invite_id}/revoke", response_model=InviteRead)
