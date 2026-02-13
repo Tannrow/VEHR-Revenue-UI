@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:e2e": "npx playwright test playwright/client-profile.e2e.spec.ts",
     "test:visual": "npx playwright test",
     "test:visual:update": "npx playwright test --update-snapshots"
   },

@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, apiFetch } from "@/lib/api";
+import { isUiV2ClientProfileEnabled } from "@/lib/feature-flags";
 
 type Patient = {
   id: string;
@@ -170,6 +172,7 @@ function statusBadgeClass(status: string) {
 export default function PatientWorkspacePage() {
   const params = useParams();
   const patientId = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const uiV2ClientProfileEnabled = isUiV2ClientProfileEnabled();
 
   const [activeTab, setActiveTab] = useState("overview");
   const [error, setError] = useState<string | null>(null);
@@ -412,7 +415,7 @@ export default function PatientWorkspacePage() {
 
   const mrn = patient.id.slice(0, 8).toUpperCase();
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="client-profile-page">
       {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
 
       {sendResult ? (
@@ -435,9 +438,44 @@ export default function PatientWorkspacePage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => setActiveTab("encounters")}>New Encounter</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => setActiveTab("notes")}>New Note</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => setActiveTab("assessments")}>Start Assessment</Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-testid="client-action-new-encounter"
+                onClick={() => setActiveTab("encounters")}
+              >
+                New Encounter
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-testid="client-action-add-note"
+                onClick={() => setActiveTab("notes")}
+              >
+                Add Note
+              </Button>
+              <Button type="button" size="sm" variant="outline" asChild>
+                <Link href="/tasks" data-testid="client-action-create-task">Create Task</Link>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-testid="client-action-upload-doc"
+                onClick={() => setActiveTab("documents")}
+              >
+                Upload Doc
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveTab("assessments")}
+              >
+                Start Assessment
+              </Button>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -458,17 +496,21 @@ export default function PatientWorkspacePage() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="h-auto flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="demographics">Demographics</TabsTrigger>
-          <TabsTrigger value="insurance">Insurance</TabsTrigger>
-          <TabsTrigger value="intake">Intake & Paperwork</TabsTrigger>
-          <TabsTrigger value="encounters">Encounters</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
-          <TabsTrigger value="assessments">Assessments</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="progress">Treatment Progress</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
+        <TabsList
+          className="h-auto flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2"
+          data-testid="client-profile-tabs"
+          data-ui-v2-enabled={uiV2ClientProfileEnabled ? "1" : "0"}
+        >
+          <TabsTrigger value="overview" data-testid="client-tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="demographics" data-testid="client-tab-demographics">Demographics</TabsTrigger>
+          <TabsTrigger value="insurance" data-testid="client-tab-insurance">Insurance</TabsTrigger>
+          <TabsTrigger value="intake" data-testid="client-tab-intake">Intake & Paperwork</TabsTrigger>
+          <TabsTrigger value="encounters" data-testid="client-tab-encounters">Encounters</TabsTrigger>
+          <TabsTrigger value="notes" data-testid="client-tab-notes">Notes</TabsTrigger>
+          <TabsTrigger value="assessments" data-testid="client-tab-assessments">Assessments</TabsTrigger>
+          <TabsTrigger value="documents" data-testid="client-tab-documents">Documents</TabsTrigger>
+          <TabsTrigger value="progress" data-testid="client-tab-progress">Treatment Progress</TabsTrigger>
+          <TabsTrigger value="history" data-testid="client-tab-history">History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 pt-4">
@@ -516,11 +558,11 @@ export default function PatientWorkspacePage() {
 
         <TabsContent value="encounters" className="pt-4 space-y-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">New Encounter</CardTitle></CardHeader><CardContent className="pt-0"><form className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={createEncounter}><Input value={encounterType} onChange={(event) => setEncounterType(event.target.value)} placeholder="Encounter type" /><Input type="datetime-local" value={encounterDateTime} onChange={(event) => setEncounterDateTime(event.target.value)} /><Button type="submit">Create</Button></form></CardContent></Card><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Encounter Timeline</CardTitle></CardHeader><CardContent className="space-y-2 pt-0">{encounters.map((entry) => (<div key={entry.id} className="rounded-md border border-slate-200 p-3 text-sm"><div className="font-semibold text-slate-900">{entry.encounter_type}</div><div className="text-slate-600">{new Date(entry.start_time).toLocaleString()}</div></div>))}{encounters.length === 0 ? <div className="text-sm text-slate-600">No encounters yet.</div> : null}</CardContent></Card></TabsContent>
 
-        <TabsContent value="notes" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Notes</CardTitle></CardHeader><CardContent className="space-y-4 pt-0"><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant={noteServiceFilter === "all" ? "default" : "outline"} onClick={() => setNoteServiceFilter("all")}>All</Button>{Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map((service) => (<Button key={service.id} type="button" size="sm" variant={noteServiceFilter === service.id ? "default" : "outline"} onClick={() => setNoteServiceFilter(service.id)}>{service.code}</Button>))}</div><form className="grid gap-2" onSubmit={createNote}><div className="grid gap-2 sm:grid-cols-2"><select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteServiceId} onChange={(event) => setNoteServiceId(event.target.value)}>{Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map((service) => (<option key={service.id} value={service.id}>{service.code} - {service.name}</option>))}</select><select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteVisibility} onChange={(event) => setNoteVisibility(event.target.value as PatientNote["visibility"])}><option value="clinical_only">clinical_only</option><option value="legal_and_clinical">legal_and_clinical</option></select></div><textarea className="min-h-[96px] rounded-md border border-slate-200 px-3 py-2 text-sm" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} /><Button type="submit">Add Note</Button></form><div className="space-y-2">{notes.map((note) => (<div key={note.id} className="rounded-md border border-slate-200 p-3 text-sm"><div className="flex flex-wrap gap-2"><Badge className="border-cyan-200 bg-cyan-50 font-mono text-cyan-700">{note.primary_service.code}</Badge><Badge className="border-violet-200 bg-violet-50 text-violet-700">{note.visibility}</Badge></div><div className="mt-2 whitespace-pre-wrap text-slate-700">{note.body}</div></div>))}{notes.length === 0 ? <div className="text-sm text-slate-600">No notes in this filter.</div> : null}</div></CardContent></Card></TabsContent>
+        <TabsContent value="notes" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Notes</CardTitle></CardHeader><CardContent className="space-y-4 pt-0"><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant={noteServiceFilter === "all" ? "default" : "outline"} onClick={() => setNoteServiceFilter("all")}>All</Button>{Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map((service) => (<Button key={service.id} type="button" size="sm" variant={noteServiceFilter === service.id ? "default" : "outline"} onClick={() => setNoteServiceFilter(service.id)}>{service.code}</Button>))}</div><form className="grid gap-2" onSubmit={createNote}><div className="grid gap-2 sm:grid-cols-2"><select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteServiceId} onChange={(event) => setNoteServiceId(event.target.value)}>{Array.from(new Map(enrollments.map((entry) => [entry.service.id, entry.service])).values()).map((service) => (<option key={service.id} value={service.id}>{service.code} - {service.name}</option>))}</select><select className="h-9 rounded-md border border-slate-200 px-3 text-sm" value={noteVisibility} onChange={(event) => setNoteVisibility(event.target.value as PatientNote["visibility"])}><option value="clinical_only">clinical_only</option><option value="legal_and_clinical">legal_and_clinical</option></select></div><textarea data-testid="client-note-input" className="min-h-[96px] rounded-md border border-slate-200 px-3 py-2 text-sm" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} /><Button type="submit" data-testid="client-note-submit">Add Note</Button></form><div className="space-y-2">{notes.map((note) => (<div key={note.id} className="rounded-md border border-slate-200 p-3 text-sm"><div className="flex flex-wrap gap-2"><Badge className="border-cyan-200 bg-cyan-50 font-mono text-cyan-700">{note.primary_service.code}</Badge><Badge className="border-violet-200 bg-violet-50 text-violet-700">{note.visibility}</Badge></div><div className="mt-2 whitespace-pre-wrap text-slate-700">{note.body}</div></div>))}{notes.length === 0 ? <div className="text-sm text-slate-600">No notes in this filter.</div> : null}</div></CardContent></Card></TabsContent>
 
         <TabsContent value="assessments" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Assessments</CardTitle></CardHeader><CardContent className="space-y-2 pt-0 text-sm text-slate-600"><div>ASAM / PHQ-9 / GAD-7 containers are planned in the next backend increment.</div><Button type="button" variant="outline" onClick={() => setActiveTab("notes")}>Capture Assessment Summary Note</Button></CardContent></Card></TabsContent>
 
-        <TabsContent value="documents" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Documents</CardTitle></CardHeader><CardContent className="space-y-4 pt-0">{documentGroups.length === 0 ? <div className="text-sm text-slate-600">No assigned paperwork yet.</div> : documentGroups.map((group) => (<div key={group.service.id} className="rounded-lg border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold text-slate-900">{group.service.name} ({group.service.code})</div><Button type="button" size="sm" onClick={() => sendDocumentsToPortal(group.service.id)} disabled={sendingServiceId === group.service.id}>{sendingServiceId === group.service.id ? "Sending..." : "Send to Patient Portal"}</Button></div><div className="mt-3 space-y-2">{group.documents.map((document) => (<div key={document.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"><div className="text-sm text-slate-800">{document.template.name} v{document.template.version}</div><Badge className={statusBadgeClass(document.status)}>{document.status}</Badge></div>))}</div></div>))}</CardContent></Card></TabsContent>
+        <TabsContent value="documents" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Documents</CardTitle></CardHeader><CardContent className="space-y-4 pt-0" data-testid="client-documents-list">{documentGroups.length === 0 ? <div className="text-sm text-slate-600">No assigned paperwork yet.</div> : documentGroups.map((group) => (<div key={group.service.id} className="rounded-lg border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold text-slate-900">{group.service.name} ({group.service.code})</div><Button type="button" size="sm" data-testid={`client-doc-send-${group.service.id}`} onClick={() => sendDocumentsToPortal(group.service.id)} disabled={sendingServiceId === group.service.id}>{sendingServiceId === group.service.id ? "Sending..." : "Send to Patient Portal"}</Button></div><div className="mt-3 space-y-2">{group.documents.map((document) => (<div key={document.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"><div className="text-sm text-slate-800">{document.template.name} v{document.template.version}</div><Badge className={statusBadgeClass(document.status)}>{document.status}</Badge></div>))}</div></div>))}</CardContent></Card></TabsContent>
 
         <TabsContent value="progress" className="pt-4"><Card className="border-slate-200/70 shadow-sm"><CardHeader><CardTitle className="text-base">Treatment Stage</CardTitle></CardHeader><CardContent className="space-y-3 pt-0"><div className="grid gap-2 sm:grid-cols-2">{STAGE_ORDER.map((stage) => (<Button key={stage.key} type="button" variant={treatmentStage?.stage === stage.key ? "default" : "outline"} disabled={stageUpdating} onClick={() => updateStage(stage.key)}>{stage.label}</Button>))}</div><div className="space-y-2">{stageEvents.map((event) => (<div key={event.id} className="rounded-md border border-slate-200 px-3 py-2 text-sm"><div className="font-semibold text-slate-900">{event.to_stage.replaceAll("_", " ")}</div><div className="text-slate-600">{new Date(event.created_at).toLocaleString()}</div>{event.reason ? <div className="text-xs text-slate-500">{event.reason}</div> : null}</div>))}{stageEvents.length === 0 ? <div className="text-sm text-slate-600">No stage history yet.</div> : null}</div></CardContent></Card></TabsContent>
 

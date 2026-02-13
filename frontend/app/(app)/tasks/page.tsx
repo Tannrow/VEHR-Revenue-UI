@@ -579,7 +579,12 @@ export default function TasksPage() {
               <Button type="button" variant="outline" className="h-9 rounded-lg" asChild>
                 <Link href="/tasks/matrix">Task Matrix</Link>
               </Button>
-              <Button type="button" className="h-9 rounded-lg" onClick={() => setIsCreateOpen(true)}>
+              <Button
+                type="button"
+                className="h-9 rounded-lg"
+                data-testid="tasks-open-create"
+                onClick={() => setIsCreateOpen(true)}
+              >
                 New Task
               </Button>
             </div>
@@ -685,13 +690,18 @@ export default function TasksPage() {
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-            <div className="space-y-2">
+            <div className="space-y-2" data-testid="tasks-list">
               {isLoading ? <p className="text-sm text-slate-500">Loading tasks...</p> : null}
               {!isLoading && tasks.length === 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
                   No tasks found for this view.
                   <div className="mt-2">
-                    <Button type="button" className="h-8 rounded-lg" onClick={() => setIsCreateOpen(true)}>
+                    <Button
+                      type="button"
+                      className="h-8 rounded-lg"
+                      data-testid="tasks-open-create-empty"
+                      onClick={() => setIsCreateOpen(true)}
+                    >
                       Add your first task
                     </Button>
                   </div>
@@ -702,6 +712,7 @@ export default function TasksPage() {
                 ? tasks.map((task) => (
                     <div
                       key={task.id}
+                      data-testid={`tasks-row-${task.id}`}
                       className={`rounded-lg border px-3 py-3 transition-colors ${
                         selectedTaskId === task.id
                           ? "border-sky-300 bg-sky-50"
@@ -899,6 +910,7 @@ export default function TasksPage() {
                   <input
                     id="tasks-create-title"
                     type="text"
+                    data-testid="tasks-create-title"
                     className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
                     value={createForm.title}
                     onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))}
@@ -993,7 +1005,7 @@ export default function TasksPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" className="h-9 rounded-lg" disabled={isSavingCreate}>
+                  <Button type="submit" className="h-9 rounded-lg" data-testid="tasks-create-submit" disabled={isSavingCreate}>
                     {isSavingCreate ? "Creating..." : "Create Task"}
                   </Button>
                 </div>
