@@ -1,0 +1,169 @@
+:root {
+  /* Neutral surface/text system */
+  --neutral-background: #f3f6fa;
+  --neutral-panel: #ffffff;
+  --neutral-text: #0f1b2d;
+  --neutral-muted: #54637a;
+  --neutral-border: #d7e0eb;
+
+  /* Semantic status colors */
+  --status-critical: #b42318;
+  --status-attention: #b54708;
+  --status-stable: #067647;
+  --status-informational: #175cd3;
+
+  /* Spacing scale */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+
+  /* Border radius scale */
+  --radius-2: 2px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+
+  /* Typography scale */
+  --font-size-12: 12px;
+  --font-size-14: 14px;
+  --font-size-16: 16px;
+  --font-size-18: 18px;
+  --font-size-20: 20px;
+  --font-size-24: 24px;
+  --font-size-30: 30px;
+  --line-height-tight: 1.2;
+  --line-height-default: 1.45;
+  --line-height-relaxed: 1.6;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Shadow scale (kept conservative for clinical UIs) */
+  --shadow-1: 0 1px 2px rgba(15, 27, 45, 0.08);
+  --shadow-2: 0 3px 8px rgba(15, 27, 45, 0.12);
+  --shadow-3: 0 8px 20px rgba(15, 27, 45, 0.14);
+
+  /* Layering scale */
+  --z-base: 0;
+  --z-header: 100;
+  --z-sidebar: 200;
+  --z-drawer: 400;
+  --z-modal: 600;
+  --z-toast: 800;
+
+  /* Existing navigation aliases (kept for non-breaking migration) */
+  --ui-nav-color: #2f76dc;
+  --ui-nav-bg: #0f1c2f;
+  --ui-nav-active-bg: #1c2f48;
+  --ui-nav-active-fg: #f3f7fc;
+  --ui-nav-inactive-fg: #a6b6ca;
+  --ui-nav-inactive-icon: #7f93ad;
+  --ui-nav-hover-bg: rgba(127, 147, 173, 0.16);
+
+  /* Existing status aliases (mapped to semantic status tokens) */
+  --ui-status-success: var(--status-stable);
+  --ui-status-warning: var(--status-attention);
+  --ui-status-error: var(--status-critical);
+  --ui-status-info: var(--status-informational);
+
+  /* Existing grayscale aliases (mapped to neutral tokens) */
+  --ui-gray-canvas: var(--neutral-background);
+  --ui-gray-panel: var(--neutral-panel);
+  --ui-gray-divider: var(--neutral-border);
+  --ui-gray-muted: var(--neutral-muted);
+  --ui-gray-strong: var(--neutral-text);
+
+  /*
+    Bridge tokens used by current Tailwind/shadcn classes.
+    These preserve existing utility behavior while values now come from design tokens.
+  */
+  --background: var(--neutral-background);
+  --foreground: var(--neutral-text);
+  --card: var(--neutral-panel);
+  --card-foreground: var(--neutral-text);
+  --popover: var(--neutral-panel);
+  --popover-foreground: var(--neutral-text);
+  --primary: #173b72;
+  --primary-foreground: #f8fbff;
+  --secondary: #e7edf6;
+  --secondary-foreground: #173b72;
+  --muted: #e9eef6;
+  --muted-foreground: var(--neutral-muted);
+  --accent: #dce7f5;
+  --accent-foreground: #173b72;
+  --destructive: var(--status-critical);
+  --destructive-foreground: #ffffff;
+  --border: var(--neutral-border);
+  --input: var(--neutral-border);
+  --ring: #4f79b8;
+  --chart-1: #2f76dc;
+  --chart-2: #0d9488;
+  --chart-3: #1e3a8a;
+  --chart-4: #c2410c;
+  --chart-5: #7e22ce;
+  --sidebar: var(--ui-nav-bg);
+  --sidebar-foreground: var(--ui-nav-active-fg);
+  --sidebar-primary: var(--ui-nav-color);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--ui-nav-active-bg);
+  --sidebar-accent-foreground: var(--ui-nav-active-fg);
+  --sidebar-border: color-mix(in srgb, var(--ui-nav-bg) 85%, white);
+  --sidebar-ring: #6d95d6;
+  --radius: var(--radius-8);
+}
+
+.dark {
+  --neutral-background: #0d1624;
+  --neutral-panel: #122036;
+  --neutral-text: #edf3fb;
+  --neutral-muted: #a9bad3;
+  --neutral-border: #2a3b54;
+
+  --status-critical: #f97066;
+  --status-attention: #fdb022;
+  --status-stable: #32d583;
+  --status-informational: #84adff;
+
+  --ui-nav-bg: #091221;
+  --ui-nav-active-bg: #203750;
+  --ui-nav-active-fg: #f1f6ff;
+  --ui-nav-inactive-fg: #9bb0ca;
+  --ui-nav-inactive-icon: #7f98b9;
+  --ui-nav-hover-bg: rgba(127, 152, 185, 0.2);
+
+  --background: var(--neutral-background);
+  --foreground: var(--neutral-text);
+  --card: var(--neutral-panel);
+  --card-foreground: var(--neutral-text);
+  --popover: var(--neutral-panel);
+  --popover-foreground: var(--neutral-text);
+  --secondary: #203750;
+  --secondary-foreground: var(--neutral-text);
+  --muted: #1d2f46;
+  --muted-foreground: var(--neutral-muted);
+  --accent: #27415f;
+  --accent-foreground: var(--neutral-text);
+  --destructive-foreground: #ffffff;
+  --border: var(--neutral-border);
+  --input: var(--neutral-border);
+  --ring: #7fa2d8;
+  --chart-1: #84adff;
+  --chart-2: #43d9c6;
+  --chart-3: #b3c5ff;
+  --chart-4: #ff8b6a;
+  --chart-5: #d5a6ff;
+  --sidebar: var(--ui-nav-bg);
+  --sidebar-foreground: var(--ui-nav-active-fg);
+  --sidebar-primary: var(--ui-nav-color);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--ui-nav-active-bg);
+  --sidebar-accent-foreground: var(--ui-nav-active-fg);
+  --sidebar-border: color-mix(in srgb, var(--ui-nav-bg) 70%, white);
+  --sidebar-ring: #93b4e6;
+}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import "./tokens.css";
 import "./globals.css";
 import { BRANDING } from "@/lib/branding";
 

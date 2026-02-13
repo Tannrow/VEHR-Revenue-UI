@@ -1,14 +1,23 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "./ui-tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --spacing: var(--space-4);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-jetbrains-mono);
+  --color-neutral-background: var(--neutral-background);
+  --color-neutral-panel: var(--neutral-panel);
+  --color-neutral-text: var(--neutral-text);
+  --color-neutral-muted: var(--neutral-muted);
+  --color-neutral-border: var(--neutral-border);
+  --color-status-critical: var(--status-critical);
+  --color-status-attention: var(--status-attention);
+  --color-status-stable: var(--status-stable);
+  --color-status-informational: var(--status-informational);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -28,6 +37,7 @@
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -38,82 +48,13 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
-}
-
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.147 0.004 49.25);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.147 0.004 49.25);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.147 0.004 49.25);
-  --primary: oklch(0.216 0.006 56.043);
-  --primary-foreground: oklch(0.985 0.001 106.423);
-  --secondary: oklch(0.97 0.001 106.424);
-  --secondary-foreground: oklch(0.216 0.006 56.043);
-  --muted: oklch(0.97 0.001 106.424);
-  --muted-foreground: oklch(0.553 0.013 58.071);
-  --accent: oklch(0.97 0.001 106.424);
-  --accent-foreground: oklch(0.216 0.006 56.043);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.923 0.003 48.717);
-  --input: oklch(0.923 0.003 48.717);
-  --ring: oklch(0.709 0.01 56.259);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0.001 106.423);
-  --sidebar-foreground: oklch(0.147 0.004 49.25);
-  --sidebar-primary: oklch(0.216 0.006 56.043);
-  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-accent: oklch(0.97 0.001 106.424);
-  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
-  --sidebar-border: oklch(0.923 0.003 48.717);
-  --sidebar-ring: oklch(0.709 0.01 56.259);
-}
-
-.dark {
-  --background: oklch(0.147 0.004 49.25);
-  --foreground: oklch(0.985 0.001 106.423);
-  --card: oklch(0.216 0.006 56.043);
-  --card-foreground: oklch(0.985 0.001 106.423);
-  --popover: oklch(0.216 0.006 56.043);
-  --popover-foreground: oklch(0.985 0.001 106.423);
-  --primary: oklch(0.923 0.003 48.717);
-  --primary-foreground: oklch(0.216 0.006 56.043);
-  --secondary: oklch(0.268 0.007 34.298);
-  --secondary-foreground: oklch(0.985 0.001 106.423);
-  --muted: oklch(0.268 0.007 34.298);
-  --muted-foreground: oklch(0.709 0.01 56.259);
-  --accent: oklch(0.268 0.007 34.298);
-  --accent-foreground: oklch(0.985 0.001 106.423);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.553 0.013 58.071);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.216 0.006 56.043);
-  --sidebar-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-accent: oklch(0.268 0.007 34.298);
-  --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.553 0.013 58.071);
+  --radius-sm: var(--radius-4);
+  --radius-md: var(--radius-6);
+  --radius-lg: var(--radius-8);
+  --radius-xl: var(--radius-12);
+  --radius-2xl: calc(var(--radius-12) + 4px);
+  --radius-3xl: calc(var(--radius-12) + 8px);
+  --radius-4xl: calc(var(--radius-12) + 12px);
 }
 
 @layer base {
@@ -122,37 +63,93 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-size: var(--font-size-14);
+    line-height: var(--line-height-default);
   }
 }
 
 body {
   margin: 0;
-  background: var(--ui-gray-canvas);
-  color: var(--ui-gray-strong);
+  background: var(--neutral-background);
+  color: var(--neutral-text);
   font-family: var(--font-space-grotesk), "Avenir Next", "Segoe UI", sans-serif;
   text-rendering: optimizeLegibility;
 }
 
 .ui-status-success {
-  border-color: color-mix(in srgb, var(--ui-status-success) 24%, white);
-  background: color-mix(in srgb, var(--ui-status-success) 10%, white);
-  color: color-mix(in srgb, var(--ui-status-success) 72%, black);
+  border-color: color-mix(in srgb, var(--status-stable) 22%, white);
+  background: color-mix(in srgb, var(--status-stable) 12%, white);
+  color: color-mix(in srgb, var(--status-stable) 68%, black);
 }
 
 .ui-status-warning {
-  border-color: color-mix(in srgb, var(--ui-status-warning) 24%, white);
-  background: color-mix(in srgb, var(--ui-status-warning) 10%, white);
-  color: color-mix(in srgb, var(--ui-status-warning) 72%, black);
+  border-color: color-mix(in srgb, var(--status-attention) 22%, white);
+  background: color-mix(in srgb, var(--status-attention) 12%, white);
+  color: color-mix(in srgb, var(--status-attention) 68%, black);
 }
 
 .ui-status-error {
-  border-color: color-mix(in srgb, var(--ui-status-error) 24%, white);
-  background: color-mix(in srgb, var(--ui-status-error) 10%, white);
-  color: color-mix(in srgb, var(--ui-status-error) 72%, black);
+  border-color: color-mix(in srgb, var(--status-critical) 22%, white);
+  background: color-mix(in srgb, var(--status-critical) 12%, white);
+  color: color-mix(in srgb, var(--status-critical) 70%, black);
 }
 
 .ui-status-info {
-  border-color: color-mix(in srgb, var(--ui-status-info) 24%, white);
-  background: color-mix(in srgb, var(--ui-status-info) 10%, white);
-  color: color-mix(in srgb, var(--ui-status-info) 72%, black);
+  border-color: color-mix(in srgb, var(--status-informational) 22%, white);
+  background: color-mix(in srgb, var(--status-informational) 12%, white);
+  color: color-mix(in srgb, var(--status-informational) 68%, black);
+}
+
+.ui-status-critical {
+  background: var(--status-critical);
+  color: #fff;
+}
+
+.ui-status-attention {
+  background: var(--status-attention);
+  color: #fff;
+}
+
+.ui-status-stable {
+  background: var(--status-stable);
+  color: #fff;
+}
+
+.ui-status-informational {
+  background: var(--status-informational);
+  color: #fff;
+}
+
+.ui-button {
+  border-radius: var(--radius-6);
+  box-shadow: var(--shadow-1);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-panel {
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius-8);
+  background: var(--neutral-panel);
+  box-shadow: var(--shadow-1);
+}
+
+.ui-badge {
+  border-radius: var(--radius-4);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ui-table thead th {
+  background: color-mix(in srgb, var(--neutral-muted) 14%, white);
+  border-bottom: 1px solid var(--neutral-border);
+}
+
+.ui-table tbody td {
+  border-bottom: 1px solid color-mix(in srgb, var(--neutral-border) 80%, white);
 }
