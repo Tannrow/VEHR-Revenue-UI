@@ -3,10 +3,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --token-shadow-sm: var(--shadow-sm);
+  --token-shadow-md: var(--shadow-md);
+  --token-card-radius: var(--radius-card);
+}
+
 @theme inline {
   --spacing: var(--space-4);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-jetbrains-mono);
   --color-neutral-background: var(--neutral-background);
@@ -100,6 +110,41 @@ body {
   color: var(--neutral-muted);
 }
 
+.ui-type-card-label {
+  font-size: var(--type-card-label-size);
+  line-height: var(--type-card-label-line-height);
+  font-weight: var(--type-card-label-weight);
+}
+
+.type-pageTitle {
+  font-size: var(--type-page-title-size);
+  line-height: var(--type-page-title-line-height);
+  font-weight: var(--type-page-title-weight);
+}
+
+.type-sectionTitle {
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line-height);
+  font-weight: var(--type-section-title-weight);
+}
+
+.type-cardLabel {
+  font-size: var(--type-card-label-size);
+  line-height: var(--type-card-label-line-height);
+  font-weight: var(--type-card-label-weight);
+}
+
+.type-body {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.type-meta {
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line-height);
+  color: var(--neutral-muted);
+}
+
 .ui-status-pill {
   border-radius: var(--radius-4);
   border: 1px solid transparent;
@@ -155,16 +200,16 @@ body {
 
 .ui-button {
   border-radius: var(--radius-6);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-sm);
   font-size: var(--font-size-14);
   font-weight: var(--font-weight-semibold);
 }
 
 .ui-panel {
   border: 1px solid var(--neutral-border);
-  border-radius: var(--radius-8);
+  border-radius: var(--radius-card);
   background: var(--neutral-panel);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-sm);
 }
 
 .ui-badge {
@@ -185,4 +230,12 @@ body {
 
 .ui-table tbody td {
   border-bottom: 1px solid color-mix(in srgb, var(--neutral-border) 80%, white);
+}
+
+.ui-section-gap {
+  gap: var(--layout-section-gap);
+}
+
+.ui-card-padding {
+  padding: var(--layout-card-padding);
 }

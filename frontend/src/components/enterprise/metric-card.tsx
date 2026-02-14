@@ -35,14 +35,14 @@ export function MetricCard({
   return (
     <Card
       className={cn(
-        "bg-[var(--neutral-panel)] shadow-[var(--shadow-1)] transition-shadow duration-150 hover:shadow-[var(--shadow-2)]",
+        "bg-[var(--neutral-panel)] shadow-sm transition-shadow duration-150 hover:shadow-md",
         toneClass[tone],
         className,
       )}
       data-testid={testId}
     >
       <CardHeader className="flex flex-row items-center justify-between pb-[var(--space-8)]">
-        <p className="ui-type-meta font-semibold uppercase tracking-[0.14em]">{label}</p>
+        <p className="ui-type-card-label uppercase tracking-[0.14em] text-[var(--neutral-muted)]">{label}</p>
         {icon ? <span className="text-[var(--neutral-muted)]">{icon}</span> : null}
       </CardHeader>
       <CardContent className="pt-[var(--space-4)]">
@@ -52,4 +52,3 @@ export function MetricCard({
     </Card>
   );
 }
-

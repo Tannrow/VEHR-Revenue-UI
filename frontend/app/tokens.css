@@ -6,11 +6,17 @@
   --neutral-muted: #54637a;
   --neutral-border: #d7e0eb;
 
-  /* Semantic status colors */
-  --status-critical: #b42318;
-  --status-attention: #b54708;
-  --status-stable: #067647;
-  --status-informational: #175cd3;
+  /* Semantic colors */
+  --success: #067647;
+  --warning: #b54708;
+  --danger: #b42318;
+  --info: #175cd3;
+
+  /* Backward-compatible semantic aliases */
+  --status-critical: var(--danger);
+  --status-attention: var(--warning);
+  --status-stable: var(--success);
+  --status-informational: var(--info);
 
   /* Spacing scale */
   --space-4: 4px;
@@ -22,6 +28,8 @@
   --space-40: 40px;
   --space-48: 48px;
   --space-56: 56px;
+  --layout-section-gap: var(--space-24);
+  --layout-card-padding: var(--space-24);
 
   /* Border radius scale */
   --radius-2: 2px;
@@ -29,6 +37,8 @@
   --radius-6: 6px;
   --radius-8: 8px;
   --radius-12: 12px;
+  --radius-xl: var(--radius-12);
+  --radius-card: var(--radius-xl);
 
   /* Typography scale */
   --font-size-12: 12px;
@@ -55,11 +65,19 @@
   --type-body-line-height: var(--line-height-default);
   --type-meta-size: var(--font-size-12);
   --type-meta-line-height: 1.3;
+  --type-card-label-size: var(--font-size-12);
+  --type-card-label-line-height: 1.3;
+  --type-card-label-weight: var(--font-weight-semibold);
 
   /* Shadow scale (kept conservative for clinical UIs) */
-  --shadow-1: 0 1px 2px rgba(15, 27, 45, 0.08);
-  --shadow-2: 0 3px 8px rgba(15, 27, 45, 0.12);
-  --shadow-3: 0 8px 20px rgba(15, 27, 45, 0.14);
+  --shadow-sm: 0 1px 2px rgba(15, 27, 45, 0.08);
+  --shadow-md: 0 3px 8px rgba(15, 27, 45, 0.12);
+  --shadow-lg: 0 8px 20px rgba(15, 27, 45, 0.14);
+
+  /* Backward-compatible shadow aliases */
+  --shadow-1: var(--shadow-sm);
+  --shadow-2: var(--shadow-md);
+  --shadow-3: var(--shadow-lg);
 
   /* Layering scale */
   --z-base: 0;
@@ -137,10 +155,10 @@
   --neutral-muted: #a9bad3;
   --neutral-border: #2a3b54;
 
-  --status-critical: #f97066;
-  --status-attention: #fdb022;
-  --status-stable: #32d583;
-  --status-informational: #84adff;
+  --success: #32d583;
+  --warning: #fdb022;
+  --danger: #f97066;
+  --info: #84adff;
 
   --ui-nav-bg: #091221;
   --ui-nav-active-bg: #203750;

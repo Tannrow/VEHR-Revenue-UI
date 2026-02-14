@@ -28,7 +28,7 @@ export function PageShell({
   testId,
 }: PageShellProps) {
   return (
-    <div className={cn("flex flex-col gap-[var(--space-24)]", className)} data-testid={testId}>
+    <div className={cn("flex flex-col gap-[var(--layout-section-gap)]", className)} data-testid={testId}>
       <header className="flex flex-wrap items-start justify-between gap-[var(--space-16)]">
         <div className="min-w-0 space-y-[var(--space-8)]">
           {eyebrow ? (
@@ -55,4 +55,3 @@ export function PageShell({
     </div>
   );
 }
-

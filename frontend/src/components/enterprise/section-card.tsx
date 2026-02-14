@@ -23,7 +23,7 @@ export function SectionCard({
   testId,
 }: SectionCardProps) {
   return (
-    <Card className={cn("bg-[var(--neutral-panel)] shadow-[var(--shadow-1)]", className)} data-testid={testId}>
+    <Card className={cn("bg-[var(--neutral-panel)] shadow-sm hover:shadow-md", className)} data-testid={testId}>
       <CardHeader className="border-b border-[var(--neutral-border)] pb-[var(--space-12)]">
         <div className="flex flex-wrap items-center justify-between gap-[var(--space-8)]">
           <CardTitle className="ui-type-section-title text-[var(--neutral-text)]">{title}</CardTitle>
@@ -37,4 +37,3 @@ export function SectionCard({
     </Card>
   );
 }
-
