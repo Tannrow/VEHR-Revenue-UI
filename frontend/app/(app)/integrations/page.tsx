@@ -1,96 +1,85 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { IntegrationStatusCard } from "@/components/enterprise/integration-status-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import MetricCard from "../_components/MetricCard";
-import { apiFetch, buildUrl } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { ApiError, apiFetch, buildUrl } from "@/lib/api";
 import { AppLayoutPageConfig } from "@/lib/app-layout-config";
-
-type ConnectorCapability = {
-  key: string;
-  label: string;
-  description: string;
-};
-
-type Connector = {
-  key: string;
-  display_name: string;
-  category: string;
-  auth_modes: string[];
-  capabilities: ConnectorCapability[];
-};
-
-type ConnectorCatalog = {
-  total: number;
-  categories: string[];
-  connectors: Connector[];
-};
 
 type MicrosoftConnectResponse = {
   authorization_url: string;
 };
 
+type MicrosoftConnectionTestResponse = {
+  display_name?: string | null;
+  user_principal_name?: string | null;
+};
+
 type RingCentralStatus = {
   connected: boolean;
-  rc_account_id?: string | null;
 };
 
 export default function IntegrationsPage() {
   const searchParams = useSearchParams();
-  const [catalog, setCatalog] = useState<ConnectorCatalog | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [ringCentralStatus, setRingCentralStatus] = useState<RingCentralStatus | null>(null);
+  const [microsoftConnected, setMicrosoftConnected] = useState(false);
   const [isConnectingMicrosoft, setIsConnectingMicrosoft] = useState(false);
   const [microsoftConnectError, setMicrosoftConnectError] = useState<string | null>(null);
-  const [ringCentralStatus, setRingCentralStatus] = useState<RingCentralStatus | null>(null);
   const [isConnectingRingCentral, setIsConnectingRingCentral] = useState(false);
+  const [isDisconnectingRingCentral, setIsDisconnectingRingCentral] = useState(false);
   const [ringCentralError, setRingCentralError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function load() {
-      try {
-        setError(null);
-        const [data, status] = await Promise.all([
-          apiFetch<ConnectorCatalog>("/api/v1/integrations/connectors", {
-            cache: "no-store",
-          }),
-          apiFetch<RingCentralStatus>("/api/v1/integrations/ringcentral/status", {
-            cache: "no-store",
-          }),
-        ]);
-        if (!isMounted) return;
-        setCatalog(data);
-        setRingCentralStatus(status);
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load connector catalog");
+  const loadMicrosoftConnectionStatus = useCallback(async (): Promise<boolean> => {
+    try {
+      await apiFetch<MicrosoftConnectionTestResponse>("/api/v1/integrations/microsoft/test", {
+        method: "POST",
+        cache: "no-store",
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        return false;
       }
+      throw err;
     }
-
-    load();
-    return () => {
-      isMounted = false;
-    };
   }, []);
+
+  const refreshStatuses = useCallback(async () => {
+    setPageError(null);
+    try {
+      const [ringCentral, microsoft] = await Promise.all([
+        apiFetch<RingCentralStatus>("/api/v1/integrations/ringcentral/status", {
+          cache: "no-store",
+        }),
+        loadMicrosoftConnectionStatus(),
+      ]);
+      setRingCentralStatus(ringCentral);
+      setMicrosoftConnected(microsoft);
+    } catch (err) {
+      setPageError(err instanceof Error ? err.message : "Failed to load integration status.");
+    }
+  }, [loadMicrosoftConnectionStatus]);
+
+  useEffect(() => {
+    void refreshStatuses();
+  }, [refreshStatuses]);
 
   useEffect(() => {
     const connected = searchParams.get("connected");
     if (connected === "1") {
       setRingCentralError(null);
+      setRingCentralStatus({ connected: true });
       return;
     }
     if (connected === "0") {
       setRingCentralError("RingCentral connection could not be completed. Please try again.");
     }
   }, [searchParams]);
-
-  const connectors = catalog?.connectors ?? [];
 
   async function handleConnectMicrosoft() {
     setMicrosoftConnectError(null);
@@ -104,8 +93,11 @@ export default function IntegrationsPage() {
         throw new Error("Microsoft authorization URL was not returned.");
       }
       window.location.assign(response.authorization_url);
-    } catch {
+    } catch (err) {
       setMicrosoftConnectError("Unable to start Microsoft connection.");
+      if (err instanceof Error) {
+        setPageError(err.message);
+      }
       setIsConnectingMicrosoft(false);
     }
   }
@@ -123,21 +115,37 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function handleDisconnectRingCentral() {
+    setRingCentralError(null);
+    setIsDisconnectingRingCentral(true);
+    try {
+      await apiFetch("/api/v1/integrations/ringcentral/disconnect", { method: "POST" });
+      setRingCentralStatus({ connected: false });
+    } catch (err) {
+      setRingCentralError(err instanceof Error ? err.message : "Unable to disconnect RingCentral.");
+    } finally {
+      setIsDisconnectingRingCentral(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <AppLayoutPageConfig
         moduleLabel="System"
         pageTitle="Integrations"
-        subtitle="Connect third-party systems without exposing technical metadata."
+        subtitle="Manage organization integrations in a simplified status view."
       />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Connected Systems</h1>
           <p className="text-sm text-slate-600">
-            Manage organization-level integrations in a simplified view.
+            Connect or disconnect core external systems.
           </p>
         </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => void refreshStatuses()}>
+          Refresh status
+        </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -148,84 +156,32 @@ export default function IntegrationsPage() {
           onConnect={() => void handleConnectRingCentral()}
           isConnecting={isConnectingRingCentral}
           connectLabel="Connect RingCentral"
+          onDisconnect={() => void handleDisconnectRingCentral()}
+          isDisconnecting={isDisconnectingRingCentral}
           message={ringCentralError}
         />
 
         <IntegrationStatusCard
           title="Microsoft SharePoint"
           provider="sharepoint"
-          connected={false}
+          connected={microsoftConnected}
           onConnect={() => void handleConnectMicrosoft()}
           isConnecting={isConnectingMicrosoft}
           connectLabel="Connect Microsoft"
           message={microsoftConnectError}
           secondaryAction={(
             <Button type="button" variant="outline" size="sm" asChild>
-              <Link href="/admin/integrations/microsoft">Open</Link>
+              <Link href="/sharepoint">Open Organization Information</Link>
             </Button>
           )}
         />
       </div>
 
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Connectors" value={`${catalog?.total ?? 0}`} hint="Available adapters" />
-        <MetricCard
-          label="Categories"
-          value={`${catalog?.categories.length ?? 0}`}
-          hint="Integration domains"
-        />
-        <MetricCard
-          label="Framework"
-          value="Active"
-          hint="Discovery + mapping preview live"
-        />
-      </div>
-
-      {error ? (
+      {pageError ? (
         <Card className="border-rose-200 bg-rose-50/80">
-          <CardContent className="pt-6 text-sm text-rose-700">{error}</CardContent>
+          <CardContent className="pt-6 text-sm text-rose-700">{pageError}</CardContent>
         </Card>
       ) : null}
-
-      <Card className="border-slate-200/70 shadow-sm">
-        <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
-          <CardTitle className="text-base text-slate-900">Catalog categories</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2 pt-5">
-          {(catalog?.categories ?? []).map((category) => (
-            <span key={category} className="ui-status-pill ui-status-info">{category.replace("_", " ")}</span>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {connectors.map((connector) => (
-          <Card key={connector.key} className="border-slate-200/70 shadow-sm">
-            <CardHeader className="border-b border-slate-200/70 bg-slate-50/70">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base text-slate-900">{connector.display_name}</CardTitle>
-                <span className="ui-status-pill ui-status-info">
-                  {connector.category.replace("_", " ")}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-5">
-              {connector.key === "sharepoint" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-center"
-                  onClick={() => void handleConnectMicrosoft()}
-                  disabled={isConnectingMicrosoft}
-                >
-                  {isConnectingMicrosoft ? "Redirecting..." : "Connect Microsoft"}
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }
