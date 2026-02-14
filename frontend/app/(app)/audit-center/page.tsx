@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { DataListRow } from "@/components/enterprise/data-list-row";
+import { PageShell } from "@/components/enterprise/page-shell";
+import { SectionCard } from "@/components/enterprise/section-card";
+import { SidebarNav, type SidebarNavGroup } from "@/components/enterprise/sidebar-nav";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import MetricCard from "../_components/MetricCard";
 import { apiFetch } from "@/lib/api";
+
+import MetricCard from "../_components/MetricCard";
 
 type SummaryResponse = {
   window_hours: number;
@@ -19,10 +23,21 @@ type Anomaly = {
   sample_time: string;
 };
 
-function severityClass(severity: string): string {
-  if (severity === "high") return "ui-status-error";
-  if (severity === "medium") return "ui-status-warning";
-  return "ui-status-info";
+function toSafeText(value: unknown, fallback = "Unavailable"): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return fallback;
+}
+
+function severityTone(severity: string): "critical" | "attention" | "informational" {
+  if (severity === "high") return "critical";
+  if (severity === "medium") return "attention";
+  return "informational";
 }
 
 export default function AuditCenterPage() {
@@ -55,54 +70,97 @@ export default function AuditCenterPage() {
     };
   }, []);
 
-  const highRisk = findings.filter((item) => item.severity === "high").length;
+  const highRisk = useMemo(
+    () => findings.filter((item) => item.severity === "high").length,
+    [findings],
+  );
+
+  const mediumRisk = useMemo(
+    () => findings.filter((item) => item.severity === "medium").length,
+    [findings],
+  );
+
+  const sidebarGroups = useMemo<SidebarNavGroup[]>(
+    () => [
+      {
+        id: "window",
+        label: "Review Window",
+        items: [
+          {
+            id: "last-72h",
+            label: "Last 72 Hours",
+            description: "Current audit summary period",
+            active: true,
+            badge: `${summary?.total_events ?? 0} events`,
+          },
+        ],
+      },
+      {
+        id: "severity",
+        label: "Severity Mix",
+        items: [
+          {
+            id: "high",
+            label: "High Risk",
+            description: "Immediate response required",
+            badge: `${highRisk}`,
+          },
+          {
+            id: "medium",
+            label: "Medium Risk",
+            description: "Track and resolve quickly",
+            badge: `${mediumRisk}`,
+          },
+        ],
+      },
+    ],
+    [highRisk, mediumRisk, summary?.total_events],
+  );
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="space-y-3">
-        <p className="text-sm font-semibold text-slate-500">Oversight</p>
-        <h1 className="text-[2rem] font-semibold tracking-tight text-slate-900">Audit Center</h1>
-        <p className="max-w-2xl text-base leading-7 text-slate-600">
-          Status-first audit view with clear risk and direct follow-up actions.
-        </p>
-      </div>
+    <PageShell
+      eyebrow="Oversight"
+      title="Audit Center"
+      description="Status-first audit view with clear risk and direct follow-up actions."
+      metrics={
+        <div className="grid gap-[var(--space-16)] md:grid-cols-3">
+          <MetricCard label="Audit window" value={`${summary?.window_hours ?? 72}h`} hint="Current review period" />
+          <MetricCard label="Tracked events" value={`${summary?.total_events ?? 0}`} hint="Observed activity" />
+          <MetricCard label="High-risk findings" value={`${highRisk}`} hint="Requires immediate review" tone="danger" />
+        </div>
+      }
+      sidebar={<SidebarNav groups={sidebarGroups} testId="audit-sidebar-nav" />}
+    >
+      {error ? (
+        <div className="ui-panel bg-[color-mix(in_srgb,var(--status-critical)_8%,white)] px-[var(--space-16)] py-[var(--space-12)] ui-type-body text-[var(--status-critical)]">
+          {error}
+        </div>
+      ) : null}
 
-      {error ? <p className="text-sm text-rose-700">{error}</p> : null}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Audit window" value={`${summary?.window_hours ?? 72}h`} hint="Current review period" />
-        <MetricCard label="Tracked events" value={`${summary?.total_events ?? 0}`} hint="Observed activity" />
-        <MetricCard label="High-risk findings" value={`${highRisk}`} hint="Requires immediate review" />
-      </div>
-
-      <Card className="bg-white shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xl text-slate-900">Findings queue</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 pt-0">
+      <SectionCard title="Findings Queue" description="Review anomalies and assign follow-up actions.">
+        <div className="space-y-[var(--space-8)]">
           {findings.length === 0 ? (
-            <p className="text-sm text-slate-500">No active findings in this period.</p>
+            <p className="ui-type-body text-[var(--neutral-muted)]">No active findings in this period.</p>
           ) : (
             findings.map((finding) => (
-              <div key={`${finding.kind}-${finding.sample_time}`} className="rounded-lg bg-slate-50 px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">{finding.kind}</p>
-                  <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${severityClass(finding.severity)}`}>
-                    {finding.severity}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{finding.description}</p>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-slate-500">Detected: {new Date(finding.sample_time).toLocaleString()}</p>
-                  <Button type="button" variant="outline" className="h-8 rounded-lg">
+              <DataListRow
+                key={`${finding.kind}-${finding.sample_time}`}
+                title={toSafeText(finding.kind, "Unknown event")}
+                description={toSafeText(finding.description, "No summary available")}
+                meta={`Detected: ${new Date(finding.sample_time).toLocaleString()}`}
+                statusLabel={toSafeText(finding.severity, "low")}
+                statusTone={severityTone(finding.severity)}
+                actions={
+                  <Button type="button" variant="outline" size="sm">
                     Create follow-up task
                   </Button>
-                </div>
-              </div>
+                }
+              />
             ))
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </SectionCard>
+    </PageShell>
   );
 }
+

@@ -76,6 +76,39 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.ui-type-page-title {
+  font-size: var(--type-page-title-size);
+  line-height: var(--type-page-title-line-height);
+  font-weight: var(--type-page-title-weight);
+  letter-spacing: -0.015em;
+}
+
+.ui-type-section-title {
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line-height);
+  font-weight: var(--type-section-title-weight);
+}
+
+.ui-type-body {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.ui-type-meta {
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line-height);
+  color: var(--neutral-muted);
+}
+
+.ui-status-pill {
+  border-radius: var(--radius-4);
+  border: 1px solid transparent;
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  padding: var(--space-4) var(--space-8);
+}
+
 .ui-status-success {
   border-color: color-mix(in srgb, var(--status-stable) 22%, white);
   background: color-mix(in srgb, var(--status-stable) 12%, white);

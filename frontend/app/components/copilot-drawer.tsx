@@ -194,7 +194,7 @@ export default function CopilotDrawer() {
     }
   }
 
-  function useQuickAction(seed: string) {
+  function applyQuickAction(seed: string) {
     setChatDraft((current) => (current.trim() ? current : seed));
   }
 
@@ -388,7 +388,7 @@ export default function CopilotDrawer() {
                   <button
                     key={action.label}
                     type="button"
-                    onClick={() => useQuickAction(action.seed)}
+                    onClick={() => applyQuickAction(action.seed)}
                     className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 transition-colors hover:border-slate-300"
                   >
                     {action.label}
