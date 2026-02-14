@@ -572,6 +572,15 @@ export default function DashboardPage() {
     }
   }
 
+  const topBarActions = useMemo(
+    () => (
+      <Button type="button" size="sm" onClick={() => setIsCreateOpen(true)}>
+        Create Task
+      </Button>
+    ),
+    [],
+  );
+
   return (
     <div className="flex flex-col gap-[var(--space-24)]" data-testid="operations-command-center">
       <AppLayoutPageConfig
@@ -581,11 +590,7 @@ export default function DashboardPage() {
         showSearch={true}
         searchPlaceholder="Search clients, revenue, compliance"
         notificationCount={notificationCount}
-        actions={(
-          <Button type="button" size="sm" onClick={() => setIsCreateOpen(true)}>
-            Create Task
-          </Button>
-        )}
+        actions={topBarActions}
       />
 
       {isLoading ? <p className="ui-type-meta">Loading command center data...</p> : null}
