@@ -16,6 +16,7 @@ import { AppLayoutConfigContext, type AppLayoutConfig } from "@/lib/app-layout-c
 import {
   ModuleId,
   getModuleById,
+  listModules,
   pageTitleForPath,
   resolveModuleForPath,
   visibleModuleNavItems,
@@ -52,6 +53,59 @@ function displayRoleLabel(role: string | undefined): string {
     .split("_")
     .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+type EnterpriseNavSection = "Clinical" | "Revenue" | "Operations" | "Compliance" | "System";
+
+const ENTERPRISE_SECTION_ORDER: EnterpriseNavSection[] = [
+  "Clinical",
+  "Revenue",
+  "Operations",
+  "Compliance",
+  "System",
+];
+
+function sectionForNavItem(href: string, label: string): EnterpriseNavSection {
+  const normalizedHref = href.toLowerCase();
+  const normalizedLabel = label.toLowerCase();
+
+  if (
+    normalizedHref.startsWith("/clients")
+    || normalizedHref.startsWith("/forms")
+    || normalizedHref.startsWith("/documents")
+    || normalizedHref.startsWith("/patients")
+    || normalizedHref.startsWith("/encounters")
+  ) {
+    return "Clinical";
+  }
+
+  if (
+    normalizedHref.startsWith("/billing")
+    || normalizedLabel.includes("billing")
+    || normalizedLabel.includes("claim")
+    || normalizedLabel.includes("remittance")
+    || normalizedLabel.includes("revenue")
+  ) {
+    return "Revenue";
+  }
+
+  if (normalizedHref.startsWith("/audit-center") || normalizedHref.startsWith("/compliance")) {
+    return "Compliance";
+  }
+
+  if (
+    normalizedHref.startsWith("/admin")
+    || normalizedHref.startsWith("/organization")
+    || normalizedHref.startsWith("/integrations")
+    || normalizedHref.startsWith("/sharepoint")
+    || normalizedLabel.includes("admin")
+    || normalizedLabel.includes("integration")
+    || normalizedLabel.includes("organization")
+  ) {
+    return "System";
+  }
+
+  return "Operations";
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -130,40 +184,59 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     [preferences?.granted_permissions],
   );
 
-  const moduleNavItems = useMemo(() => {
-    if (!activeModuleId) return [];
-    return visibleModuleNavItems(activeModuleId, grantedPermissions);
-  }, [activeModuleId, grantedPermissions]);
+  const allowedModuleSet = useMemo(
+    () => new Set(preferences?.allowed_modules ?? []),
+    [preferences?.allowed_modules],
+  );
 
   const userInitials = useMemo(() => initialsForUser(currentUser), [currentUser]);
 
   const moduleSidebarGroups = useMemo<SidebarNavGroup[]>(() => {
-    if (!activeModule) return [];
-    return [
-      {
-        id: `${activeModule.id}-links`,
-        label: "Navigation",
-        items: moduleNavItems.map((item) => {
-          const isInternal = item.href.startsWith("/");
-          const isActive = isInternal && (pathname === item.href || pathname?.startsWith(`${item.href}/`));
-          return {
-            id: item.href,
-            label: item.label,
-            href: item.href,
-            external: item.external,
-            active: isActive,
-            description: item.external ? "Opens in a new tab" : undefined,
-            testId: `module-nav-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-          };
-        }),
-      },
-    ];
-  }, [activeModule, moduleNavItems, pathname]);
+    const buckets = new Map<EnterpriseNavSection, SidebarNavGroup["items"]>();
+    for (const section of ENTERPRISE_SECTION_ORDER) {
+      buckets.set(section, []);
+    }
+
+    const seenLinks = new Set<string>();
+    for (const moduleDef of listModules()) {
+      if (!allowedModuleSet.has(moduleDef.id)) {
+        continue;
+      }
+      const visibleItems = visibleModuleNavItems(moduleDef.id, grantedPermissions);
+      for (const item of visibleItems) {
+        if (seenLinks.has(item.href)) {
+          continue;
+        }
+        seenLinks.add(item.href);
+
+        const section = sectionForNavItem(item.href, item.label);
+        const isInternal = item.href.startsWith("/");
+        const isActive = isInternal && (pathname === item.href || pathname?.startsWith(`${item.href}/`));
+
+        buckets.get(section)?.push({
+          id: `${moduleDef.id}-${item.href}`,
+          label: item.label,
+          href: item.href,
+          external: item.external,
+          active: isActive,
+          description: item.external ? "Opens in a new tab" : undefined,
+          testId: `module-nav-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        });
+      }
+    }
+
+    return ENTERPRISE_SECTION_ORDER.map((section) => ({
+      id: section.toLowerCase(),
+      label: section,
+      items: buckets.get(section) ?? [],
+    })).filter((group) => group.items.length > 0);
+  }, [allowedModuleSet, grantedPermissions, pathname]);
 
   const showSidebarByDefault = !isDirectory && !!activeModule;
   const showSidebar = typeof layoutConfig.showSidebar === "boolean"
     ? layoutConfig.showSidebar
     : showSidebarByDefault;
+  const isSidebarCollapsed = !isMobile && Boolean(preferences?.sidebar_collapsed);
 
   const topTitle = layoutConfig.pageTitle
     ?? (isDirectory
@@ -326,8 +399,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <div className="min-h-screen bg-background text-foreground antialiased">
         <div className="mx-auto flex min-h-screen w-full max-w-7xl gap-[var(--space-16)] px-6 py-6">
           {showSidebar && !isMobile ? (
-            <aside className="hidden w-72 shrink-0 lg:block">
-              <ModuleSidebar moduleName={activeModule?.name ?? "Module"} groups={moduleSidebarGroups} />
+            <aside
+              className={`hidden shrink-0 transition-[width] duration-200 lg:block ${isSidebarCollapsed ? "w-20" : "w-72"}`}
+            >
+              <ModuleSidebar
+                moduleName={activeModule?.name ?? "Module"}
+                groups={moduleSidebarGroups}
+                collapsed={isSidebarCollapsed}
+                showCollapseToggle={true}
+                onToggleCollapsed={() =>
+                  updatePreferences({ sidebar_collapsed: !preferences.sidebar_collapsed })}
+              />
             </aside>
           ) : null}
 
