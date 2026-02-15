@@ -21,10 +21,18 @@ async function resolveParams(
   return params;
 }
 
+function safeDecodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export default async function GeneratedReportPage({ params }: GeneratedReportPageProps) {
   const resolved = await resolveParams(params);
   const rawReportId = typeof resolved.reportId === "string" ? resolved.reportId : "";
-  const reportId = decodeURIComponent(rawReportId).trim();
+  const reportId = safeDecodePathSegment(rawReportId).trim();
 
   return (
     <section className="space-y-[var(--space-16)]" data-testid="generated-report-page">

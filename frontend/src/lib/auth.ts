@@ -32,7 +32,13 @@ function getTokenFromCookie(): string | null {
     const key = rawKey?.trim();
     if (!key) continue;
     if (TOKEN_COOKIE_KEYS.includes(key as (typeof TOKEN_COOKIE_KEYS)[number])) {
-      return decodeURIComponent(rawValue.join("="));
+      const encodedValue = rawValue.join("=");
+      try {
+        return decodeURIComponent(encodedValue);
+      } catch {
+        // Some environments can set malformed cookie values; fall back to raw.
+        return encodedValue;
+      }
     }
   }
   return null;

@@ -174,14 +174,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     : activeModuleId;
   const isMobile = viewportWidth < 1024;
 
-  const grantedPermissions = useMemo(
-    () => new Set(preferences?.granted_permissions ?? []),
+  const grantedPermissionsList = useMemo(
+    () => (Array.isArray(preferences?.granted_permissions) ? preferences.granted_permissions : []),
     [preferences?.granted_permissions],
+  );
+  const allowedModuleIds = useMemo(
+    () => (Array.isArray(preferences?.allowed_modules) ? preferences.allowed_modules : []),
+    [preferences?.allowed_modules],
+  );
+
+  const grantedPermissions = useMemo(
+    () => new Set(grantedPermissionsList),
+    [grantedPermissionsList],
   );
 
   const allowedModuleSet = useMemo(
-    () => new Set(preferences?.allowed_modules ?? []),
-    [preferences?.allowed_modules],
+    () => new Set(allowedModuleIds),
+    [allowedModuleIds],
   );
   const allowedModules = useMemo(
     () => listModules().filter((moduleDef) => allowedModuleSet.has(moduleDef.id)),
@@ -272,7 +281,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (!preferences || !activeModuleId || isDirectory) {
       return;
     }
-    if (!preferences.allowed_modules.includes(activeModuleId)) {
+    if (!allowedModuleIds.includes(activeModuleId)) {
       router.replace("/directory");
       return;
     }
@@ -294,7 +303,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       .catch(() => {
         lastPatchedModuleRef.current = null;
       });
-  }, [activeModuleId, isDirectory, preferences, router]);
+  }, [activeModuleId, allowedModuleIds, isDirectory, preferences, router]);
 
   useEffect(() => {
     if (!isMobile) {
