@@ -83,7 +83,7 @@ const MODULE_DEFINITIONS: ModuleDefinition[] = [
     defaultRoute: "/audit-center",
     navItems: [
       { label: "Audit Center", href: "/audit-center", requiredAnyPermissions: ["audit:read", "audits:read"] },
-      { label: "Chart Audit", href: "/analytics/chart-audit", requiredAnyPermissions: ["analytics:view"] },
+      { label: "Analytics", href: "/analytics/chart_audit", requiredAnyPermissions: ["analytics:view"] },
       { label: "Compliance", href: "/compliance", requiredAnyPermissions: ["compliance:read"] },
     ],
   },
