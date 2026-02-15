@@ -4,7 +4,16 @@ import { Loader2, Send, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { fetchAnalyticsMetrics, queryAnalyticsMetric, type AnalyticsMetricRead, type AnalyticsQueryRow } from "@/lib/analytics/api";
+import {
+  acknowledgeAnalyticsAlert,
+  fetchAnalyticsAlerts,
+  fetchAnalyticsMetrics,
+  queryAnalyticsMetric,
+  resolveAnalyticsAlert,
+  type AnalyticsAlertRead,
+  type AnalyticsMetricRead,
+  type AnalyticsQueryRow,
+} from "@/lib/analytics/api";
 import { defaultKpisForReport } from "@/lib/analytics/catalog";
 
 type EiPanelProps = {
@@ -12,6 +21,7 @@ type EiPanelProps = {
   onClose: () => void;
   reportKey: string;
   reportTitle: string;
+  initialAlert?: AnalyticsAlertRead | null;
 };
 
 type EiFilters = {
@@ -40,6 +50,8 @@ type EiMessage =
     filters: EiFilters | null;
     suggestedNextActions: string[];
   };
+
+type AlertStatusFilter = "open" | "acknowledged" | "resolved";
 
 function formatDateYmd(date: Date): string {
   const year = date.getFullYear();
@@ -189,20 +201,86 @@ function suggestedActionsForMetric(metricKey: string): string[] {
   return ["Validate metric movement by slicing facility and program, then determine owners for next actions."];
 }
 
-export default function EiPanel({ open, onClose, reportKey, reportTitle }: EiPanelProps) {
+function severityBadgeClass(severity: string): string {
+  const normalized = (severity ?? "").toLowerCase();
+  switch (normalized) {
+    case "critical":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "high":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+    case "medium":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "low":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "info":
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function formatDeltaPct(value?: number | null): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "";
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+export default function EiPanel({ open, onClose, reportKey, reportTitle, initialAlert }: EiPanelProps) {
   const [metrics, setMetrics] = useState<AnalyticsMetricRead[] | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<AnalyticsAlertRead[]>([]);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [alertsStatus, setAlertsStatus] = useState<AlertStatusFilter>("open");
+  const [alertsWindow, setAlertsWindow] = useState<"all" | 7 | 30 | 90>("all");
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertActionBusyId, setAlertActionBusyId] = useState<string | null>(null);
   const [messages, setMessages] = useState<EiMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
 
   const chatRef = useRef<HTMLDivElement | null>(null);
+  const lastInjectedAlertRef = useRef<string | null>(null);
 
   const availableMetricKeys = useMemo(() => new Set((metrics ?? []).map((row) => row.metric_key)), [metrics]);
   const defaultKpis = useMemo(() => defaultKpisForReport(reportKey), [reportKey]);
 
+  function injectAlertContext(alert: AnalyticsAlertRead) {
+    const now = Date.now();
+    const metricKey = alert.metric_key ?? "";
+    const contentLines = [
+      `Alert: ${alert.title}`,
+      "",
+      alert.summary,
+      "",
+      alert.recommended_actions?.length
+        ? `Recommended actions:\n- ${alert.recommended_actions.join("\n- ")}`
+        : "Recommended actions: none",
+    ];
+
+    const eiMessage: EiMessage = {
+      id: `ei-alert-${now}`,
+      role: "ei",
+      status: "done",
+      content: contentLines.join("\n"),
+      createdAt: now,
+      metricKeysUsed: metricKey ? [metricKey] : [],
+      filters: {
+        start: alert.current_range_start,
+        end: alert.current_range_end,
+      },
+      suggestedNextActions: alert.recommended_actions ?? [],
+    };
+
+    setMessages((current) => [...current, eiMessage]);
+  }
+
+  const visibleAlerts = useMemo(() => {
+    if (alertsWindow === "all") return alerts;
+    return alerts.filter((row) => row.baseline_window_days === alertsWindow);
+  }, [alerts, alertsWindow]);
+
   useEffect(() => {
     if (!open) {
+      lastInjectedAlertRef.current = null;
       return;
     }
     let isMounted = true;
@@ -225,6 +303,40 @@ export default function EiPanel({ open, onClose, reportKey, reportTitle }: EiPan
       isMounted = false;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let isMounted = true;
+
+    async function loadAlerts() {
+      setAlertsLoading(true);
+      setAlertsError(null);
+      try {
+        const rows = await fetchAnalyticsAlerts({ status: alertsStatus, limit: 20 });
+        if (!isMounted) return;
+        setAlerts(rows);
+      } catch (error) {
+        if (!isMounted) return;
+        setAlertsError(error instanceof Error ? error.message : "Unable to load alerts.");
+        setAlerts([]);
+      } finally {
+        if (isMounted) setAlertsLoading(false);
+      }
+    }
+
+    void loadAlerts();
+    return () => {
+      isMounted = false;
+    };
+  }, [alertsStatus, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!initialAlert) return;
+    if (lastInjectedAlertRef.current === initialAlert.id) return;
+    lastInjectedAlertRef.current = initialAlert.id;
+    injectAlertContext(initialAlert);
+  }, [initialAlert, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -381,8 +493,155 @@ export default function EiPanel({ open, onClose, reportKey, reportTitle }: EiPan
         ) : null}
 
         <div ref={chatRef} className="flex-1 overflow-y-auto px-5 py-4">
+          <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Alerts</p>
+                <p className="mt-1 text-sm text-slate-600">Recent KPI anomalies detected from baseline comparisons.</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={alertsStatus}
+                  onChange={(event) => setAlertsStatus(event.target.value as AlertStatusFilter)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  aria-label="Alert status filter"
+                >
+                  <option value="open">Open</option>
+                  <option value="acknowledged">Acknowledged</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+
+                <select
+                  value={alertsWindow}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "all") {
+                      setAlertsWindow("all");
+                    } else {
+                      setAlertsWindow(Number(value) as 7 | 30 | 90);
+                    }
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  aria-label="Baseline window filter"
+                >
+                  <option value="all">All windows</option>
+                  <option value="7">7 days</option>
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                </select>
+              </div>
+            </div>
+
+            {alertsError ? (
+              <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                Alerts unavailable: {alertsError}
+              </div>
+            ) : null}
+
+            {alertsLoading ? (
+              <div className="mt-3 space-y-2">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={`alerts-loading-${index}`} className="h-14 animate-pulse rounded-lg bg-slate-100" />
+                ))}
+              </div>
+            ) : null}
+
+            {!alertsLoading && !alertsError ? (
+              visibleAlerts.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {visibleAlerts.map((alert) => {
+                    const deltaLabel = formatDeltaPct(alert.delta_pct);
+                    const actionsDisabled = alertActionBusyId === alert.id;
+                    const canAck = alert.status === "open";
+                    const canResolve = alert.status !== "resolved";
+
+                    async function updateAlert(action: "ack" | "resolve") {
+                      if (actionsDisabled) return;
+                      setAlertActionBusyId(alert.id);
+                      setAlertsError(null);
+                      try {
+                        const updated = action === "ack"
+                          ? await acknowledgeAnalyticsAlert(alert.id)
+                          : await resolveAnalyticsAlert(alert.id);
+
+                        setAlerts((current) => {
+                          // If we are filtering by status, remove rows that no longer match.
+                          if (alertsStatus && updated.status !== alertsStatus) {
+                            return current.filter((row) => row.id !== alert.id);
+                          }
+                          return current.map((row) => (row.id === alert.id ? updated : row));
+                        });
+                      } catch (err) {
+                        console.error("Alert update failed", err);
+                        setAlertsError(err instanceof Error ? err.message : "Unable to update alert.");
+                      } finally {
+                        setAlertActionBusyId((current) => (current === alert.id ? null : current));
+                      }
+                    }
+
+                    return (
+                      <div key={alert.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${severityBadgeClass(alert.severity)}`}>
+                              {alert.severity}
+                            </span>
+                            {alert.metric_key ? (
+                              <span className="text-xs font-medium text-slate-500">{alert.metric_key}</span>
+                            ) : null}
+                            <span className="text-xs text-slate-500">{alert.baseline_window_days}d</span>
+                            {deltaLabel ? (
+                              <span className="text-xs font-semibold text-slate-700">{deltaLabel}</span>
+                            ) : null}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => injectAlertContext(alert)}
+                            >
+                              Open
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={!canAck || actionsDisabled}
+                              onClick={() => void updateAlert("ack")}
+                            >
+                              Acknowledge
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={!canResolve || actionsDisabled}
+                              onClick={() => void updateAlert("resolve")}
+                            >
+                              Resolve
+                            </Button>
+                          </div>
+                        </div>
+
+                        <p className="mt-2 text-sm font-semibold text-slate-900">{alert.title}</p>
+                        <p className="mt-1 line-clamp-2 text-sm text-slate-600">{alert.summary}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  No alerts for the selected filters.
+                </div>
+              )
+            ) : null}
+          </section>
+
           {messages.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               Ask a question about this report. EI will use governed metrics from the analytics layer.
             </div>
           ) : null}
@@ -486,4 +745,3 @@ export default function EiPanel({ open, onClose, reportKey, reportTitle }: EiPan
     </>
   );
 }
-

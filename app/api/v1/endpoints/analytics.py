@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_membership, require_permission
 from app.core.rbac import normalize_role_key
+from app.db.models.analytics_alert import AnalyticsAlert
 from app.db.models.analytics_metric import AnalyticsMetric
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.rpt_kpi_daily import RptKpiDaily
@@ -64,6 +65,45 @@ class AnalyticsQueryResponse(BaseModel):
     start: dt.date | None = None
     end: dt.date | None = None
     rows: list[AnalyticsQueryRow]
+
+
+class AnalyticsAlertRead(BaseModel):
+    id: str
+    organization_id: str
+    alert_type: str
+    metric_key: str | None = None
+    report_key: str | None = None
+    baseline_window_days: int
+    comparison_period: str
+    current_range_start: dt.date
+    current_range_end: dt.date
+    baseline_range_start: dt.date
+    baseline_range_end: dt.date
+    current_value: float
+    baseline_value: float
+    delta_value: float
+    delta_pct: float | None = None
+    severity: str
+    title: str
+    summary: str
+    recommended_actions: list[str] = []
+    context_filters: dict | None = None
+    status: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    acknowledged_at: dt.datetime | None = None
+    resolved_at: dt.datetime | None = None
+    dedupe_key: str
+
+
+_ALERT_STATUSES = {"open", "acknowledged", "resolved"}
+_ALERT_SEVERITY_ORDER = {
+    "info": 1,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+    "critical": 5,
+}
 
 
 def _normalize_metric_key(metric_key: str) -> str:
@@ -154,6 +194,62 @@ def _analytics_cache_key(
             provider_id or "",
             payer_id or "",
         ]
+    )
+
+
+def _normalize_alert_status(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is required")
+    if normalized not in _ALERT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Expected one of: {', '.join(sorted(_ALERT_STATUSES))}",
+        )
+    return normalized
+
+
+def _severity_min_filter(value: str) -> set[str]:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="severity_min is required")
+    min_rank = _ALERT_SEVERITY_ORDER.get(normalized)
+    if min_rank is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid severity_min. Expected one of: {', '.join(sorted(_ALERT_SEVERITY_ORDER.keys()))}",
+        )
+    return {sev for sev, rank in _ALERT_SEVERITY_ORDER.items() if rank >= min_rank}
+
+
+def _serialize_alert(row: AnalyticsAlert) -> AnalyticsAlertRead:
+    return AnalyticsAlertRead(
+        id=row.id,
+        organization_id=row.organization_id,
+        alert_type=row.alert_type,
+        metric_key=row.metric_key,
+        report_key=row.report_key,
+        baseline_window_days=row.baseline_window_days,
+        comparison_period=row.comparison_period,
+        current_range_start=row.current_range_start,
+        current_range_end=row.current_range_end,
+        baseline_range_start=row.baseline_range_start,
+        baseline_range_end=row.baseline_range_end,
+        current_value=_decimal_to_float(row.current_value) or 0.0,
+        baseline_value=_decimal_to_float(row.baseline_value) or 0.0,
+        delta_value=_decimal_to_float(row.delta_value) or 0.0,
+        delta_pct=_decimal_to_float(row.delta_pct),
+        severity=row.severity,
+        title=row.title,
+        summary=row.summary,
+        recommended_actions=[str(item) for item in (row.recommended_actions or [])],
+        context_filters=row.context_filters or {},
+        status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        acknowledged_at=row.acknowledged_at,
+        resolved_at=row.resolved_at,
+        dedupe_key=row.dedupe_key,
     )
 
 
@@ -379,3 +475,132 @@ def query_analytics_metric(
         )
 
     return response
+
+
+@router.get("/alerts", response_model=list[AnalyticsAlertRead])
+def list_analytics_alerts(
+    status_filter: str | None = Query(default=None, alias="status"),
+    report_key: str | None = Query(default=None),
+    severity_min: str | None = Query(default=None),
+    since: dt.datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("analytics:view")),
+) -> list[AnalyticsAlertRead]:
+    tenant_id = _uuid_string_or_400(membership.organization_id, field_name="organization_id")
+
+    query = select(AnalyticsAlert).where(AnalyticsAlert.organization_id == tenant_id)
+
+    if status_filter and status_filter.strip():
+        normalized = _normalize_alert_status(status_filter)
+        query = query.where(AnalyticsAlert.status == normalized)
+    if report_key and report_key.strip():
+        query = query.where(AnalyticsAlert.report_key == report_key.strip().lower())
+    if severity_min and severity_min.strip():
+        allowed = _severity_min_filter(severity_min)
+        query = query.where(AnalyticsAlert.severity.in_(sorted(allowed)))
+    if since:
+        query = query.where(AnalyticsAlert.created_at >= since)
+
+    rows = (
+        db.execute(
+            query.order_by(AnalyticsAlert.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    return [_serialize_alert(row) for row in rows]
+
+
+@router.post("/alerts/{alert_id}/acknowledge", response_model=AnalyticsAlertRead)
+def acknowledge_analytics_alert(
+    alert_id: str,
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("analytics:view")),
+) -> AnalyticsAlertRead:
+    tenant_id = _uuid_string_or_400(membership.organization_id, field_name="organization_id")
+    alert_uuid = _uuid_string_or_400(alert_id, field_name="alert_id")
+
+    row = db.execute(
+        select(AnalyticsAlert).where(
+            AnalyticsAlert.id == alert_uuid,
+            AnalyticsAlert.organization_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
+    normalized_status = _normalize_alert_status(row.status)
+    if normalized_status != "acknowledged":
+        row.status = "acknowledged"
+        if row.acknowledged_at is None:
+            row.acknowledged_at = dt.datetime.now(dt.UTC)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    log_event(
+        db,
+        action="analytics.alert_acknowledged",
+        entity_type="analytics_alert",
+        entity_id=row.id,
+        organization_id=tenant_id,
+        actor=membership.user.email,
+        metadata={
+            "org_id": tenant_id,
+            "user_id": membership.user_id,
+            "alert_id": row.id,
+            "dedupe_key": row.dedupe_key,
+        },
+    )
+    return _serialize_alert(row)
+
+
+@router.post("/alerts/{alert_id}/resolve", response_model=AnalyticsAlertRead)
+def resolve_analytics_alert(
+    alert_id: str,
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("analytics:view")),
+) -> AnalyticsAlertRead:
+    tenant_id = _uuid_string_or_400(membership.organization_id, field_name="organization_id")
+    alert_uuid = _uuid_string_or_400(alert_id, field_name="alert_id")
+
+    row = db.execute(
+        select(AnalyticsAlert).where(
+            AnalyticsAlert.id == alert_uuid,
+            AnalyticsAlert.organization_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
+    normalized_status = _normalize_alert_status(row.status)
+    if normalized_status != "resolved":
+        row.status = "resolved"
+        if row.resolved_at is None:
+            row.resolved_at = dt.datetime.now(dt.UTC)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    log_event(
+        db,
+        action="analytics.alert_resolved",
+        entity_type="analytics_alert",
+        entity_id=row.id,
+        organization_id=tenant_id,
+        actor=membership.user.email,
+        metadata={
+            "org_id": tenant_id,
+            "user_id": membership.user_id,
+            "alert_id": row.id,
+            "dedupe_key": row.dedupe_key,
+        },
+    )
+    return _serialize_alert(row)

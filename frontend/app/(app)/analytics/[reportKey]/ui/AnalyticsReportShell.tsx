@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import AnalyticsErrorBoundary from "@/components/analytics/AnalyticsErrorBoundary";
+import AlertsStrip from "@/components/analytics/AlertsStrip";
 import EiPanel from "@/components/analytics/EiPanel";
 import KpiStrip from "@/components/analytics/KpiStrip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AppLayoutPageConfig } from "@/lib/app-layout-config";
+import type { AnalyticsAlertRead } from "@/lib/analytics/api";
 import { apiFetch } from "@/lib/api";
 import { fetchReports, type ReportListItem } from "@/lib/bi";
 import {
@@ -72,6 +74,7 @@ export default function AnalyticsReportShell({ reportKey }: AnalyticsReportShell
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [eiOpen, setEiOpen] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState<AnalyticsAlertRead | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
@@ -120,6 +123,7 @@ export default function AnalyticsReportShell({ reportKey }: AnalyticsReportShell
   const category: ReportCategory = catalog?.category ?? "other";
 
   const embedKey = `${normalizedKey}:${refreshNonce}`;
+  const showExecutiveAlerts = normalizedKey === "executive_overview" || normalizedKey === "exec_overview";
 
   return (
     <section className="min-h-screen bg-slate-50" data-testid="analytics-report-shell">
@@ -168,7 +172,10 @@ export default function AnalyticsReportShell({ reportKey }: AnalyticsReportShell
             <Button
               type="button"
               className="bg-indigo-600 text-white hover:bg-indigo-500"
-              onClick={() => setEiOpen(true)}
+              onClick={() => {
+                setSelectedAlert(null);
+                setEiOpen(true);
+              }}
               disabled={!me || !allowed || isLoading}
             >
               Ask EI
@@ -214,6 +221,16 @@ export default function AnalyticsReportShell({ reportKey }: AnalyticsReportShell
           <>
             <KpiStrip reportKey={normalizedKey} key={`kpi-${embedKey}`} />
 
+            {showExecutiveAlerts ? (
+              <AlertsStrip
+                limit={3}
+                onSelectAlert={(alert) => {
+                  setSelectedAlert(alert);
+                  setEiOpen(true);
+                }}
+              />
+            ) : null}
+
             <AnalyticsErrorBoundary resetKey={embedKey}>
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <AnalyticsEmbed reportKey={normalizedKey} key={embedKey} />
@@ -225,11 +242,14 @@ export default function AnalyticsReportShell({ reportKey }: AnalyticsReportShell
 
       <EiPanel
         open={eiOpen}
-        onClose={() => setEiOpen(false)}
+        onClose={() => {
+          setEiOpen(false);
+          setSelectedAlert(null);
+        }}
         reportKey={normalizedKey}
         reportTitle={reportTitle}
+        initialAlert={selectedAlert}
       />
     </section>
   );
 }
-
