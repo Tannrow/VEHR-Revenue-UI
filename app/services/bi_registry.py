@@ -14,6 +14,47 @@ CHART_AUDIT_REPORT_ID = "654a0794-ab05-43f4-ac9b-9a968203a361"
 CHART_AUDIT_DATASET_ID = "3737a027-ff43-477c-970a-54aed93cc8ed"
 DEFAULT_BI_RLS_ROLE = "TenantRLS"
 
+REPORT_DEFINITIONS = (
+    {
+        "report_key": "chart_audit",
+        "name": "Chart Audit",
+        "workspace_env": "PBI_WORKSPACE_ID_CHART_AUDIT",
+        "report_env": "PBI_REPORT_ID_CHART_AUDIT",
+        "dataset_env": "PBI_DATASET_ID_CHART_AUDIT",
+        "fallback_workspace_id": CHART_AUDIT_WORKSPACE_ID,
+        "fallback_report_id": CHART_AUDIT_REPORT_ID,
+        "fallback_dataset_id": CHART_AUDIT_DATASET_ID,
+    },
+    {
+        "report_key": "exec_overview",
+        "name": "Executive Overview",
+        "workspace_env": "PBI_WORKSPACE_ID_EXEC_OVERVIEW",
+        "report_env": "PBI_REPORT_ID_EXEC_OVERVIEW",
+        "dataset_env": "PBI_DATASET_ID_EXEC_OVERVIEW",
+    },
+    {
+        "report_key": "revenue_cycle",
+        "name": "Revenue Cycle",
+        "workspace_env": "PBI_WORKSPACE_ID_REVENUE_CYCLE",
+        "report_env": "PBI_REPORT_ID_REVENUE_CYCLE",
+        "dataset_env": "PBI_DATASET_ID_REVENUE_CYCLE",
+    },
+    {
+        "report_key": "clinical_delivery",
+        "name": "Clinical Delivery",
+        "workspace_env": "PBI_WORKSPACE_ID_CLINICAL_DELIVERY",
+        "report_env": "PBI_REPORT_ID_CLINICAL_DELIVERY",
+        "dataset_env": "PBI_DATASET_ID_CLINICAL_DELIVERY",
+    },
+    {
+        "report_key": "compliance_risk",
+        "name": "Compliance & Risk",
+        "workspace_env": "PBI_WORKSPACE_ID_COMPLIANCE_RISK",
+        "report_env": "PBI_REPORT_ID_COMPLIANCE_RISK",
+        "dataset_env": "PBI_DATASET_ID_COMPLIANCE_RISK",
+    },
+)
+
 
 def default_workspace_id() -> str:
     return os.getenv("PBI_DEFAULT_WORKSPACE_ID", "").strip() or CHART_AUDIT_WORKSPACE_ID
@@ -21,6 +62,25 @@ def default_workspace_id() -> str:
 
 def default_rls_role() -> str:
     return os.getenv("PBI_RLS_ROLE", DEFAULT_BI_RLS_ROLE).strip() or DEFAULT_BI_RLS_ROLE
+
+
+def _read_report_value(
+    definition: dict[str, str],
+    env_key: str,
+    *,
+    fallback_key: str | None = None,
+) -> str:
+    env_name = definition[env_key]
+    value = os.getenv(env_name, "").strip()
+    if value:
+        return value
+
+    if fallback_key:
+        fallback_value = definition.get(fallback_key, "").strip()
+        if fallback_value:
+            return fallback_value
+
+    return ""
 
 
 def upsert_bi_report(
@@ -65,16 +125,39 @@ def upsert_bi_report(
 
 def seed_bi_reports(db: Session) -> list[BIReport]:
     seeded: list[BIReport] = []
-    seeded.append(
-        upsert_bi_report(
-            db,
-            report_key=CHART_AUDIT_REPORT_KEY,
-            name=CHART_AUDIT_NAME,
-            workspace_id=default_workspace_id(),
-            report_id=CHART_AUDIT_REPORT_ID,
-            dataset_id=CHART_AUDIT_DATASET_ID,
-            rls_role=default_rls_role(),
-            is_enabled=True,
+    for definition in REPORT_DEFINITIONS:
+        workspace_id = _read_report_value(
+            definition,
+            "workspace_env",
+            fallback_key="fallback_workspace_id",
         )
-    )
+        if not workspace_id:
+            workspace_id = default_workspace_id()
+
+        report_id = _read_report_value(
+            definition,
+            "report_env",
+            fallback_key="fallback_report_id",
+        )
+        dataset_id = _read_report_value(
+            definition,
+            "dataset_env",
+            fallback_key="fallback_dataset_id",
+        )
+
+        if not report_id or not dataset_id:
+            continue
+
+        seeded.append(
+            upsert_bi_report(
+                db,
+                report_key=definition["report_key"],
+                name=definition["name"],
+                workspace_id=workspace_id,
+                report_id=report_id,
+                dataset_id=dataset_id,
+                rls_role=default_rls_role(),
+                is_enabled=True,
+            )
+        )
     return seeded
