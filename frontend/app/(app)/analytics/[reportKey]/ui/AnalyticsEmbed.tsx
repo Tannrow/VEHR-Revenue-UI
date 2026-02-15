@@ -175,44 +175,6 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
     return refreshPromise;
   }, [normalizedReportKey]);
 
-  const accessTokenProvider = useCallback(async () => {
-    try {
-      if (!normalizedReportKey) {
-        throw new Error("Missing report key.");
-      }
-      const nextConfig = await fetchEmbedConfig(normalizedReportKey);
-      const missingFields = getMissingEmbedFields(nextConfig);
-      if (missingFields.length > 0) {
-        throw new Error(`Embed config missing required field(s): ${missingFields.join(", ")}`);
-      }
-
-      if (!isMountedRef.current) {
-        return nextConfig.accessToken;
-      }
-
-      const currentConfig = configRef.current;
-      if (
-        currentConfig
-        && currentConfig.reportId
-        && currentConfig.reportId === nextConfig.reportId
-        && currentConfig.embedUrl === nextConfig.embedUrl
-      ) {
-        setConfig({
-          ...currentConfig,
-          accessToken: nextConfig.accessToken,
-          tokenExpiry: nextConfig.tokenExpiry,
-          expiresOn: nextConfig.expiresOn,
-        });
-      } else {
-        setConfig(nextConfig);
-      }
-      return nextConfig.accessToken;
-    } catch (providerError) {
-      console.error("Power BI accessTokenProvider failed", providerError);
-      throw providerError;
-    }
-  }, [normalizedReportKey]);
-
   useEffect(() => {
     isMountedRef.current = true;
     void loadConfig(true);
@@ -269,18 +231,8 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
       },
     };
 
-    (
-      nextEmbedConfig as IEmbedConfiguration & {
-        eventHooks?: {
-          accessTokenProvider?: () => Promise<string>;
-        };
-      }
-    ).eventHooks = {
-      accessTokenProvider,
-    };
-
     return nextEmbedConfig;
-  }, [accessTokenProvider, config, hasCompleteEmbedConfig]);
+  }, [config, hasCompleteEmbedConfig]);
 
   const eventHandlers = useMemo(
     () => {
