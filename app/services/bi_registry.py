@@ -18,40 +18,30 @@ REPORT_DEFINITIONS = (
     {
         "report_key": "chart_audit",
         "name": "Chart Audit",
-        "workspace_env": "PBI_WORKSPACE_ID_CHART_AUDIT",
-        "report_env": "PBI_REPORT_ID_CHART_AUDIT",
-        "dataset_env": "PBI_DATASET_ID_CHART_AUDIT",
         "fallback_workspace_id": CHART_AUDIT_WORKSPACE_ID,
         "fallback_report_id": CHART_AUDIT_REPORT_ID,
         "fallback_dataset_id": CHART_AUDIT_DATASET_ID,
     },
     {
-        "report_key": "exec_overview",
+        "report_key": "executive_overview",
         "name": "Executive Overview",
-        "workspace_env": "PBI_WORKSPACE_ID_EXEC_OVERVIEW",
-        "report_env": "PBI_REPORT_ID_EXEC_OVERVIEW",
-        "dataset_env": "PBI_DATASET_ID_EXEC_OVERVIEW",
     },
     {
         "report_key": "revenue_cycle",
         "name": "Revenue Cycle",
-        "workspace_env": "PBI_WORKSPACE_ID_REVENUE_CYCLE",
-        "report_env": "PBI_REPORT_ID_REVENUE_CYCLE",
-        "dataset_env": "PBI_DATASET_ID_REVENUE_CYCLE",
     },
     {
         "report_key": "clinical_delivery",
         "name": "Clinical Delivery",
-        "workspace_env": "PBI_WORKSPACE_ID_CLINICAL_DELIVERY",
-        "report_env": "PBI_REPORT_ID_CLINICAL_DELIVERY",
-        "dataset_env": "PBI_DATASET_ID_CLINICAL_DELIVERY",
     },
     {
         "report_key": "compliance_risk",
         "name": "Compliance & Risk",
-        "workspace_env": "PBI_WORKSPACE_ID_COMPLIANCE_RISK",
-        "report_env": "PBI_REPORT_ID_COMPLIANCE_RISK",
-        "dataset_env": "PBI_DATASET_ID_COMPLIANCE_RISK",
+    },
+    # Backward-compatible key (older naming in earlier builds).
+    {
+        "report_key": "exec_overview",
+        "name": "Executive Overview",
     },
 )
 
@@ -64,23 +54,22 @@ def default_rls_role() -> str:
     return os.getenv("PBI_RLS_ROLE", DEFAULT_BI_RLS_ROLE).strip() or DEFAULT_BI_RLS_ROLE
 
 
-def _read_report_value(
-    definition: dict[str, str],
-    env_key: str,
+def _env_name(prefix: str, report_key: str) -> str:
+    normalized = report_key.strip().upper()
+    return f"{prefix}_{normalized}"
+
+
+def _read_env_or_fallback(
     *,
-    fallback_key: str | None = None,
+    report_key: str,
+    env_prefix: str,
+    fallback_value: str = "",
 ) -> str:
-    env_name = definition[env_key]
+    env_name = _env_name(env_prefix, report_key)
     value = os.getenv(env_name, "").strip()
     if value:
         return value
-
-    if fallback_key:
-        fallback_value = definition.get(fallback_key, "").strip()
-        if fallback_value:
-            return fallback_value
-
-    return ""
+    return fallback_value.strip()
 
 
 def upsert_bi_report(
@@ -126,23 +115,21 @@ def upsert_bi_report(
 def seed_bi_reports(db: Session) -> list[BIReport]:
     seeded: list[BIReport] = []
     for definition in REPORT_DEFINITIONS:
-        workspace_id = _read_report_value(
-            definition,
-            "workspace_env",
-            fallback_key="fallback_workspace_id",
+        report_key = definition["report_key"]
+        workspace_id = _read_env_or_fallback(
+            report_key=report_key,
+            env_prefix="PBI_WORKSPACE_ID",
+            fallback_value=definition.get("fallback_workspace_id", "") or default_workspace_id(),
+        ) or default_workspace_id()
+        report_id = _read_env_or_fallback(
+            report_key=report_key,
+            env_prefix="PBI_REPORT_ID",
+            fallback_value=definition.get("fallback_report_id", ""),
         )
-        if not workspace_id:
-            workspace_id = default_workspace_id()
-
-        report_id = _read_report_value(
-            definition,
-            "report_env",
-            fallback_key="fallback_report_id",
-        )
-        dataset_id = _read_report_value(
-            definition,
-            "dataset_env",
-            fallback_key="fallback_dataset_id",
+        dataset_id = _read_env_or_fallback(
+            report_key=report_key,
+            env_prefix="PBI_DATASET_ID",
+            fallback_value=definition.get("fallback_dataset_id", ""),
         )
 
         if not report_id or not dataset_id:
@@ -151,7 +138,7 @@ def seed_bi_reports(db: Session) -> list[BIReport]:
         seeded.append(
             upsert_bi_report(
                 db,
-                report_key=definition["report_key"],
+                report_key=report_key,
                 name=definition["name"],
                 workspace_id=workspace_id,
                 report_id=report_id,
