@@ -61,14 +61,27 @@ Set these on the backend service (do not expose in frontend env):
 - `PBI_TENANT_ID`
 - `PBI_CLIENT_ID`
 - `PBI_CLIENT_SECRET`
-- `PBI_WORKSPACE_ID`
-- `PBI_REPORT_ID_CHART_AUDIT`
-- `PBI_DATASET_ID_CHART_AUDIT`
 - `PBI_RLS_ROLE=TenantRLS`
+- `PBI_DEFAULT_WORKSPACE_ID=<workspace-id>`
+
+The report/dataset/workspace mapping for each key is stored in DB table `bi_reports`.
 
 ## 6) Smoke test embed-token generation
 
-Run:
+Run migration, then seed/upsert the registry row:
+
+```bash
+alembic upgrade head
+python -m app.scripts.seed_bi_reports
+```
+
+Optional discovery helper:
+
+```bash
+python bi/scripts/pbi_list_items.py --workspace-name-contains "360E Analytics"
+```
+
+Embed-token smoke test:
 
 ```bash
 python bi/scripts/pbi_smoke_test.py

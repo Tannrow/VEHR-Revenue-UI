@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type BIEmbedConfig = {
-  type: "report";
   reportId: string;
   embedUrl: string;
   accessToken: string;

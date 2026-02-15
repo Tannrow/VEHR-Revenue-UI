@@ -57,7 +57,7 @@ def _resolve_workspace_id(
     if len(valid_ids) == 1:
         return valid_ids[0]
     raise ValueError(
-        "Workspace id is required. Set PBI_WORKSPACE_ID or pass --workspace-id. "
+        "Workspace id is required. Set PBI_DEFAULT_WORKSPACE_ID or pass --workspace-id. "
         "You can also use --workspace-name-contains."
     )
 
@@ -94,8 +94,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--workspace-id",
-        default=os.getenv("PBI_WORKSPACE_ID", "").strip() or None,
-        help="Workspace ID. Defaults to PBI_WORKSPACE_ID if set.",
+        default=(
+            os.getenv("PBI_WORKSPACE_ID", "").strip()
+            or os.getenv("PBI_DEFAULT_WORKSPACE_ID", "").strip()
+            or None
+        ),
+        help="Workspace ID. Defaults to PBI_WORKSPACE_ID or PBI_DEFAULT_WORKSPACE_ID if set.",
     )
     parser.add_argument(
         "--workspace-name-contains",
