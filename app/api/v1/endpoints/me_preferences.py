@@ -55,6 +55,7 @@ MODULE_PERMISSION_ANY: Final[dict[str, tuple[str, ...]]] = {
         "audit:read",
         "compliance:read",
         "clinical_audit:review",
+        "analytics:view",
     ),
     "administration": (
         "admin:org_settings",

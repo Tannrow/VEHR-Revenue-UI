@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     admin_center,
     audit,
     auth,
+    bi,
     clinical_audit,
     documents,
     encounters,
@@ -48,6 +49,7 @@ api_router.include_router(paperwork.router)
 api_router.include_router(exports.router)
 api_router.include_router(portal.router)
 api_router.include_router(audit.router)
+api_router.include_router(bi.router)
 api_router.include_router(clinical_audit.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(integrations.router)

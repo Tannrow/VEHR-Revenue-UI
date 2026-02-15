@@ -83,6 +83,7 @@ const MODULE_DEFINITIONS: ModuleDefinition[] = [
     defaultRoute: "/audit-center",
     navItems: [
       { label: "Audit Center", href: "/audit-center", requiredAnyPermissions: ["audit:read", "audits:read"] },
+      { label: "Chart Audit", href: "/analytics/chart-audit", requiredAnyPermissions: ["analytics:view"] },
       { label: "Compliance", href: "/compliance", requiredAnyPermissions: ["compliance:read"] },
     ],
   },
@@ -116,6 +117,7 @@ const PATH_MODULE_MATCHERS: Array<{ prefix: string; moduleId: ModuleId }> = [
   { prefix: "/billing", moduleId: "revenue_cycle" },
 
   { prefix: "/audit-center", moduleId: "governance" },
+  { prefix: "/analytics", moduleId: "governance" },
   { prefix: "/compliance", moduleId: "governance" },
 
   { prefix: "/clients", moduleId: "care_delivery" },

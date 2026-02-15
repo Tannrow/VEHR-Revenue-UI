@@ -513,3 +513,10 @@ curl -X POST "http://127.0.0.1:8000/api/v1/tanner-ai/assistant" \
   -H "Content-Type: application/json" \
   -d "{\"message\":\"Summarize the team huddle notes into action items.\",\"context\":\"Morning operations meeting\"}"
 ```
+
+Power BI / Microsoft Fabric embedding (App-Owns-Data + RLS)
+
+- Backend embed endpoint: `GET /api/v1/bi/embed-config?report_key=chart_audit`
+- ID discovery script: `python bi/scripts/pbi_list_items.py`
+- Embed token smoke test: `python bi/scripts/pbi_smoke_test.py`
+- Full setup/runbook: `bi/docs/360e_fabric_embed.md`
