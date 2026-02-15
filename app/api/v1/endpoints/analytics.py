@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import time
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -17,13 +19,24 @@ from app.db.models.rpt_kpi_daily import RptKpiDaily
 from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot
 from app.db.session import get_db
 from app.services.audit import log_event
+from app.services.ttl_cache import TtlLruCache
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+logger = logging.getLogger(__name__)
 
 _DAILY_GRAIN = "daily"
 _SNAPSHOT_GRAIN = "snapshot"
 _DAILY_TABLE = "rpt_kpi_daily"
 _SNAPSHOT_TABLE = "rpt_kpi_snapshot"
+
+_ANALYTICS_QUERY_CACHE_TTL_SECONDS = 60.0
+_ANALYTICS_QUERY_CACHE_MAXSIZE = 512
+_ANALYTICS_QUERY_CACHE = TtlLruCache(
+    ttl_seconds=_ANALYTICS_QUERY_CACHE_TTL_SECONDS,
+    maxsize=_ANALYTICS_QUERY_CACHE_MAXSIZE,
+)
+
+_CACHE_BYPASS_HEADER = "x-cache-bypass"
 
 
 class AnalyticsMetricRead(BaseModel):
@@ -104,6 +117,46 @@ def _decimal_to_float(value: Decimal | None) -> float | None:
     return float(value)
 
 
+def _cache_bypass_requested(request: Request) -> bool:
+    raw = request.headers.get(_CACHE_BYPASS_HEADER, "").strip().lower()
+    return raw in {"1", "true", "yes"}
+
+
+def _cache_bypass_allowed(role: str) -> bool:
+    normalized = _normalize_role(role)
+    return normalized in {"admin", "office_manager", "sud_supervisor"}
+
+
+def _analytics_cache_key(
+    *,
+    tenant_id: str,
+    role: str,
+    metric: AnalyticsMetric,
+    start: dt.date | None,
+    end: dt.date | None,
+    facility_id: str | None,
+    program_id: str | None,
+    provider_id: str | None,
+    payer_id: str | None,
+) -> str:
+    return "|".join(
+        [
+            "analytics.query.v1",
+            tenant_id,
+            _normalize_role(role),
+            metric.metric_key,
+            str(metric.grain),
+            str(metric.backing_table),
+            start.isoformat() if start else "",
+            end.isoformat() if end else "",
+            facility_id or "",
+            program_id or "",
+            provider_id or "",
+            payer_id or "",
+        ]
+    )
+
+
 @router.get("/metrics", response_model=list[AnalyticsMetricRead])
 def list_analytics_metrics(
     db: Session = Depends(get_db),
@@ -130,6 +183,7 @@ def list_analytics_metrics(
 
 @router.get("/query", response_model=AnalyticsQueryResponse)
 def query_analytics_metric(
+    request: Request,
     metric_key: str = Query(..., min_length=1),
     start: dt.date | None = Query(default=None),
     end: dt.date | None = Query(default=None),
@@ -141,6 +195,7 @@ def query_analytics_metric(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("analytics:view")),
 ) -> AnalyticsQueryResponse:
+    t0 = time.perf_counter()
     if start and end and start > end:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start cannot be after end")
 
@@ -154,6 +209,54 @@ def query_analytics_metric(
     program_filter = _optional_uuid_filter(program_id, field_name="program_id")
     provider_filter = _optional_uuid_filter(provider_id, field_name="provider_id")
     payer_filter = _optional_uuid_filter(payer_id, field_name="payer_id")
+
+    cache_key = _analytics_cache_key(
+        tenant_id=tenant_id,
+        role=membership.role,
+        metric=metric,
+        start=start,
+        end=end,
+        facility_id=facility_filter,
+        program_id=program_filter,
+        provider_id=provider_filter,
+        payer_id=payer_filter,
+    )
+    bypass_cache = _cache_bypass_requested(request) and _cache_bypass_allowed(membership.role)
+
+    if not bypass_cache:
+        cached, hit = _ANALYTICS_QUERY_CACHE.get(cache_key)
+        if hit and isinstance(cached, AnalyticsQueryResponse):
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            logger.info(
+                "analytics.query cache_hit=1 metric_key=%s org_id=%s duration_ms=%s rows=%s",
+                metric.metric_key,
+                tenant_id,
+                duration_ms,
+                len(cached.rows),
+            )
+            log_event(
+                db,
+                action="analytics.query",
+                entity_type="analytics_metric",
+                entity_id=metric.metric_key,
+                organization_id=tenant_id,
+                actor=membership.user.email,
+                metadata={
+                    "org_id": tenant_id,
+                    "user_id": membership.user_id,
+                    "metric_key": metric.metric_key,
+                    "start": start.isoformat() if start else None,
+                    "end": end.isoformat() if end else None,
+                    "facility_id": facility_filter,
+                    "program_id": program_filter,
+                    "provider_id": provider_filter,
+                    "payer_id": payer_filter,
+                    "row_count": len(cached.rows),
+                    "cache": {"hit": True, "bypass": False},
+                    "duration_ms": duration_ms,
+                },
+            )
+            return cached
 
     query_rows: list[AnalyticsQueryRow] = []
 
@@ -251,13 +354,28 @@ def query_analytics_metric(
             "provider_id": provider_filter,
             "payer_id": payer_filter,
             "row_count": len(query_rows),
+            "cache": {"hit": False, "bypass": bypass_cache},
+            "duration_ms": int((time.perf_counter() - t0) * 1000),
         },
     )
 
-    return AnalyticsQueryResponse(
+    response = AnalyticsQueryResponse(
         metric_key=metric.metric_key,
         grain=metric.grain,
         start=start,
         end=end,
         rows=query_rows,
     )
+
+    if not bypass_cache:
+        _ANALYTICS_QUERY_CACHE.set(cache_key, response)
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info(
+            "analytics.query cache_hit=0 metric_key=%s org_id=%s duration_ms=%s rows=%s",
+            metric.metric_key,
+            tenant_id,
+            duration_ms,
+            len(query_rows),
+        )
+
+    return response

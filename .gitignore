@@ -18,3 +18,11 @@ frontend/.next/
 .env.*.local
 
 *.log
+
+# Playwright / test artifacts
+test-results/
+frontend/test-results/
+
+# Power BI authoring files (local only)
+*.pbix
+power BI stuff.txt
