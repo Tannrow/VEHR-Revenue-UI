@@ -15,6 +15,7 @@ from app.db.models.encounter import Encounter  # noqa: F401
 from app.db.models.event_outbox import EventOutbox  # noqa: F401
 from app.db.models.form_submission import FormSubmission  # noqa: F401
 from app.db.models.form_template import FormTemplate  # noqa: F401
+from app.db.models.generated_report import GeneratedReport  # noqa: F401
 from app.db.models.integration_account import IntegrationAccount  # noqa: F401
 from app.db.models.integration_token import IntegrationToken  # noqa: F401
 from app.db.models.invite import Invite  # noqa: F401
@@ -43,6 +44,8 @@ from app.db.models.ringcentral_event import RingCentralEvent  # noqa: F401
 from app.db.models.ringcentral_credential import RingCentralCredential  # noqa: F401
 from app.db.models.ringcentral_subscription import RingCentralSubscription  # noqa: F401
 from app.db.models.reception_call_workflow import ReceptionCallWorkflow  # noqa: F401
+from app.db.models.rpt_kpi_daily import RptKpiDaily  # noqa: F401
+from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot  # noqa: F401
 from app.db.models.service import Service  # noqa: F401
 from app.db.models.service_document_template import ServiceDocumentTemplate  # noqa: F401
 from app.db.models.task import Task  # noqa: F401

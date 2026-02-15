@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
     patients,
     portal,
     reception,
+    reports,
     sharepoint,
     scribe,
     staff,
@@ -60,6 +61,7 @@ api_router.include_router(ringcentral_live.router)
 api_router.include_router(services.router)
 api_router.include_router(sharepoint.router)
 api_router.include_router(staff.router)
+api_router.include_router(reports.router)
 api_router.include_router(tasks.router)
 api_router.include_router(reception.router)
 api_router.include_router(health.router)
