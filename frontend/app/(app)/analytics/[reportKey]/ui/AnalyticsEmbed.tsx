@@ -23,6 +23,8 @@ type EmbeddedReportHandle = {
   setAccessToken: (token: string) => Promise<void>;
 };
 
+type EmbedFieldName = "reportId" | "embedUrl" | "accessToken";
+
 function expiryIso(config: EmbedConfigResponse | null): string | null {
   if (!config) {
     return null;
@@ -43,6 +45,24 @@ function toErrorMessage(error: unknown): string {
   return "Unable to load analytics report.";
 }
 
+function getMissingEmbedFields(config: EmbedConfigResponse | null): EmbedFieldName[] {
+  if (!config) {
+    return ["reportId", "embedUrl", "accessToken"];
+  }
+
+  const missing: EmbedFieldName[] = [];
+  if (!config.reportId?.trim()) {
+    missing.push("reportId");
+  }
+  if (!config.embedUrl?.trim()) {
+    missing.push("embedUrl");
+  }
+  if (!config.accessToken?.trim()) {
+    missing.push("accessToken");
+  }
+  return missing;
+}
+
 export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
   const normalizedReportKey = reportKey.trim();
   const reportRef = useRef<EmbeddedReportHandle | null>(null);
@@ -55,6 +75,8 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
   const [config, setConfig] = useState<EmbedConfigResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const missingEmbedFields = useMemo(() => getMissingEmbedFields(config), [config]);
+  const hasCompleteEmbedConfig = missingEmbedFields.length === 0;
 
   useEffect(() => {
     configRef.current = config;
@@ -117,6 +139,11 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
           return;
         }
 
+        const missingFields = getMissingEmbedFields(nextConfig);
+        if (missingFields.length > 0) {
+          throw new Error(`Embed config missing required field(s): ${missingFields.join(", ")}`);
+        }
+
         const currentConfig = configRef.current;
         const sameReport = currentConfig
           && currentConfig.reportId
@@ -149,31 +176,41 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
   }, [normalizedReportKey]);
 
   const accessTokenProvider = useCallback(async () => {
-    if (!normalizedReportKey) {
-      throw new Error("Missing report key.");
-    }
-    const nextConfig = await fetchEmbedConfig(normalizedReportKey);
-    if (!isMountedRef.current) {
-      return nextConfig.accessToken;
-    }
+    try {
+      if (!normalizedReportKey) {
+        throw new Error("Missing report key.");
+      }
+      const nextConfig = await fetchEmbedConfig(normalizedReportKey);
+      const missingFields = getMissingEmbedFields(nextConfig);
+      if (missingFields.length > 0) {
+        throw new Error(`Embed config missing required field(s): ${missingFields.join(", ")}`);
+      }
 
-    const currentConfig = configRef.current;
-    if (
-      currentConfig
-      && currentConfig.reportId
-      && currentConfig.reportId === nextConfig.reportId
-      && currentConfig.embedUrl === nextConfig.embedUrl
-    ) {
-      setConfig({
-        ...currentConfig,
-        accessToken: nextConfig.accessToken,
-        tokenExpiry: nextConfig.tokenExpiry,
-        expiresOn: nextConfig.expiresOn,
-      });
-    } else {
-      setConfig(nextConfig);
+      if (!isMountedRef.current) {
+        return nextConfig.accessToken;
+      }
+
+      const currentConfig = configRef.current;
+      if (
+        currentConfig
+        && currentConfig.reportId
+        && currentConfig.reportId === nextConfig.reportId
+        && currentConfig.embedUrl === nextConfig.embedUrl
+      ) {
+        setConfig({
+          ...currentConfig,
+          accessToken: nextConfig.accessToken,
+          tokenExpiry: nextConfig.tokenExpiry,
+          expiresOn: nextConfig.expiresOn,
+        });
+      } else {
+        setConfig(nextConfig);
+      }
+      return nextConfig.accessToken;
+    } catch (providerError) {
+      console.error("Power BI accessTokenProvider failed", providerError);
+      throw providerError;
     }
-    return nextConfig.accessToken;
   }, [normalizedReportKey]);
 
   useEffect(() => {
@@ -209,15 +246,15 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
   }, [clearSchedules, config, refreshToken]);
 
   const embedConfig = useMemo(() => {
-    if (!config || !config.reportId) {
+    if (!config || !hasCompleteEmbedConfig) {
       return undefined;
     }
 
     const nextEmbedConfig: IEmbedConfiguration = {
       type: "report",
-      id: config.reportId,
-      embedUrl: config.embedUrl,
-      accessToken: config.accessToken,
+      id: config.reportId!.trim(),
+      embedUrl: config.embedUrl.trim(),
+      accessToken: config.accessToken.trim(),
       tokenType: models.TokenType.Embed,
       settings: {
         panes: {
@@ -243,20 +280,41 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
     };
 
     return nextEmbedConfig;
-  }, [accessTokenProvider, config]);
+  }, [accessTokenProvider, config, hasCompleteEmbedConfig]);
 
   const eventHandlers = useMemo(
-    () =>
-      new Map([
-        [
-          "error",
-          () => {
-            void refreshToken();
-          },
-        ],
-      ]),
+    () => {
+      const handlers = new Map<string, (event?: unknown) => void>();
+      handlers.set("error", (event) => {
+        try {
+          console.error("Power BI embed emitted an error event", event);
+          void refreshToken();
+        } catch (handlerError) {
+          console.error("Power BI error handler failed", handlerError);
+        }
+      });
+      handlers.set("loaded", () => {
+        try {
+          setError(null);
+        } catch (handlerError) {
+          console.error("Power BI loaded handler failed", handlerError);
+        }
+      });
+      return handlers;
+    },
     [refreshToken],
   );
+
+  if (!normalizedReportKey) {
+    return (
+      <div className="rounded-[var(--radius-card)] border border-[color-mix(in_srgb,var(--status-critical)_30%,white)] bg-[color-mix(in_srgb,var(--status-critical)_8%,white)] p-[var(--space-16)] shadow-[var(--shadow)]">
+        <h2 className="text-base font-semibold text-[var(--status-critical)]">Analytics failed to load</h2>
+        <p className="mt-[var(--space-8)] text-sm text-[var(--status-critical)]">
+          Missing report key in route. Return to Analytics and select a report.
+        </p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -285,11 +343,13 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
     );
   }
 
-  if (!config || !embedConfig) {
+  if (!config || !hasCompleteEmbedConfig || !embedConfig) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-[var(--space-16)] shadow-[var(--shadow)]">
-        <div className="h-6 w-44 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <div className="mt-[var(--space-12)] h-[560px] w-full animate-pulse rounded bg-[var(--surface-muted)]" />
+      <div className="rounded-[var(--radius-card)] border border-[color-mix(in_srgb,var(--status-critical)_30%,white)] bg-[color-mix(in_srgb,var(--status-critical)_8%,white)] p-[var(--space-16)] shadow-[var(--shadow)]">
+        <h2 className="text-base font-semibold text-[var(--status-critical)]">Analytics failed to load</h2>
+        <p className="mt-[var(--space-8)] text-sm text-[var(--status-critical)]">
+          Embed configuration is incomplete. Missing field(s): {missingEmbedFields.join(", ")}.
+        </p>
       </div>
     );
   }
@@ -301,7 +361,11 @@ export default function AnalyticsEmbed({ reportKey }: AnalyticsEmbedProps) {
         cssClassName="h-[72vh] w-full"
         eventHandlers={eventHandlers}
         getEmbeddedComponent={(embedded) => {
-          reportRef.current = embedded as EmbeddedReportHandle;
+          try {
+            reportRef.current = embedded as EmbeddedReportHandle;
+          } catch (captureError) {
+            console.error("Failed to capture embedded Power BI report instance", captureError);
+          }
         }}
       />
     </div>
