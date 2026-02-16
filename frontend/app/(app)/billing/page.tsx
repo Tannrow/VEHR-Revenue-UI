@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MetricCard from "../_components/MetricCard";
 
@@ -30,6 +33,31 @@ export default function BillingPage() {
         <MetricCard label="Claims pending" value="24" hint="Awaiting review" />
         <MetricCard label="Exceptions" value="5" hint="Escalate today" />
         <MetricCard label="Export status" value="In progress" hint="Current pay cycle" />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl text-slate-900">ERA Import</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0 text-sm text-slate-600">
+            Upload ERA and billed claims PDFs to reconcile in one pass.
+            <Button asChild variant="outline">
+              <Link href="/billing/era-import">Start import</Link>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className="bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl text-slate-900">Reconciliation</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0 text-sm text-slate-600">
+            Review claim- and line-level reconciliation results.
+            <Button asChild variant="outline">
+              <Link href="/billing/reconciliation">View results</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">

@@ -74,6 +74,8 @@ const MODULE_DEFINITIONS: ModuleDefinition[] = [
     defaultRoute: "/billing",
     navItems: [
       { label: "Billing", href: "/billing", requiredAnyPermissions: ["billing:read", "billing:write"] },
+      { label: "ERA Import", href: "/billing/era-import", requiredAnyPermissions: ["billing:read", "billing:write"] },
+      { label: "Reconciliation", href: "/billing/reconciliation", requiredAnyPermissions: ["billing:read", "billing:write"] },
     ],
   },
   {
