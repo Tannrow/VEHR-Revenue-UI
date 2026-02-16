@@ -3,8 +3,9 @@ import os
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 from sqlalchemy import text
 
 from app.api.v1.router import api_router
@@ -47,12 +48,8 @@ def _log_auth_dependency_versions() -> None:
 def get_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
     default_origins = [
+        "https://app.360-encompass.com",
         "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://360-encompass.com",
-        "https://www.360-encompass.com",
-        "https://the-trapp-house.com",
-        "https://www.the-trapp-house.com",
     ]
     if not raw:
         return default_origins
@@ -109,9 +106,41 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "*"],
 )
+
+
+@app.middleware("http")
+async def audit_cors_preflight(request: Request, call_next):
+    is_preflight = (
+        request.method.upper() == "OPTIONS"
+        and "origin" in request.headers
+        and "access-control-request-method" in request.headers
+    )
+    response: Response = await call_next(request)
+    if not is_preflight:
+        return response
+
+    origin = request.headers.get("origin", "")
+    path = request.url.path
+    has_allow_origin = "access-control-allow-origin" in response.headers
+    if response.status_code < 400 and has_allow_origin:
+        logger.info(
+            "cors_preflight_success path=%s origin=%s status=%s",
+            path,
+            origin,
+            response.status_code,
+        )
+    else:
+        logger.warning(
+            "cors_preflight_failure path=%s origin=%s status=%s allow_origin_header=%s",
+            path,
+            origin,
+            response.status_code,
+            response.headers.get("access-control-allow-origin"),
+        )
+    return response
 
 app.include_router(api_router)
 

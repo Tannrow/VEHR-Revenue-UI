@@ -4,7 +4,9 @@ import argparse
 import json
 import os
 import re
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from scripts.era_extract.docintel_client import create_document_intelligence_client
@@ -98,6 +100,41 @@ def _pick_modifier_units_col(table: Any, required_cols: set[int], hints: list[st
     return None
 
 
+def _analyze_with_retries(client: Any, model_id: str, pdf_path: Path, pages: Optional[str] = None) -> Any:
+    max_attempts = int(os.getenv("AZURE_DOCINTEL_RETRY_ATTEMPTS", "4") or "4")
+    base_sleep = float(os.getenv("AZURE_DOCINTEL_RETRY_BASE_SECONDS", "2") or "2")
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with pdf_path.open("rb") as f:
+                kwargs = {"model_id": model_id, "body": f}
+                if pages:
+                    kwargs["pages"] = pages
+                poller = client.begin_analyze_document(**kwargs)
+                return poller.result()
+        except Exception:
+            if attempt >= max_attempts:
+                raise
+            sleep_s = base_sleep * (2 ** (attempt - 1))
+            print(
+                f"[era_extract] analyze attempt {attempt}/{max_attempts} failed"
+                + (f" (pages={pages})" if pages else "")
+                + f"; retrying in {sleep_s:.1f}s"
+            )
+            time.sleep(sleep_s)
+
+
+def _build_page_ranges(total_pages: int, chunk_size: int) -> list[str]:
+    ranges: list[str] = []
+    start = 1
+    while start <= total_pages:
+        end = min(total_pages, start + chunk_size - 1)
+        ranges.append(f"{start}-{end}")
+        start = end + 1
+    return ranges
+
+
 def extract_era_lines(pdf_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     cfg = _load_config()
     required_headers = cfg.get("detail_table_required_headers") or []
@@ -106,11 +143,40 @@ def extract_era_lines(pdf_path: Path) -> tuple[list[dict[str, Any]], dict[str, A
 
     load_repo_dotenv()
     model_id = (os.getenv("AZURE_DOCINTEL_MODEL") or "prebuilt-layout").strip() or "prebuilt-layout"
+    chunk_size = int(os.getenv("AZURE_DOCINTEL_PAGE_CHUNK_SIZE", "0") or "0")
 
     client, doc_cfg = create_document_intelligence_client()
-    with pdf_path.open("rb") as f:
-        poller = client.begin_analyze_document(model_id=model_id, body=f)
-    result = poller.result()
+    result: Any
+    if chunk_size > 0:
+        # First pass to discover total pages, then chunk for resiliency on large PDFs.
+        full = _analyze_with_retries(client, model_id, pdf_path, pages=None)
+        pages = list(getattr(full, "pages", []) or [])
+        total_pages = len(pages)
+        if total_pages <= chunk_size:
+            result = full
+        else:
+            page_ranges = _build_page_ranges(total_pages, chunk_size)
+            print(f"[era_extract] large PDF detected ({total_pages} pages), chunking into {len(page_ranges)} calls")
+            agg_tables: list[Any] = []
+            agg_kv: list[Any] = []
+            agg_content_parts: list[str] = []
+            for i, rng in enumerate(page_ranges, start=1):
+                t0 = time.perf_counter()
+                chunk = _analyze_with_retries(client, model_id, pdf_path, pages=rng)
+                dt = time.perf_counter() - t0
+                print(f"[era_extract] chunk {i}/{len(page_ranges)} pages={rng} done in {dt:.1f}s")
+                agg_tables.extend(list(getattr(chunk, "tables", []) or []))
+                agg_kv.extend(list(getattr(chunk, "key_value_pairs", []) or []))
+                c = (getattr(chunk, "content", "") or "").strip()
+                if c:
+                    agg_content_parts.append(c)
+            result = SimpleNamespace(
+                tables=agg_tables,
+                key_value_pairs=agg_kv,
+                content="\n".join(agg_content_parts),
+            )
+    else:
+        result = _analyze_with_retries(client, model_id, pdf_path, pages=None)
 
     patient_name, patient_id = _extract_patient_fields(result, cfg)
     tables = list(getattr(result, "tables", []) or [])
@@ -200,6 +266,7 @@ def run(pdf_path: Path, out_path: Optional[Path] = None) -> Path:
     verify_env()
     model_id = (os.getenv("AZURE_DOCINTEL_MODEL") or "prebuilt-layout").strip() or "prebuilt-layout"
     print(f"[era_extract] analyzing: {pdf_path.name} (model={model_id})")
+    t0 = time.perf_counter()
     lines, meta = extract_era_lines(pdf_path)
 
     if not lines:
@@ -211,7 +278,8 @@ def run(pdf_path: Path, out_path: Optional[Path] = None) -> Path:
         print(f"[era_extract] extracted_lines={meta.get('extracted_lines')}")
 
     write_claim_lines_xlsx(out_path, lines)
-    print(f"[era_extract] wrote: {out_path}")
+    elapsed = time.perf_counter() - t0
+    print(f"[era_extract] wrote: {out_path} (elapsed={elapsed:.1f}s)")
     return out_path
 
 
