@@ -94,6 +94,11 @@ def write_recon_lines_xlsx(
     df = df[cols]
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    distinct_patient_name_in_rows = len({row.get("patient_name") for row in rows if row.get("patient_name")})
+    distinct_member_id_in_rows = len({row.get("member_id") for row in rows if row.get("member_id")})
+    distinct_patient_name_in_df = int(df["patient_name"].nunique(dropna=True)) if "patient_name" in df.columns else 0
+    distinct_member_id_in_df = int(df["member_id"].nunique(dropna=True)) if "member_id" in df.columns else 0
+
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
         ws = writer.book[sheet_name]
@@ -107,6 +112,10 @@ def write_recon_lines_xlsx(
             meta_rows = []
             generated_at = datetime.now(timezone.utc).isoformat()
             meta_payload = {"generated_at_utc": generated_at}
+            meta_payload["distinct_patient_name_in_rows_before_df"] = distinct_patient_name_in_rows
+            meta_payload["distinct_member_id_in_rows_before_df"] = distinct_member_id_in_rows
+            meta_payload["distinct_patient_name_in_written_sheet"] = distinct_patient_name_in_df
+            meta_payload["distinct_member_id_in_written_sheet"] = distinct_member_id_in_df
             meta_payload.update(meta)
             for key, value in meta_payload.items():
                 meta_rows.append({"key": key, "value": value})
