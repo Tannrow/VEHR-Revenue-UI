@@ -226,12 +226,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         diag["rows_returned_by_parser"] = counters.get("rows_returned_by_parser", len(rows))
         diag["distinct_member_id_count_before"] = counters.get("distinct_member_id_count_before", 0)
         diag["distinct_member_id_count_after"] = counters.get("distinct_member_id_count_after", 0)
-        diag["distinct_patient_name_count"] = len({row.get("patient_name") for row in rows if row.get("patient_name")})
+        diag["distinct_patient_name_count_before"] = counters.get("distinct_patient_name_count_before", 0)
+        diag["distinct_patient_name_count_after"] = counters.get("distinct_patient_name_count_after", 0)
         diag["blocks_with_member_id"] = counters.get("blocks_with_member_id", 0)
         diag["blocks_missing_member_id"] = counters.get("blocks_missing_member_id", 0)
         diag["header_member_id_present"] = bool(counters.get("header_member_id_present", 0))
         diag["member_id_global_suppressed"] = bool(counters.get("member_id_global_suppressed", 0))
         diag["distinct_claim_id_count"] = counters.get("distinct_claim_id_count", 0)
+        diag["patient_name_global_suppressed"] = bool(counters.get("patient_name_global_suppressed", 0))
 
     out_path = Path(args.out_xlsx) if args.out_xlsx else _default_out_for(content_label)
     sheet = "billed_lines" if args.doc_type == "billed" else "era_lines"

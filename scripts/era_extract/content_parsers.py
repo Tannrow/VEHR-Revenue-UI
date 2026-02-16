@@ -702,9 +702,13 @@ def parse_era_content(
         "header_member_id_present": 0,
         "member_id_global_suppressed": 0,
         "distinct_claim_id_count": 0,
+        "distinct_patient_name_count_before": 0,
+        "distinct_patient_name_count_after": 0,
+        "patient_name_global_suppressed": 0,
     }
     rows: list[dict[str, Any]] = []
     patient_name_hashes: set[str] = set()
+    patient_name_values: set[str] = set()
     member_id_values: set[str] = set()
     claim_id_values: set[str] = set()
     header_member_id = _extract_member_id((content or "")[:2000])
@@ -742,6 +746,7 @@ def parse_era_content(
             if normalized:
                 digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
                 patient_name_hashes.add(digest)
+                patient_name_values.add(normalized)
         else:
             counters["blocks_missing_patient_name"] += 1
         if member_id:
@@ -813,6 +818,18 @@ def parse_era_content(
     counters["distinct_patient_name_hashes_count"] = len(patient_name_hashes)
     counters["distinct_member_id_count_before"] = len(member_id_values)
     counters["distinct_claim_id_count"] = len(claim_id_values)
+    counters["distinct_patient_name_count_before"] = len(patient_name_values)
+
+    if counters["distinct_claim_id_count"] > 1 and counters["distinct_patient_name_count_before"] == 1:
+        for row in rows:
+            row["patient_name"] = None
+        counters["patient_name_global_suppressed"] = 1
+        counters["distinct_patient_name_count_after"] = 0
+    else:
+        counters["patient_name_global_suppressed"] = 0
+        counters["distinct_patient_name_count_after"] = len(
+            {row.get("patient_name") for row in rows if row.get("patient_name")}
+        )
 
     if counters["distinct_claim_id_count"] > 1 and counters["distinct_member_id_count_before"] == 1:
         for row in rows:
