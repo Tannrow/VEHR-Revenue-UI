@@ -95,7 +95,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
 
     engine, session_factory = _build_session(tmp_path)
     try:
-        token, org_id, user_id = _seed_admin_token(session_factory)
+        token, org_id, expected_user_id = _seed_admin_token(session_factory)
 
         id_token = jwt.encode(
             {
@@ -194,6 +194,12 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
             assert "offline_access" in set(connection.scopes)
             assert "User.Read" in set(connection.scopes)
             assert connection.token_cache_encrypted
+            assert connection.refresh_token_enc
+            assert connection.access_token_enc
+            assert connection.expires_at is not None
+            assert connection.connected_at is not None
+            assert connection.revoked_at is None
+            assert isinstance(connection.metadata_json, dict)
             decrypted_cache = decrypt_token(connection.token_cache_encrypted)
             assert isinstance(decrypted_cache, str)
             assert decrypted_cache.strip().startswith("{")
@@ -271,6 +277,105 @@ def test_microsoft_test_connection_endpoint(tmp_path, monkeypatch) -> None:
         with session_factory() as db:
             audit_event = db.execute(
                 select(AuditEvent).where(AuditEvent.action == "microsoft.test_connection")
+            ).scalar_one_or_none()
+            assert audit_event is not None
+            assert audit_event.organization_id == org_id
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_microsoft_disconnect_revokes_connection(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, org_id, user_id = _seed_admin_token(session_factory)
+
+        with session_factory() as db:
+            db.add(
+                IntegrationAccount(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    provider="microsoft",
+                    external_tenant_id="tenant-1",
+                    external_user_id="user-1",
+                    email="user@example.com",
+                    scopes="User.Read",
+                    refresh_token_enc="refresh-enc",
+                    revoked_at=None,
+                )
+            )
+            db.add(
+                UserMicrosoftConnection(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    tenant_id="tenant-1",
+                    msft_user_id="user-1",
+                    scopes=["User.Read"],
+                    token_cache_encrypted="cache-enc",
+                    refresh_token_enc="refresh-enc",
+                    access_token_enc="access-enc",
+                    metadata_json={},
+                    todo_list_id="todo-1",
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/microsoft/disconnect",
+                headers=_auth_header(token),
+            )
+            assert response.status_code == 200
+            assert response.json()["status"] == "disconnected"
+
+        with session_factory() as db:
+            account = db.execute(select(IntegrationAccount)).scalar_one()
+            assert account.revoked_at is not None
+            connection = db.execute(select(UserMicrosoftConnection)).scalar_one()
+            assert connection.revoked_at is not None
+            assert connection.access_token_enc is None
+            assert connection.refresh_token_enc is None
+            assert connection.todo_list_id is None
+
+            audit_event = db.execute(
+                select(AuditEvent).where(AuditEvent.action == "microsoft.disconnected")
+            ).scalar_one_or_none()
+            assert audit_event is not None
+            assert audit_event.organization_id == org_id
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_microsoft_refresh_endpoint(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _build_session(tmp_path)
+    try:
+        token, org_id, user_id = _seed_admin_token(session_factory)
+
+        def fake_refresh(*, db, organization_id, user_id):  # noqa: ANN001
+            assert organization_id == org_id
+            assert user_id == expected_user_id
+            return None
+
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.integrations_microsoft.refresh_microsoft_connection_tokens",
+            fake_refresh,
+        )
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/integrations/microsoft/refresh",
+                headers=_auth_header(token),
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "refreshed"
+
+        with session_factory() as db:
+            audit_event = db.execute(
+                select(AuditEvent).where(AuditEvent.action == "microsoft.refresh_connection")
             ).scalar_one_or_none()
             assert audit_event is not None
             assert audit_event.organization_id == org_id

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, time, timedelta, timezone
@@ -8,14 +9,18 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from app.core.time import utc_now
 from app.db.models.assistant_memory_item import AssistantMemoryItem
 from app.db.models.assistant_reminder import AssistantReminder
+from app.db.models.ai_message import AiMessage
+from app.db.models.ai_thread import AiThread
 from app.db.models.organization_membership import OrganizationMembership
 from app.services import microsoft_graph
 from app.services.assistant.agent_registry import AgentDefinition
 from app.services.assistant.tool_gateway import ToolCallResult, execute_tool
+from app.services.ai_copilot import AiCopilotError, encrypt_sensitive_text
 from app.services.audit import log_event
 
 
@@ -72,8 +77,6 @@ def select_reminder_channels(
         use_outlook = True
     elif explicit_todo:
         use_outlook = False
-    elif message is not None:
-        use_outlook = message_mentions_calendar(message) or message_has_explicit_clock_time(message)
     else:
         use_outlook = not due_at_is_date_only(due_at)
 
@@ -191,6 +194,51 @@ def _warning_for_channel(channel: str) -> str:
     return "msft_todo_create_failed"
 
 
+def _emit_msft_summary_message(
+    *,
+    db: Session,
+    reminder: AssistantReminder,
+    channel: str,
+) -> None:
+    if not reminder.thread_id:
+        return
+    thread = db.execute(
+        select(AiThread).where(
+            AiThread.id == reminder.thread_id,
+            AiThread.organization_id == reminder.organization_id,
+            AiThread.user_id == reminder.user_id,
+        )
+    ).scalar_one_or_none()
+    if thread is None:
+        return
+
+    summary = "Created a Microsoft To Do draft for your reminder."
+    if channel == "outlook":
+        summary = "Created an Outlook calendar draft for your reminder."
+
+    try:
+        encrypted = encrypt_sensitive_text(summary)
+    except AiCopilotError:
+        logger.exception("msft_reminder_summary_encrypt_failed reminder_id=%s", reminder.id)
+        return
+
+    db.add(
+        AiMessage(
+            thread_id=thread.id,
+            role="assistant",
+            content=encrypted,
+            metadata_json=json.dumps(
+                {
+                    "type": "assistant_msft_draft",
+                    "reminder_id": reminder.id,
+                    "channel": channel,
+                },
+                default=str,
+            ),
+        )
+    )
+
+
 def ensure_msft_artifacts_for_reminder(
     *,
     db: Session,
@@ -250,16 +298,19 @@ def ensure_msft_artifacts_for_reminder(
         }
 
         def _executor() -> dict[str, Any]:
-            task_id = microsoft_graph.create_todo_task_draft(
-                db=tool_session,
-                organization_id=reminder.organization_id,
-                user_id=reminder.user_id,
-                list_name=payload["list_name"],
-                title=payload["title"],
-                body=payload["body"],
-                due_datetime=payload["due_datetime"],
-                time_zone=payload["time_zone"],
-            )
+            try:
+                task_id = microsoft_graph.create_todo_task_draft(
+                    db=tool_session,
+                    organization_id=reminder.organization_id,
+                    user_id=reminder.user_id,
+                    list_name=payload["list_name"],
+                    title=payload["title"],
+                    body=payload["body"],
+                    due_datetime=payload["due_datetime"],
+                    time_zone=payload["time_zone"],
+                )
+            except microsoft_graph.MicrosoftIntegrationNotConnectedError:
+                raise HTTPException(status_code=409, detail="needs_m365_connect")
             return {"id": task_id}
 
         tool_result: ToolCallResult = execute_tool(
@@ -278,6 +329,7 @@ def ensure_msft_artifacts_for_reminder(
             _mark_msft_success(reminder=reminder, channel="todo")
             db.add(reminder)
             db.commit()
+            _emit_msft_summary_message(db=db, reminder=reminder, channel="todo")
 
             log_event(
                 tool_session,
@@ -343,17 +395,20 @@ def ensure_msft_artifacts_for_reminder(
         }
 
         def _executor() -> dict[str, Any]:
-            event_id = microsoft_graph.create_outlook_event_draft(
-                db=tool_session,
-                organization_id=reminder.organization_id,
-                user_id=reminder.user_id,
-                subject=payload["subject"],
-                body=payload["body"],
-                start_datetime=payload["start_datetime"],
-                end_datetime=payload["end_datetime"],
-                time_zone=payload["time_zone"],
-                transaction_id=payload["transaction_id"],
-            )
+            try:
+                event_id = microsoft_graph.create_outlook_event_draft(
+                    db=tool_session,
+                    organization_id=reminder.organization_id,
+                    user_id=reminder.user_id,
+                    subject=payload["subject"],
+                    body=payload["body"],
+                    start_datetime=payload["start_datetime"],
+                    end_datetime=payload["end_datetime"],
+                    time_zone=payload["time_zone"],
+                    transaction_id=payload["transaction_id"],
+                )
+            except microsoft_graph.MicrosoftIntegrationNotConnectedError:
+                raise HTTPException(status_code=409, detail="needs_m365_connect")
             return {"id": event_id}
 
         tool_result = execute_tool(
@@ -372,6 +427,7 @@ def ensure_msft_artifacts_for_reminder(
             _mark_msft_success(reminder=reminder, channel="outlook")
             db.add(reminder)
             db.commit()
+            _emit_msft_summary_message(db=db, reminder=reminder, channel="outlook")
 
             log_event(
                 tool_session,
@@ -410,4 +466,3 @@ def ensure_msft_artifacts_for_reminder(
             )
 
     return warnings
-

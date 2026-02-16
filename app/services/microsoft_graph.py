@@ -260,7 +260,7 @@ def _parse_graph_error(response: httpx.Response, body: Any) -> tuple[str, int]:
     return detail, 502
 
 
-def _refresh_access_token(*, db: Session, account: IntegrationAccount, scopes: list[str]) -> str:
+def _refresh_access_token(*, db: Session, account: IntegrationAccount, scopes: list[str]) -> tuple[str, datetime | None]:
     try:
         refresh_token = decrypt_token(account.refresh_token_enc)
     except TokenEncryptionError as exc:
@@ -295,6 +295,7 @@ def _refresh_access_token(*, db: Session, account: IntegrationAccount, scopes: l
         expires_in_seconds = int(expires_in_raw)
     except Exception:
         expires_in_seconds = 3600
+    expires_at = _now_utc() + timedelta(seconds=max(expires_in_seconds, 0))
 
     rotated_refresh_token = str(body.get("refresh_token", "")).strip()
     if rotated_refresh_token:
@@ -302,6 +303,15 @@ def _refresh_access_token(*, db: Session, account: IntegrationAccount, scopes: l
             account.refresh_token_enc = encrypt_token(rotated_refresh_token)
             db.add(account)
             db.commit()
+            connection = _microsoft_connection_for_user(
+                db=db,
+                organization_id=account.organization_id,
+                user_id=account.user_id,
+            )
+            if connection is not None:
+                connection.refresh_token_enc = account.refresh_token_enc
+                db.add(connection)
+                db.commit()
         except TokenEncryptionError as exc:
             db.rollback()
             raise MicrosoftGraphServiceError("Unable to encrypt rotated Microsoft token", 500) from exc
@@ -312,7 +322,7 @@ def _refresh_access_token(*, db: Session, account: IntegrationAccount, scopes: l
         access_token=access_token,
         expires_in_seconds=expires_in_seconds,
     )
-    return access_token
+    return access_token, expires_at
 
 
 def _access_token_for_user(
@@ -356,7 +366,8 @@ def _access_token_for_user(
     except MicrosoftGraphClientError as exc:
         logger.warning("Microsoft Graph MSAL token acquisition failed: %s", exc.detail)
 
-    return _refresh_access_token(db=db, account=account, scopes=normalized_scopes), account
+    access_token, _expires_at = _refresh_access_token(db=db, account=account, scopes=normalized_scopes)
+    return access_token, account
 
 
 def _graph_request_json(
@@ -1033,8 +1044,35 @@ def _microsoft_connection_for_user(
         select(UserMicrosoftConnection).where(
             UserMicrosoftConnection.organization_id == organization_id,
             UserMicrosoftConnection.user_id == user_id,
+            UserMicrosoftConnection.revoked_at.is_(None),
         )
     ).scalar_one_or_none()
+
+
+def _persist_connection_tokens(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+    access_token: str,
+    expires_at: datetime | None,
+    refresh_token_enc: str | None = None,
+) -> None:
+    if not access_token:
+        return
+    connection = _microsoft_connection_for_user(db=db, organization_id=organization_id, user_id=user_id)
+    if connection is None:
+        return
+    try:
+        connection.access_token_enc = encrypt_token(access_token)
+    except TokenEncryptionError:
+        logger.warning("Microsoft Graph access token encryption failed for org=%s user=%s", organization_id, user_id)
+        return
+    if refresh_token_enc:
+        connection.refresh_token_enc = refresh_token_enc
+    connection.expires_at = expires_at
+    db.add(connection)
+    db.commit()
 
 
 def _resolve_or_create_todo_list_id(
@@ -1192,3 +1230,28 @@ def create_outlook_event_draft(
     if not event_id:
         raise MicrosoftGraphServiceError("Microsoft Graph event create response missing id", 502)
     return event_id
+
+
+def refresh_microsoft_connection_tokens(
+    *,
+    db: Session,
+    organization_id: str,
+    user_id: str,
+    scopes: list[str] | None = None,
+) -> datetime | None:
+    normalized_scopes = _normalize_scopes_list(scopes or _ASSISTANT_REMINDER_GRAPH_SCOPES)
+    account = _integration_account_for_user(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
+    access_token, expires_at = _refresh_access_token(db=db, account=account, scopes=normalized_scopes)
+    _persist_connection_tokens(
+        db=db,
+        organization_id=organization_id,
+        user_id=user_id,
+        access_token=access_token,
+        expires_at=expires_at,
+        refresh_token_enc=account.refresh_token_enc,
+    )
+    return expires_at

@@ -36,6 +36,12 @@ class UserMicrosoftConnection(Base):
 
     scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     token_cache_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     todo_list_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -50,4 +56,3 @@ class UserMicrosoftConnection(Base):
 
     organization: Mapped["Organization"] = relationship("Organization")
     user: Mapped["User"] = relationship("User")
-

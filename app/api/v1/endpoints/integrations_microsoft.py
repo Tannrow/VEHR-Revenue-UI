@@ -27,6 +27,7 @@ from app.services.integration_tokens import TokenEncryptionError, encrypt_token
 from app.services.microsoft_graph import (
     MicrosoftGraphServiceError,
     get_microsoft_graph_profile,
+    refresh_microsoft_connection_tokens,
     get_sharepoint_item_download_by_item,
     get_sharepoint_item_preview,
     get_sharepoint_workspace,
@@ -56,6 +57,15 @@ class MicrosoftConnectResponse(BaseModel):
 class MicrosoftConnectionTestResponse(BaseModel):
     display_name: str | None = None
     user_principal_name: str | None = None
+
+
+class MicrosoftDisconnectResponse(BaseModel):
+    status: str
+
+
+class MicrosoftRefreshResponse(BaseModel):
+    status: str
+    expires_at: datetime | None = None
 
 
 class SharePointSiteRead(BaseModel):
@@ -295,6 +305,110 @@ def microsoft_test_connection(
     )
 
 
+@router.post("/integrations/microsoft/refresh", response_model=MicrosoftRefreshResponse)
+def microsoft_refresh_connection(
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> MicrosoftRefreshResponse:
+    log_event(
+        db,
+        action="microsoft.refresh_connection_attempt",
+        entity_type="integration",
+        entity_id=membership.organization_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"provider": "microsoft"},
+    )
+
+    try:
+        expires_at = refresh_microsoft_connection_tokens(
+            db=db,
+            organization_id=membership.organization_id,
+            user_id=membership.user_id,
+        )
+    except MicrosoftGraphServiceError as exc:
+        log_event(
+            db,
+            action="microsoft.refresh_connection_failed",
+            entity_type="integration",
+            entity_id=membership.organization_id,
+            organization_id=membership.organization_id,
+            actor=membership.user.email,
+            metadata={"provider": "microsoft", "error": exc.detail},
+        )
+        _raise_graph_error(exc)
+
+    log_event(
+        db,
+        action="microsoft.refresh_connection",
+        entity_type="integration",
+        entity_id=membership.organization_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"provider": "microsoft"},
+    )
+    return MicrosoftRefreshResponse(status="refreshed", expires_at=expires_at)
+
+
+@router.post("/integrations/microsoft/disconnect", response_model=MicrosoftDisconnectResponse)
+def microsoft_disconnect(
+    db: Session = Depends(get_db),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("org:manage")),
+) -> MicrosoftDisconnectResponse:
+    now = datetime.now(timezone.utc)
+
+    log_event(
+        db,
+        action="microsoft.disconnect_attempt",
+        entity_type="integration",
+        entity_id=membership.organization_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"provider": "microsoft"},
+    )
+
+    account = db.execute(
+        select(IntegrationAccount).where(
+            IntegrationAccount.organization_id == membership.organization_id,
+            IntegrationAccount.user_id == membership.user_id,
+            IntegrationAccount.provider == "microsoft",
+            IntegrationAccount.revoked_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if account is not None:
+        account.revoked_at = now
+        db.add(account)
+
+    connection = db.execute(
+        select(UserMicrosoftConnection).where(
+            UserMicrosoftConnection.organization_id == membership.organization_id,
+            UserMicrosoftConnection.user_id == membership.user_id,
+            UserMicrosoftConnection.revoked_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if connection is not None:
+        connection.revoked_at = now
+        connection.todo_list_id = None
+        connection.access_token_enc = None
+        connection.refresh_token_enc = None
+        db.add(connection)
+
+    db.commit()
+
+    log_event(
+        db,
+        action="microsoft.disconnected",
+        entity_type="integration",
+        entity_id=membership.organization_id,
+        organization_id=membership.organization_id,
+        actor=membership.user.email,
+        metadata={"provider": "microsoft"},
+    )
+    return MicrosoftDisconnectResponse(status="disconnected")
+
+
 @router.get(
     "/integrations/microsoft/sharepoint/workspace",
     response_model=SharePointWorkspaceRead,
@@ -524,6 +638,8 @@ def microsoft_callback(
         scopes = str(token_response.get("scope", "")).strip() or settings["scopes"]
 
         refresh_token_enc = encrypt_token(refresh_token)
+        access_token = str(token_response.get("access_token", "")).strip()
+        access_token_enc = encrypt_token(access_token) if access_token else None
         account = _upsert_integration_account(
             db=db,
             organization_id=decoded_state["org_id"],
@@ -569,6 +685,12 @@ def microsoft_callback(
                 msft_user_id=external_user_id,
                 scopes=scopes_list,
                 token_cache_encrypted=token_cache_encrypted,
+                refresh_token_enc=refresh_token_enc,
+                access_token_enc=access_token_enc,
+                expires_at=_expires_at_from_response(token_response),
+                connected_at=datetime.now(timezone.utc),
+                revoked_at=None,
+                metadata_json=_token_metadata(token_response),
             )
         except Exception:
             db.rollback()
@@ -683,6 +805,26 @@ def _split_scopes(raw_scopes: str) -> list[str]:
     return ordered
 
 
+def _expires_at_from_response(token_response: dict[str, Any]) -> datetime | None:
+    raw = token_response.get("expires_in")
+    if raw is None:
+        return None
+    try:
+        seconds = int(raw)
+    except Exception:
+        return None
+    if seconds <= 0:
+        return None
+    return datetime.now(timezone.utc) + timedelta(seconds=seconds)
+
+
+def _token_metadata(token_response: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "token_type": str(token_response.get("token_type", "")).strip() or None,
+        "scope": str(token_response.get("scope", "")).strip() or None,
+    }
+
+
 def _encode_client_info(*, uid: str, utid: str) -> str:
     payload = json.dumps({"uid": uid, "utid": utid}, separators=(",", ":"), default=str).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
@@ -726,6 +868,12 @@ def _upsert_user_microsoft_connection(
     msft_user_id: str | None,
     scopes: list[str],
     token_cache_encrypted: str,
+    refresh_token_enc: str | None,
+    access_token_enc: str | None,
+    expires_at: datetime | None,
+    connected_at: datetime | None,
+    revoked_at: datetime | None,
+    metadata_json: dict[str, Any] | None,
 ) -> UserMicrosoftConnection:
     row = db.execute(
         select(UserMicrosoftConnection).where(
@@ -741,6 +889,17 @@ def _upsert_user_microsoft_connection(
         row.msft_user_id = msft_user_id
         row.scopes = scopes
         row.token_cache_encrypted = token_cache_encrypted
+        if refresh_token_enc:
+            row.refresh_token_enc = refresh_token_enc
+        if access_token_enc:
+            row.access_token_enc = access_token_enc
+        if expires_at is not None:
+            row.expires_at = expires_at
+        if connected_at is not None:
+            row.connected_at = connected_at
+        row.revoked_at = revoked_at
+        if metadata_json is not None:
+            row.metadata_json = metadata_json
         db.add(row)
     else:
         row = UserMicrosoftConnection(
@@ -750,6 +909,12 @@ def _upsert_user_microsoft_connection(
             msft_user_id=msft_user_id,
             scopes=scopes,
             token_cache_encrypted=token_cache_encrypted,
+            refresh_token_enc=refresh_token_enc,
+            access_token_enc=access_token_enc,
+            expires_at=expires_at,
+            connected_at=connected_at,
+            revoked_at=revoked_at,
+            metadata_json=metadata_json or {},
             todo_list_id=None,
         )
         db.add(row)
