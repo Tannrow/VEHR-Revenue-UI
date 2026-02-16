@@ -1,0 +1,25 @@
+{
+  "detail_table_required_headers": [
+    "Line Ctrl Nmbr",
+    "Dates of Service",
+    "Charge",
+    "Payment"
+  ],
+  "modifier_units_header_hints": [
+    "modifier",
+    "units",
+    "procedure",
+    "cpt",
+    "hcpcs",
+    "code"
+  ],
+  "patient_name_key_hints": [
+    "patient name",
+    "member name"
+  ],
+  "patient_id_key_hints": [
+    "patient id",
+    "member id",
+    "subscriber id"
+  ]
+}
