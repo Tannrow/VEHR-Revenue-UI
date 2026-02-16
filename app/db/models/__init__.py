@@ -7,6 +7,7 @@ from app.db.models.analytics_ai_audit_log import AnalyticsAiAuditLog  # noqa: F4
 from app.db.models.analytics_alert import AnalyticsAlert  # noqa: F401
 from app.db.models.analytics_metric import AnalyticsMetric  # noqa: F401
 from app.db.models.bi_report import BIReport  # noqa: F401
+from app.db.models.billed_line import BilledLine  # noqa: F401
 from app.db.models.ai_message import AiMessage  # noqa: F401
 from app.db.models.ai_thread import AiThread  # noqa: F401
 from app.db.models.assistant_memory_item import AssistantMemoryItem  # noqa: F401
@@ -21,6 +22,7 @@ from app.db.models.disclosure_log import DisclosureLog  # noqa: F401
 from app.db.models.document import Document  # noqa: F401
 from app.db.models.encounter import Encounter  # noqa: F401
 from app.db.models.event_outbox import EventOutbox  # noqa: F401
+from app.db.models.era_line import EraLine  # noqa: F401
 from app.db.models.form_submission import FormSubmission  # noqa: F401
 from app.db.models.form_template import FormTemplate  # noqa: F401
 from app.db.models.generated_report import GeneratedReport  # noqa: F401
@@ -53,6 +55,9 @@ from app.db.models.ringcentral_event import RingCentralEvent  # noqa: F401
 from app.db.models.ringcentral_credential import RingCentralCredential  # noqa: F401
 from app.db.models.ringcentral_subscription import RingCentralSubscription  # noqa: F401
 from app.db.models.reception_call_workflow import ReceptionCallWorkflow  # noqa: F401
+from app.db.models.recon_claim_result import ReconClaimResult  # noqa: F401
+from app.db.models.recon_import_job import ReconImportJob  # noqa: F401
+from app.db.models.recon_line_result import ReconLineResult  # noqa: F401
 from app.db.models.rpt_kpi_daily import RptKpiDaily  # noqa: F401
 from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot  # noqa: F401
 from app.db.models.service import Service  # noqa: F401

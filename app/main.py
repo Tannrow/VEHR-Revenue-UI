@@ -2,6 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,21 @@ from app.services.tanner_ai.service import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_CORS_ORIGINS = [
+    "https://360-encompass.com",
+    "https://www.360-encompass.com",
+    "https://app.360-encompass.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+_CORS_ENV_KEYS: tuple[str, ...] = (
+    "CORS_ALLOWED_ORIGINS",
+    "CORS_ORIGINS",
+)
 
 
 def _safe_package_version(package_name: str) -> str:
@@ -46,31 +62,53 @@ def _log_auth_dependency_versions() -> None:
 
 
 def get_cors_origins() -> list[str]:
-    raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
-    default_origins = [
-        "https://app.360-encompass.com",
-        "http://localhost:3000",
-    ]
+    raw = ""
+    source_key: str | None = None
+    for key in _CORS_ENV_KEYS:
+        value = os.getenv(key, "").strip()
+        if value:
+            raw = value
+            source_key = key
+            break
+
+    default_origins = sorted(set(_DEFAULT_CORS_ORIGINS))
     if not raw:
         return default_origins
     if raw == "*":
         # Credentials-based auth (cookies) must not use wildcard origins.
-        logger.warning("CORS_ALLOWED_ORIGINS='*' is unsafe with allow_credentials; using defaults instead.")
+        logger.warning("%s='*' is unsafe with allow_credentials; using defaults instead.", source_key or "CORS_ORIGINS")
         return default_origins
 
-    configured = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    configured: list[str] = []
+    for token in raw.split(","):
+        origin = token.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            continue
+        configured.append(origin)
+
+    configured = sorted(set(configured))
     if not configured:
-        logger.warning("CORS_ALLOWED_ORIGINS was set but empty; using defaults instead.")
+        logger.warning("%s was set but empty; using defaults instead.", source_key or "CORS_ORIGINS")
         return default_origins
 
-    # Do not silently allow localhost/default domains once explicit origins are configured.
-    if "*" in configured:
-        logger.warning("CORS_ALLOWED_ORIGINS included '*', which is unsafe with allow_credentials; ignoring '*'.")
-        configured = [origin for origin in configured if origin != "*"]
-        if not configured:
-            return default_origins
+    # Keep a safe baseline even when env is explicitly configured to avoid accidental lockout.
+    return sorted(set(default_origins + configured))
 
-    return sorted(set(configured))
+
+def _cors_origin_hosts(origins: list[str]) -> list[str]:
+    hosts: set[str] = set()
+    for origin in origins:
+        try:
+            parsed = urlparse(origin)
+            if parsed.hostname:
+                hosts.add(parsed.hostname)
+            else:
+                hosts.add(origin)
+        except Exception:
+            hosts.add(origin)
+    return sorted(hosts)
 
 
 @asynccontextmanager
@@ -78,6 +116,10 @@ async def lifespan(_app: FastAPI):
     import app.db.models  # register models
 
     _log_auth_dependency_versions()
+    cors_origins = get_cors_origins()
+    logger.info("CORS origins configured: %s", len(cors_origins))
+    logger.info("CORS origins: %s", ",".join(cors_origins))
+    logger.info("CORS origin hosts: %s", ",".join(_cors_origin_hosts(cors_origins)))
     try:
         validate_ringcentral_startup_configuration()
     except RingCentralRealtimeError as exc:
@@ -106,8 +148,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

@@ -521,3 +521,11 @@ Power BI / Microsoft Fabric embedding (App-Owns-Data + RLS)
 - ID discovery script: `python bi/scripts/pbi_list_items.py`
 - Embed token smoke test: `python bi/scripts/pbi_smoke_test.py`
 - Full setup/runbook: `bi/docs/360e_fabric_embed.md`
+
+Billing reconciliation import worker (manual 2-PDF flow)
+
+- Queue a job via API: `POST /api/v1/billing/recon/import` with `era_pdf` and `billed_pdf` multipart fields.
+- Run one worker pass locally:
+  - `python -m app.workers.recon_import_worker --once`
+- Run continuously locally:
+  - `python -m app.workers.recon_import_worker`
