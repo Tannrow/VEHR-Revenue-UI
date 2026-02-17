@@ -115,16 +115,26 @@ def _cors_origin_hosts(origins: list[str]) -> list[str]:
 async def lifespan(_app: FastAPI):
     import app.db.models  # register models
 
+def _skip_startup_checks() -> bool:
+    if os.getenv("SKIP_STARTUP_CHECKS", "").strip() == "1":
+        return True
+    env = os.getenv("ENV", "").strip().lower()
+    return env in {"dev", "local"}
+
+
     _log_auth_dependency_versions()
     cors_origins = get_cors_origins()
     logger.info("CORS origins configured: %s", len(cors_origins))
     logger.info("CORS origins: %s", ",".join(cors_origins))
     logger.info("CORS origin hosts: %s", ",".join(_cors_origin_hosts(cors_origins)))
-    try:
-        validate_ringcentral_startup_configuration()
-    except RingCentralRealtimeError as exc:
-        logger.exception("RingCentral startup validation failed")
-        raise RuntimeError(exc.detail) from exc
+    if _skip_startup_checks():
+        logger.info("Skipping startup validation (dev mode enabled)")
+    else:
+        try:
+            validate_ringcentral_startup_configuration()
+        except RingCentralRealtimeError as exc:
+            logger.exception("RingCentral startup validation failed")
+            raise RuntimeError(exc.detail) from exc
 
     try:
         validate_tanner_ai_startup_configuration()
