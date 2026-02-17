@@ -1,0 +1,110 @@
+name: Codex Task
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "GitHub issue number to use as Codex task"
+        required: true
+      risk:
+        description: "Risk level"
+        required: false
+        default: "low"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  codex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch issue body
+        id: issue
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          issue_number = os.environ.get('ISSUE_NUMBER')
+          token = os.environ.get('GITHUB_TOKEN')
+          if not repo or not issue_number or not token:
+            sys.exit('Missing repository, issue number, or token')
+
+          url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
+          req = urllib.request.Request(url)
+          req.add_header('Authorization', f'Bearer {token}')
+          req.add_header('Accept', 'application/vnd.github+json')
+          req.add_header('X-GitHub-Api-Version', '2022-11-28')
+
+          with urllib.request.urlopen(req) as response:
+            body = response.read().decode('utf-8')
+            data = json.loads(body)
+
+          issue_body = data.get('body') or ''
+          with open('codex_issue_body.txt', 'w', encoding='utf-8') as handle:
+            handle.write(issue_body)
+          PY
+
+      - name: Run Codex
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          prompt-file: codex_issue_body.txt
+          pr-labels: ai-task,risk:${{ inputs.risk }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Apply PR labels or comment
+        if: ${{ steps.codex.outputs.pull_request_number != '' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.codex.outputs.pull_request_number }}
+          RISK: ${{ inputs.risk }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          pr_number = os.environ.get('PR_NUMBER')
+          token = os.environ.get('GITHUB_TOKEN')
+          risk = os.environ.get('RISK', 'low')
+          if not repo or not pr_number or not token:
+            sys.exit(0)
+
+          labels_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels"
+          payload = json.dumps({"labels": ["ai-task", f"risk:{risk}"]}).encode('utf-8')
+          req = urllib.request.Request(labels_url, data=payload, method='POST')
+          req.add_header('Authorization', f'Bearer {token}')
+          req.add_header('Accept', 'application/vnd.github+json')
+          req.add_header('X-GitHub-Api-Version', '2022-11-28')
+          req.add_header('Content-Type', 'application/json')
+          try:
+            urllib.request.urlopen(req)
+          except Exception:
+            comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+            comment = json.dumps({"body": f"Labels requested: ai-task, risk:{risk}"}).encode('utf-8')
+            comment_req = urllib.request.Request(comment_url, data=comment, method='POST')
+            comment_req.add_header('Authorization', f'Bearer {token}')
+            comment_req.add_header('Accept', 'application/vnd.github+json')
+            comment_req.add_header('X-GitHub-Api-Version', '2022-11-28')
+            comment_req.add_header('Content-Type', 'application/json')
+            urllib.request.urlopen(comment_req)
+          PY

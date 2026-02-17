@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from sqlalchemy import text
 
-from app.api.v1.router import api_router
+from app.api.v1.router import api_router, dev_router
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.services.ringcentral_realtime import (
@@ -185,6 +185,7 @@ async def audit_cors_preflight(request: Request, call_next):
     return response
 
 app.include_router(api_router)
+app.include_router(dev_router)
 
 @app.get("/health")
 def health():

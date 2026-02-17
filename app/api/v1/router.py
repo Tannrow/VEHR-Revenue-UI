@@ -27,6 +27,7 @@ from app.api.v1.endpoints import (
     portal,
     reception,
     reports,
+    nexus_codex,
     sharepoint,
     scribe,
     staff,
@@ -37,6 +38,7 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter(prefix="/api/v1")
+dev_router = APIRouter(prefix="/api/dev")
 api_router.include_router(auth.router)
 api_router.include_router(billing_recon.router)
 api_router.include_router(me_preferences.router)
@@ -70,3 +72,4 @@ api_router.include_router(health.router)
 api_router.include_router(uploads.router)
 api_router.include_router(scribe.router)
 api_router.include_router(tanner_ai.router)
+dev_router.include_router(nexus_codex.router)
