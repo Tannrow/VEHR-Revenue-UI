@@ -38,3 +38,7 @@ outputs/eras/
 # Local tooling folders that should never be committed
 app/api/v1/endpoints/Fabric codex/
 intel doc/
+
+# Local logs
+logs/
+
