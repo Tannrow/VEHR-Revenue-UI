@@ -1,13 +1,18 @@
 from fastapi import APIRouter
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
 
 router = APIRouter()
 
-@router.get("/health")
-def health():
-    return {"status": "ok"}
+class HealthResponse(BaseModel):
+    ok: bool
+
+
+@router.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(ok=True)
 
 @router.get("/health/db")
 def health_db():
