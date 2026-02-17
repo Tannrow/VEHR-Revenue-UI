@@ -10,6 +10,7 @@ from starlette.responses import Response
 from sqlalchemy import text
 
 from app.api.v1.router import api_router
+from app.core.env import truthy_env
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.services.ringcentral_realtime import (
@@ -111,15 +112,16 @@ def _cors_origin_hosts(origins: list[str]) -> list[str]:
     return sorted(hosts)
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    import app.db.models  # register models
-
 def _skip_startup_checks() -> bool:
-    if os.getenv("SKIP_STARTUP_CHECKS", "").strip() == "1":
+    if truthy_env("SKIP_STARTUP_CHECKS"):
         return True
     env = os.getenv("ENV", "").strip().lower()
     return env in {"dev", "local"}
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    import app.db.models  # register models
 
 
     _log_auth_dependency_versions()
@@ -136,11 +138,12 @@ def _skip_startup_checks() -> bool:
             logger.exception("RingCentral startup validation failed")
             raise RuntimeError(exc.detail) from exc
 
-    try:
-        validate_tanner_ai_startup_configuration()
-    except TannerAIConfigurationError as exc:
-        logger.exception("Tanner AI startup validation failed")
-        raise RuntimeError(str(exc)) from exc
+    if not _skip_startup_checks() and truthy_env("TANNER_AI_ENABLED"):
+        try:
+            validate_tanner_ai_startup_configuration()
+        except TannerAIConfigurationError as exc:
+            logger.exception("Tanner AI startup validation failed")
+            raise RuntimeError(str(exc)) from exc
 
     if should_validate_s3_on_startup():
         # Optional production guard: fail boot if bucket/credentials are invalid.
