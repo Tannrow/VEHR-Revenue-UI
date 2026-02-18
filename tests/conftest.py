@@ -12,3 +12,4 @@ os.environ.setdefault(
     "https://api.360-encompass.com/api/v1/integrations/ringcentral/callback",
 )
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost:5432/testdb")

@@ -83,10 +83,6 @@ def upgrade() -> None:
         if _table_exists(inspector, table) and not _column_exists(inspector, table, "organization_id"):
             op.add_column(table, sa.Column("organization_id", sa.String(length=36), nullable=True))
 
-        # SQLite cannot add named foreign-key constraints to existing tables via ALTER TABLE.
-        if dialect_name == "sqlite":
-            continue
-
         inspector = sa.inspect(bind)
         fk_name = f"fk_{table}_organization_id"
         if _table_exists(inspector, table) and not _foreign_key_exists(inspector, table, fk_name):
@@ -110,7 +106,7 @@ def downgrade() -> None:
             continue
 
         fk_name = f"fk_{table}_organization_id"
-        if dialect_name != "sqlite" and _foreign_key_exists(inspector, table, fk_name):
+        if _foreign_key_exists(inspector, table, fk_name):
             op.drop_constraint(fk_name, table, type_="foreignkey")
 
         inspector = sa.inspect(bind)
