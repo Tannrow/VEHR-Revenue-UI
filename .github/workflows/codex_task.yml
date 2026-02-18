@@ -1,5 +1,4 @@
 name: Codex Task
-
 on:
   workflow_dispatch:
     inputs:
@@ -10,15 +9,21 @@ on:
         description: "Risk level"
         required: false
         default: "low"
+      retry_count:
+        description: "Auto-retry counter (internal). Do not set manually."
+        required: false
+        default: "0"
 
 permissions:
   contents: write
   pull-requests: write
-  issues: read
+  issues: write   # needed to comment on the issue
+  actions: write  # needed to re-dispatch this workflow
 
 jobs:
   codex:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,16 +31,22 @@ jobs:
       - name: Fetch issue body
         id: issue
         shell: bash
-        run: |
-          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}"
-          echo "ISSUE_NUMBER=${ISSUE_NUMBER}"
-          echo "GITHUB_TOKEN is set: [${{ env.GITHUB_TOKEN != '' }}]"
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}"
+          echo "ISSUE_NUMBER=${ISSUE_NUMBER}"
+          if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            echo "GITHUB_TOKEN is set: [true]"
+          else
+            echo "GITHUB_TOKEN is set: [false]"
+            exit 1
+          fi
+
           python - <<'PY'
           import json
           import os
@@ -55,8 +66,7 @@ jobs:
           req.add_header('X-GitHub-Api-Version', '2022-11-28')
 
           with urllib.request.urlopen(req) as response:
-            body = response.read().decode('utf-8')
-            data = json.loads(body)
+            data = json.loads(response.read().decode('utf-8'))
 
           issue_body = data.get('body') or ''
           with open('/tmp/issue_body.txt', 'w', encoding='utf-8') as handle:
@@ -75,8 +85,102 @@ jobs:
 
       - name: Run Codex
         id: codex
+        continue-on-error: true
         uses: openai/codex-action@v1
         with:
           prompt-file: /tmp/issue_body.txt
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Comment on issue if Codex failed
+        if: steps.codex.conclusion == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RETRY_COUNT: ${{ inputs.retry_count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # retry_count starts at 0; attempt_number starts at 1
+          attempt_number=$(( ${RETRY_COUNT:-0} + 1 ))
+
+          body=$(cat <<EOF
+          Codex workflow attempt ${attempt_number} failed.
+
+          Run: ${RUN_URL}
+          EOF
+          )
+
+          api="https://api.github.com/repos/${REPO}/issues/${ISSUE_NUMBER}/comments"
+          payload=$(python - <<PY
+          import json, sys
+          print(json.dumps({"body": sys.stdin.read()}))
+PY
+          <<<"$body")
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}" \
+            -d "${payload}"
+
+      - name: Auto re-run workflow if Codex failed (max 10 attempts)
+        if: steps.codex.conclusion == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_FILE: "codex_task.yml"
+          REF: "main"
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RISK: ${{ inputs.risk }}
+          RETRY_COUNT: ${{ inputs.retry_count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          max_attempts=10
+          current="${RETRY_COUNT:-0}"
+
+          echo "Codex step failed."
+          echo "Run URL: ${RUN_URL}"
+          echo "retry_count=${current} (0 = first attempt)"
+
+          if [[ "$current" -ge $((max_attempts-1)) ]]; then
+            echo "Reached max attempts (${max_attempts}). Not re-running."
+            exit 0
+          fi
+
+          next=$((current+1))
+          echo "Dispatching attempt $((next+1)) of ${max_attempts} (retry_count=${next})..."
+
+          api="https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches"
+          payload=$(cat <<JSON
+          {
+            "ref": "${REF}",
+            "inputs": {
+              "issue_number": "${ISSUE_NUMBER}",
+              "risk": "${RISK}",
+              "retry_count": "${next}"
+            }
+          }
+JSON
+          )
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}" \
+            -d "${payload}"
+
+      - name: Mark run as failed if Codex failed
+        if: steps.codex.conclusion == 'failure'
+        shell: bash
+        run: |
+          echo "Failing this run because Codex failed (a retry may have been dispatched)."
+          exit 1
