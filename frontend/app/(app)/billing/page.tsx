@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, apiFetch } from "@/lib/api";
 import MetricCard from "../_components/MetricCard";
-import { UploadCard } from "../_components/recon-components";
+import { UploadCard } from "./_components/recon-components";
 
 const billingItems = [
   { item: "Claims pending", status: "Review needed", risk: "Medium" },

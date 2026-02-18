@@ -67,6 +67,8 @@
   --font-size-20: 20px;
   --font-size-24: 24px;
   --font-size-30: 30px;
+  --font-space-grotesk: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  --font-jetbrains-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --line-height-tight: 1.2;
   --line-height-default: 1.45;
   --line-height-relaxed: 1.6;

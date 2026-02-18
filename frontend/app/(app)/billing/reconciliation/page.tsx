@@ -346,14 +346,15 @@ export default function ReconciliationPage() {
 
   useEffect(() => {
     if (!selectedClaim || !jobId) return;
-    if (!selectedClaim.claim_id && !selectedClaim.account_id) {
+    const claimKey = selectedClaim.claim_id ?? selectedClaim.account_id;
+    if (!claimKey) {
       setClaimLines([]);
       setClaimLineNote("Line-level matching is unavailable for claims without a claim ID.");
       return;
     }
     let active = true;
 
-    async function loadClaimLines() {
+    async function loadClaimLines(claimId: string) {
       try {
         setClaimLineLoading(true);
         setClaimLineError(null);
@@ -364,17 +365,16 @@ export default function ReconciliationPage() {
         params.set("page_size", "100");
         params.set("limit", "100");
         params.set("offset", "0");
-        params.set("claim_id", selectedClaim.claim_id ?? selectedClaim.account_id ?? "");
+        params.set("claim_id", claimId);
         const data = await apiFetch<LineResultsResponse | LineResultsAltResponse>(
           `/api/v1/billing/recon/import/${jobId}/results?${params.toString()}`,
           { cache: "no-store" },
         );
         if (!active) return;
         const normalized = normalizeLineResponse(data, 1, 100);
-        const selectedId = selectedClaim.claim_id ?? selectedClaim.account_id;
-        const filtered = normalized.rows.filter((row) => (row.claim_id ?? row.account_id) === selectedId);
+        const filtered = normalized.rows.filter((row) => (row.claim_id ?? row.account_id) === claimId);
         setClaimLines(filtered);
-        if (normalized.total > normalized.rows.length) {
+        if (normalized.meta.total > normalized.rows.length) {
           setClaimLineNote("Showing the first page of line items. Filtered results may be incomplete.");
         }
       } catch (error) {
@@ -385,7 +385,7 @@ export default function ReconciliationPage() {
       }
     }
 
-    void loadClaimLines();
+    void loadClaimLines(claimKey);
     return () => {
       active = false;
     };
