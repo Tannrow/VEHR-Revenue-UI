@@ -17,8 +17,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write   # needed to comment on the issue
-  actions: write  # needed to re-dispatch this workflow
+  issues: write
+  actions: write
 
 jobs:
   codex:
@@ -40,10 +40,9 @@ jobs:
 
           echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}"
           echo "ISSUE_NUMBER=${ISSUE_NUMBER}"
-          if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            echo "GITHUB_TOKEN is set: [true]"
-          else
-            echo "GITHUB_TOKEN is set: [false]"
+
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "GITHUB_TOKEN is not set"
             exit 1
           fi
 
@@ -105,7 +104,6 @@ jobs:
           set -euo pipefail
 
           attempt_number=$(( ${RETRY_COUNT:-0} + 1 ))
-
           body="Codex workflow attempt ${attempt_number} failed.
 
 Run: ${RUN_URL}"
