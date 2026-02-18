@@ -91,7 +91,7 @@ jobs:
             "${api}" \
             -d "${payload}" >/dev/null
 
-      - name: Auto re-run workflow if Codex failed (max 10 attempts)
+      - name: Auto re-run workflow if Codex failed (max 20 attempts)
         if: steps.codex.conclusion == 'failure'
         shell: bash
         env:
@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          max_attempts=10
+          max_attempts=20
           current="${RETRY_COUNT:-0}"
 
           if [[ "$current" -ge $((max_attempts-1)) ]]; then
