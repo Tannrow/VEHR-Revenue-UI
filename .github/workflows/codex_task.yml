@@ -26,6 +26,10 @@ jobs:
       - name: Fetch issue body
         id: issue
         shell: bash
+        run: |
+          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}"
+          echo "ISSUE_NUMBER=${ISSUE_NUMBER}"
+          echo "GITHUB_TOKEN is set: [${{ env.GITHUB_TOKEN != '' }}]"
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
