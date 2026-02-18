@@ -58,6 +58,16 @@ jobs:
             handle.write(issue_body)
           PY
 
+      - name: Debug Codex home
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HOME=$HOME"
+          echo "Listing /home/runner:"
+          ls -la /home/runner || true
+          echo "Listing /home/runner/.codex:"
+          ls -la /home/runner/.codex || true
+
       - name: Run Codex
         id: codex
         uses: openai/codex-action@v1
