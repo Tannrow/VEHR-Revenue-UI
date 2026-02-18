@@ -96,4 +96,30 @@ def normalize_claims_from_azure(azure_json: dict[str, Any], document_type: str) 
         claims = parsed.get("claims")
     if not isinstance(claims, list):
         raise ClaimNormalizationError("Normalized claims must be a list")
-    return claims
+    sanitized: list[dict[str, Any]] = []
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        safe_claim = dict(claim)
+        for key in ("billed_amount", "allowed_amount", "paid_amount"):
+            if key in safe_claim:
+                safe_claim[key] = None
+        lines = safe_claim.get("lines")
+        if isinstance(lines, list):
+            new_lines: list[dict[str, Any]] = []
+            for line in lines:
+                if not isinstance(line, dict):
+                    continue
+                safe_line = dict(line)
+                for key in ("billed_amount", "allowed_amount", "paid_amount"):
+                    if key in safe_line:
+                        safe_line[key] = None
+                adjustments = safe_line.get("adjustments")
+                if isinstance(adjustments, list):
+                    safe_line["adjustments"] = [
+                        {**adj, "amount": None} for adj in adjustments if isinstance(adj, dict)
+                    ]
+                new_lines.append(safe_line)
+            safe_claim["lines"] = new_lines
+        sanitized.append(safe_claim)
+    return sanitized

@@ -26,6 +26,19 @@ def upgrade() -> None:
     json_type = postgresql.JSONB(astext_type=sa.Text()) if dialect == "postgresql" else sa.JSON()
     json_default = sa.text("'{}'::jsonb") if dialect == "postgresql" else sa.text("'{}'")
 
+    if dialect == "sqlite":
+        with op.batch_alter_table("user_microsoft_connections") as batch:
+            batch.add_column(sa.Column("access_token_enc", sa.Text(), nullable=True))
+            batch.add_column(sa.Column("refresh_token_enc", sa.Text(), nullable=True))
+            batch.add_column(sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True))
+            batch.add_column(sa.Column("connected_at", sa.DateTime(timezone=True), nullable=True))
+            batch.add_column(sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True))
+            batch.add_column(
+                sa.Column("metadata_json", json_type, nullable=False, server_default=json_default),
+            )
+            batch.alter_column("metadata_json", server_default=None)
+        return
+
     op.add_column("user_microsoft_connections", sa.Column("access_token_enc", sa.Text(), nullable=True))
     op.add_column("user_microsoft_connections", sa.Column("refresh_token_enc", sa.Text(), nullable=True))
     op.add_column("user_microsoft_connections", sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True))

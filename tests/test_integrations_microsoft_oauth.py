@@ -177,7 +177,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
             row = db.execute(select(IntegrationAccount)).scalar_one()
             assert row.provider == "microsoft"
             assert row.organization_id == org_id
-            assert row.user_id == user_id
+            assert row.user_id == expected_user_id
             assert row.external_tenant_id == "tenant-123"
             assert row.external_user_id == "oid-456"
             assert row.email == "ms.user@example.com"
@@ -188,7 +188,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
 
             connection = db.execute(select(UserMicrosoftConnection)).scalar_one()
             assert connection.organization_id == org_id
-            assert connection.user_id == user_id
+            assert connection.user_id == expected_user_id
             assert connection.tenant_id == "tenant-123"
             assert connection.msft_user_id == "oid-456"
             assert "offline_access" in set(connection.scopes)
@@ -353,6 +353,7 @@ def test_microsoft_refresh_endpoint(tmp_path, monkeypatch) -> None:
     engine, session_factory = _build_session(tmp_path)
     try:
         token, org_id, user_id = _seed_admin_token(session_factory)
+        expected_user_id = user_id
 
         def fake_refresh(*, db, organization_id, user_id):  # noqa: ANN001
             assert organization_id == org_id

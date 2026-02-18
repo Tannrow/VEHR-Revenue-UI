@@ -101,11 +101,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
         sa.ForeignKeyConstraint(["source_job_id"], ["recon_import_jobs.id"]),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("claim_id", "event_type", "source_job_id", name="uq_claim_event_per_job"),
     )
     op.create_index("ix_claim_events_claim_id", "claim_events", ["claim_id"], unique=False)
     op.create_index("ix_claim_events_org_id", "claim_events", ["org_id"], unique=False)
     op.create_index("ix_claim_events_event_date", "claim_events", ["event_date"], unique=False)
-    op.create_unique_constraint("uq_claim_event_per_job", "claim_events", ["claim_id", "event_type", "source_job_id"])
 
     op.create_table(
         "claim_ledgers",

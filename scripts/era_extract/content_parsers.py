@@ -14,7 +14,7 @@ _DATE_RANGE_RX = re.compile(
     re.IGNORECASE,
 )
 _MONEY_RX = re.compile(
-    r"\(?\$?\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?\)?"
+    r"\(?\$\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?\)?"
 )
 _ADJ_CODE_RX = re.compile(r"^(?:CO|PR|OA|PI)-[A-Z0-9]+$", re.IGNORECASE)
 _CLAIM_BLOCK_ANCHOR_RX = re.compile(r"(?i)\b(Patient\s+Name|NAME)\s*:\s*")
@@ -79,7 +79,7 @@ def _extract_date_range(text: str) -> tuple[date | None, date | None]:
 
 def _extract_account_id(block: str) -> str | None:
     explicit = re.search(
-        r"(?im)(?:Patient\s*Ctrl\s*Nmbr|ACNT|ACCT)\s*:\s*([^\n]+)",
+        r"(?im)(?:Patient\s*Ctrl\s*Nmbr|ACNT|ACCT|Account\s*(?:Number|No\.?)?)\s*:\s*([^\n]+)",
         block or "",
     )
     if not explicit:
@@ -193,7 +193,7 @@ def _extract_units(text: str) -> Decimal | None:
         return None
     for rx in (
         r"(?i)\bunits?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\b",
-        r"/\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+        r"/\s*([0-9]+(?:\.[0-9]+)?)\b",
         r"(?i)\bqty\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\b",
     ):
         m = re.search(rx, text.strip())
@@ -780,6 +780,23 @@ def parse_era_content(
         parsed_rows.extend(table_rows)
         parsed_rows.extend(monospace_rows)
 
+        last_dates_by_claim: dict[str, tuple[date | None, date | None]] = {}
+        cleaned_rows: list[dict[str, Any]] = []
+        for row in parsed_rows:
+            claim_key = row.get("claim_id") or row.get("account_id") or "_"
+            if row.get("dos_from") is not None or row.get("dos_to") is not None:
+                last_dates_by_claim[claim_key] = (row.get("dos_from"), row.get("dos_to"))
+            elif any(row.get(field) is not None for field in ("billed_amount", "allowed_amount", "paid_amount")):
+                last = last_dates_by_claim.get(claim_key)
+                if last is not None:
+                    row = dict(row)
+                    row["dos_from"], row["dos_to"] = last
+            if not row.get("row_is_probably_junk") and any(
+                row.get(field) is not None for field in ("billed_amount", "allowed_amount", "paid_amount")
+            ):
+                cleaned_rows.append(row)
+        parsed_rows = cleaned_rows
+
         counters["rows_emitted_table"] += table_stats.get("logical_rows_emitted", 0)
         counters["rows_emitted_monospace"] += len(monospace_rows)
         counters["skipped_header_lines"] += table_stats.get("skipped_header_lines", 0)
@@ -965,7 +982,7 @@ def _parse_billed_window(window_text: str, *, fallback_dates: tuple[date | None,
     }
 
 
-def parse_billed_content(content: str, billed_track: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def parse_billed_content(content: str, billed_track: str = "Billing") -> tuple[list[dict[str, Any]], dict[str, int]]:
     counters = {
         "blocks_found": 0,
         "line_rows_extracted": 0,
