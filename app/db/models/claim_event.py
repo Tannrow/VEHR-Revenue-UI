@@ -4,7 +4,7 @@ from datetime import date, datetime
 from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Enum as PgEnum, ForeignKey, String
+from sqlalchemy import Date, DateTime, Enum as PgEnum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,7 @@ from app.db.base import Base
 
 
 class ClaimEventType(str, Enum):
-    BILLED = "BILLED"
+    SERVICE_RECORDED = "SERVICE_RECORDED"
     ERA_RECEIVED = "ERA_RECEIVED"
     PAYMENT = "PAYMENT"
     DENIAL = "DENIAL"
@@ -22,6 +22,9 @@ class ClaimEventType(str, Enum):
 
 class ClaimEvent(Base):
     __tablename__ = "claim_events"
+    __table_args__ = (
+        UniqueConstraint("claim_id", "event_type", "source_job_id", name="uq_claim_event_per_job"),
+    )
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
     claim_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("claims.id"), nullable=False, index=True)

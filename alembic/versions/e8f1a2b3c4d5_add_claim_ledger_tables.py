@@ -26,7 +26,7 @@ def upgrade() -> None:
     json_type = postgresql.JSONB(astext_type=sa.Text()) if dialect == "postgresql" else sa.JSON()
 
     claim_event_type = sa.Enum(
-        "BILLED",
+        "SERVICE_RECORDED",
         "ERA_RECEIVED",
         "PAYMENT",
         "DENIAL",
@@ -53,6 +53,7 @@ def upgrade() -> None:
         sa.Column("payer_name", sa.String(length=255), nullable=True),
         sa.Column("dos_from", sa.Date(), nullable=True),
         sa.Column("dos_to", sa.Date(), nullable=True),
+        sa.Column("resubmission_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
@@ -104,6 +105,7 @@ def upgrade() -> None:
     op.create_index("ix_claim_events_claim_id", "claim_events", ["claim_id"], unique=False)
     op.create_index("ix_claim_events_org_id", "claim_events", ["org_id"], unique=False)
     op.create_index("ix_claim_events_event_date", "claim_events", ["event_date"], unique=False)
+    op.create_unique_constraint("uq_claim_event_per_job", "claim_events", ["claim_id", "event_type", "source_job_id"])
 
     op.create_table(
         "claim_ledgers",
@@ -141,6 +143,7 @@ def downgrade() -> None:
     op.drop_index("ix_claim_events_event_date", table_name="claim_events")
     op.drop_index("ix_claim_events_org_id", table_name="claim_events")
     op.drop_index("ix_claim_events_claim_id", table_name="claim_events")
+    op.drop_constraint("uq_claim_event_per_job", "claim_events", type_="unique")
     op.drop_table("claim_events")
 
     op.drop_index("ix_claim_lines_cpt_code", table_name="claim_lines")

@@ -651,22 +651,69 @@ def _insert_claim_events_from_normalized(
     document_type: str,
     source_job_id: str,
 ) -> None:
-    base_event_type = ClaimEventType.BILLED if document_type == "BILLED" else ClaimEventType.ERA_RECEIVED
-    base_event = ClaimEvent(
-        id=str(uuid4()),
-        claim_id=claim_row.id,
-        org_id=claim_row.org_id,
-        event_type=base_event_type,
-        event_date=_parse_date(claim_payload.get("dos_from")),
-        source_job_id=source_job_id,
-        raw_json=claim_payload,
-    )
-    db.add(base_event)
+    base_event_type = ClaimEventType.SERVICE_RECORDED if document_type == "BILLED" else ClaimEventType.ERA_RECEIVED
+    should_add_base_event = True
+    if document_type == "BILLED":
+        existing_service = db.execute(
+            select(ClaimEvent).where(
+                ClaimEvent.claim_id == claim_row.id,
+                ClaimEvent.event_type == ClaimEventType.SERVICE_RECORDED,
+                ClaimEvent.source_job_id == source_job_id,
+            )
+        ).scalar_one_or_none()
+        if existing_service:
+            should_add_base_event = False
+    if should_add_base_event:
+        base_event = ClaimEvent(
+            id=str(uuid4()),
+            claim_id=claim_row.id,
+            org_id=claim_row.org_id,
+            event_type=base_event_type,
+            event_date=_parse_date(claim_payload.get("dos_from")),
+            source_job_id=source_job_id,
+            raw_json=claim_payload,
+        )
+        db.add(base_event)
     lines = claim_payload.get("lines") or []
+    existing_service_keys: set[tuple[str | None, date | None, str | None]] = set()
+    prior_service_keys_other_jobs: set[tuple[str | None, date | None, str | None]] = set()
+    if document_type == "BILLED":
+        for ev in db.execute(
+            select(ClaimEvent).where(
+                ClaimEvent.claim_id == claim_row.id,
+                ClaimEvent.event_type == ClaimEventType.SERVICE_RECORDED,
+            )
+        ).scalars():
+            try:
+                payload = ev.raw_json or {}
+            except Exception:
+                payload = {}
+            ev_lines = payload.get("lines") if isinstance(payload, dict) else None
+            ev_lines = ev_lines if isinstance(ev_lines, list) else [payload]
+            for ln in ev_lines:
+                if not isinstance(ln, dict):
+                    continue
+                key = (
+                    (ln.get("cpt_code") or "").strip() or None,
+                    _parse_date(ln.get("dos_from")),
+                    ev.source_job_id,
+                )
+                existing_service_keys.add(key)
+                if ev.source_job_id != source_job_id:
+                    prior_service_keys_other_jobs.add((key[0], key[1], None))
+
     for line in lines:
         paid = _to_decimal(line.get("paid_amount"))
         adjustments = line.get("adjustments") or []
         has_denial_adjust = bool(adjustments) and paid in {None, Decimal("0")}
+        if document_type == "BILLED":
+            service_key = ((line.get("cpt_code") or "").strip() or None, _parse_date(line.get("dos_from")), source_job_id)
+            service_key_any_job = (service_key[0], service_key[1], None)
+            if service_key in existing_service_keys:
+                continue
+            if service_key_any_job in prior_service_keys_other_jobs:
+                claim_row.resubmission_count = (claim_row.resubmission_count or 0) + 1
+
         if paid and paid > 0:
             db.add(
                 ClaimEvent(
@@ -738,12 +785,10 @@ def compute_claim_ledger(db: Session, *, claim_row: Claim) -> None:
             for adj in ln.get("adjustments") or []:
                 amt = _to_decimal(adj.get("amount"))
                 adj_total += amt or Decimal("0")
-            if ev.event_type == ClaimEventType.BILLED:
+            if ev.event_type == ClaimEventType.SERVICE_RECORDED:
                 if billed is not None:
                     total_billed += billed
             if ev.event_type == ClaimEventType.ERA_RECEIVED:
-                if billed is not None:
-                    total_billed += billed
                 if allowed is not None:
                     total_allowed += allowed
                 if paid is not None:
