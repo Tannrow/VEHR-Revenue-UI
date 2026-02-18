@@ -58,6 +58,10 @@ from app.db.models.reception_call_workflow import ReceptionCallWorkflow  # noqa:
 from app.db.models.recon_claim_result import ReconClaimResult  # noqa: F401
 from app.db.models.recon_import_job import ReconImportJob  # noqa: F401
 from app.db.models.recon_line_result import ReconLineResult  # noqa: F401
+from app.db.models.claim import Claim  # noqa: F401
+from app.db.models.claim_line import ClaimLine  # noqa: F401
+from app.db.models.claim_event import ClaimEvent  # noqa: F401
+from app.db.models.claim_ledger import ClaimLedger  # noqa: F401
 from app.db.models.rpt_kpi_daily import RptKpiDaily  # noqa: F401
 from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot  # noqa: F401
 from app.db.models.service import Service  # noqa: F401
