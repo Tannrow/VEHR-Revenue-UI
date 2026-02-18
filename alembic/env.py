@@ -3,6 +3,7 @@ import os
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 
@@ -18,7 +19,15 @@ target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    if database_url:
+        config.set_main_option("sqlalchemy.url", database_url)
+        try:
+            display_url = make_url(database_url).render_as_string(hide_password=True)
+        except Exception:
+            display_url = database_url
+        print(f"Alembic using database URL: {display_url}")
+    return database_url
 
 
 def run_migrations_offline() -> None:
@@ -36,7 +45,8 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = get_database_url()
+    database_url = get_database_url()
+    configuration["sqlalchemy.url"] = database_url
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
