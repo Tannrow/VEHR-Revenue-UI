@@ -96,6 +96,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
     engine, session_factory = _build_session(tmp_path)
     try:
         token, org_id, expected_user_id = _seed_admin_token(session_factory)
+        user_id = expected_user_id
 
         id_token = jwt.encode(
             {
@@ -352,7 +353,8 @@ def test_microsoft_disconnect_revokes_connection(tmp_path, monkeypatch) -> None:
 def test_microsoft_refresh_endpoint(tmp_path, monkeypatch) -> None:
     engine, session_factory = _build_session(tmp_path)
     try:
-        token, org_id, user_id = _seed_admin_token(session_factory)
+        token, org_id, expected_user_id = _seed_admin_token(session_factory)
+        user_id = expected_user_id
 
         def fake_refresh(*, db, organization_id, user_id):  # noqa: ANN001
             assert organization_id == org_id

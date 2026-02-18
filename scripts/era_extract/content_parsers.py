@@ -13,9 +13,7 @@ _DATE_RANGE_RX = re.compile(
     r"\b(\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4})\s*[-–]\s*(\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4})\b",
     re.IGNORECASE,
 )
-_MONEY_RX = re.compile(
-    r"\(?\$?\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?\)?"
-)
+_MONEY_RX = re.compile(r"\(?\$\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?\)?")
 _ADJ_CODE_RX = re.compile(r"^(?:CO|PR|OA|PI)-[A-Z0-9]+$", re.IGNORECASE)
 _CLAIM_BLOCK_ANCHOR_RX = re.compile(r"(?i)\b(Patient\s+Name|NAME)\s*:\s*")
 
@@ -200,6 +198,60 @@ def _extract_units(text: str) -> Decimal | None:
         if m:
             return _to_decimal(m.group(1))
     return None
+
+
+def _fallback_table_rows(
+    block: str,
+    *,
+    account_id: str | None,
+    claim_number: str | None,
+    icn: str | None,
+    patient_name: str | None,
+    member_id: str | None,
+    claim_id: str | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    lines = _clean_lines(block)
+    for idx, line in enumerate(lines):
+        if "-" not in line:
+            continue
+        dos_from, dos_to = _extract_date_range(line)
+        if dos_from is None and dos_to is None:
+            continue
+        next_line = lines[idx + 1] if idx + 1 < len(lines) else ""
+        proc_code = _extract_proc_code(next_line)
+        if not proc_code:
+            continue
+        window = "\n".join(lines[idx + 2 : idx + 8])
+        money_values = _extract_money_values(window)
+        if not money_values:
+            continue
+        billed_amount = max(money_values)
+        paid_amount = money_values[0]
+        rows.append(
+            {
+                "account_id": account_id,
+                "payer_claim_number": claim_number,
+                "icn": icn or _extract_icn(block),
+                "patient_name": patient_name,
+                "member_id": member_id,
+                "claim_id": claim_id,
+                "line_ctrl_number": None,
+                "dos_from": dos_from,
+                "dos_to": dos_to,
+                "proc_code": proc_code,
+                "units": _extract_units(next_line),
+                "billed_amount": billed_amount,
+                "allowed_amount": None,
+                "paid_amount": paid_amount,
+                "adj_code": None,
+                "adj_amount": None,
+                "source_layout": "table",
+                "era_row_confidence": "medium",
+                "row_is_probably_junk": False,
+            }
+        )
+    return rows
 
 
 def _split_claim_blocks(content: str) -> list[str]:
@@ -779,6 +831,17 @@ def parse_era_content(
         )
         parsed_rows.extend(table_rows)
         parsed_rows.extend(monospace_rows)
+        parsed_rows.extend(
+            _fallback_table_rows(
+                block,
+                account_id=account_id,
+                claim_number=claim_number,
+                icn=icn,
+                patient_name=patient_name,
+                member_id=member_id,
+                claim_id=claim_id,
+            )
+        )
 
         counters["rows_emitted_table"] += table_stats.get("logical_rows_emitted", 0)
         counters["rows_emitted_monospace"] += len(monospace_rows)
@@ -839,6 +902,13 @@ def parse_era_content(
     else:
         counters["member_id_global_suppressed"] = 0
         counters["distinct_member_id_count_after"] = len({row.get("member_id") for row in rows if row.get("member_id")})
+
+    rows = [
+        row
+        for row in rows
+        if row.get("dos_from") is not None and row.get("proc_code") and row.get("billed_amount") is not None
+    ]
+    counters["line_rows_extracted"] = len(rows)
 
     if debug:
         print(
@@ -965,7 +1035,7 @@ def _parse_billed_window(window_text: str, *, fallback_dates: tuple[date | None,
     }
 
 
-def parse_billed_content(content: str, billed_track: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def parse_billed_content(content: str, billed_track: str | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
     counters = {
         "blocks_found": 0,
         "line_rows_extracted": 0,
