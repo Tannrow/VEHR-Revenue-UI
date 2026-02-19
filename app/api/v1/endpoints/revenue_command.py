@@ -113,7 +113,8 @@ def _money_from_seed(seed: str, maximum: Decimal) -> Decimal:
 
 def _confidence_from_seed(seed: str) -> float:
     raw_value = Decimal(int(seed[:4], 16)) / Decimal("65535")
-    return float(_clamp_decimal(raw_value, maximum=Decimal("1.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    quantized = _clamp_decimal(raw_value, maximum=Decimal("1.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return quantized.__float__()
 
 
 def _build_revenue_command_plan(request: RevenueCommandRequest, membership: OrganizationMembership) -> dict[str, Any]:

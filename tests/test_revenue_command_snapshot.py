@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -115,6 +116,19 @@ def _seed_claims(db, org_id: str):
   return claim_a, claim_b, claim_c
 
 
+def _collect_cents_values(payload):
+  cents_values = []
+  if isinstance(payload, dict):
+    for key, value in payload.items():
+      if key.endswith("_cents"):
+        cents_values.append(value)
+      cents_values.extend(_collect_cents_values(value))
+  elif isinstance(payload, list):
+    for item in payload:
+      cents_values.extend(_collect_cents_values(item))
+  return cents_values
+
+
 def test_snapshot_deterministic_and_stored(tmp_path) -> None:
   engine, TestingSessionLocal = _setup_db(tmp_path)
   try:
@@ -198,6 +212,46 @@ def test_snapshot_endpoints_return_latest(tmp_path) -> None:
     assert latest_payload["top_worklist"]
     dollars_per_hour = [item["dollars_per_hour_cents"] for item in latest_payload["top_worklist"]]
     assert dollars_per_hour == sorted(dollars_per_hour, reverse=True)
+  finally:
+    app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+def test_snapshot_contract_enforces_cents_and_ordering(tmp_path) -> None:
+  engine, TestingSessionLocal = _setup_db(tmp_path)
+  try:
+    with TestingSessionLocal() as db:
+      org, user = _create_membership(db)
+      _seed_claims(db, org.id)
+      record_snapshot(db, org.id, generated_at=datetime(2026, 4, 1))
+      token = create_access_token({"sub": user.id, "org_id": org.id})
+
+    with TestClient(app) as client:
+      response = client.get(
+        "/api/v1/revenue/command/latest",
+        headers={"Authorization": f"Bearer {token}"},
+      )
+
+    assert response.status_code == 200
+    payload = response.json()
+    for money_field in ("total_exposure", "expected_recovery_30_day", "short_term_cash_opportunity"):
+      raw_value = payload[money_field]
+      assert isinstance(raw_value, str)
+      Decimal(raw_value)
+    cents_values = _collect_cents_values(payload)
+    assert all(isinstance(value, int) for value in cents_values), "All *_cents fields must be ints"
+
+    top_worklist = payload.get("top_worklist") or []
+    if top_worklist:
+      dollars_per_hour = [item.get("dollars_per_hour_cents") for item in top_worklist]
+      assert all(isinstance(value, int) for value in dollars_per_hour)
+      assert dollars_per_hour == sorted(dollars_per_hour, reverse=True)
+
+    with pytest.raises(AssertionError):
+      assert all(isinstance(value, int) for value in _collect_cents_values({"bad_cents": "100"}))
+    with pytest.raises(AssertionError):
+      assert [100, 200] == sorted([100, 200], reverse=True)
   finally:
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)

@@ -24,9 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm --prefix frontend ci
 
+      - name: Revenue command tripwire
+        run: npm --prefix frontend run test:revenue-tripwire
+
       - name: Install Playwright browser
         run: npx --prefix frontend playwright install --with-deps chromium
 
       - name: Run Playwright E2E
         run: npm --prefix frontend run test:e2e
-
