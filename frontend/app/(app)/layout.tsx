@@ -35,7 +35,7 @@ type MeResponse = {
 };
 
 function buildLoginPath(pathname: string | null): string {
-  const next = pathname && pathname.startsWith("/") ? pathname : "/directory";
+  const next = pathname && pathname.startsWith("/") ? pathname : "/billing/revenue-command";
   return `/login?next=${encodeURIComponent(next)}`;
 }
 

@@ -64,6 +64,7 @@ from app.db.models.claim_event import ClaimEvent  # noqa: F401
 from app.db.models.claim_ledger import ClaimLedger  # noqa: F401
 from app.db.models.rpt_kpi_daily import RptKpiDaily  # noqa: F401
 from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot  # noqa: F401
+from app.db.models.revenue_command_snapshot import RevenueCommandSnapshot  # noqa: F401
 from app.db.models.service import Service  # noqa: F401
 from app.db.models.service_document_template import ServiceDocumentTemplate  # noqa: F401
 from app.db.models.task import Task  # noqa: F401

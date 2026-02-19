@@ -71,8 +71,9 @@ const MODULE_DEFINITIONS: ModuleDefinition[] = [
     id: "revenue_cycle",
     name: "Revenue Cycle",
     description: "Billing and revenue operations.",
-    defaultRoute: "/billing",
+    defaultRoute: "/billing/revenue-command",
     navItems: [
+      { label: "Revenue Command", href: "/billing/revenue-command", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "Worklist", href: "/billing/worklist", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "Payer Trends", href: "/billing/payer-trends", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "Executive Summary", href: "/billing/executive-summary", requiredAnyPermissions: ["billing:read", "billing:write"] },

@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     uploads,
     webhooks,
     revenue_command,
+    revenue_command_snapshot,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -80,3 +81,4 @@ api_router.include_router(scribe.router)
 api_router.include_router(tanner_ai.router)
 api_router.include_router(nexus_codex.router)
 api_router.include_router(revenue_command.router)
+api_router.include_router(revenue_command_snapshot.router)
