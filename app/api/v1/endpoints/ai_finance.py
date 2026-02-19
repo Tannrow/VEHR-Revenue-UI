@@ -10,14 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_membership
-from app.core.time import utc_now
 from app.db.session import get_db
 from app.db.models.organization_membership import OrganizationMembership
+from app.services.finance_intel.context_pack import build_context_pack
 
 
 router = APIRouter(prefix="/ai", tags=["AI Finance"])
 
-CONTEXT_PACK_VERSION = "2024.12.0"
+FINANCE_AI_GUARDRAILS = (
+  "You are a read-only revenue intelligence analyst. Do not propose or perform any data mutations, ledger edits, or status updates. "
+  "Use provided context only and defer to humans for any financial changes."
+)
 
 
 class FinanceRecommendedAction(BaseModel):
@@ -25,12 +28,16 @@ class FinanceRecommendedAction(BaseModel):
   impact_estimate: Decimal
   urgency: Literal["high", "medium", "low"]
 
-  model_config = ConfigDict(json_encoders={Decimal: lambda value: str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))})
+  model_config = ConfigDict(
+    extra="forbid",
+    json_encoders={Decimal: lambda value: str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))},
+  )
 
 
 class FinanceDraft(BaseModel):
   type: str
   content: str
+  model_config = ConfigDict(extra="forbid")
 
 
 class FinanceAIResponse(BaseModel):
@@ -42,6 +49,7 @@ class FinanceAIResponse(BaseModel):
   assumptions: list[str] = Field(default_factory=list)
   data_used: dict[str, Any] | list[Any] | None = Field(default_factory=dict)
   confidence: Literal["low", "medium", "high"]
+  model_config = ConfigDict(extra="forbid")
 
 
 class FinanceAIEnvelope(BaseModel):
@@ -50,7 +58,10 @@ class FinanceAIEnvelope(BaseModel):
   risk_score: Decimal
   advisory: FinanceAIResponse
 
-  model_config = ConfigDict(json_encoders={Decimal: lambda value: str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))})
+  model_config = ConfigDict(
+    extra="forbid",
+    json_encoders={Decimal: lambda value: str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))},
+  )
 
 
 class FinanceAIContext(BaseModel):
@@ -61,6 +72,7 @@ class FinanceAIContext(BaseModel):
   period: str | None = None
   narrative: str | None = None
   include_drafts: bool = True
+  model_config = ConfigDict(extra="forbid")
 
 
 class RevenueIntegrityPayload(BaseModel):
@@ -228,9 +240,10 @@ def _drafts_for(kind: str) -> list[FinanceDraft]:
   ]
 
 
-def _assemble_response(kind: str, context: FinanceAIContext, membership: OrganizationMembership) -> FinanceAIEnvelope:
-  seed = f"{membership.organization_id}:{membership.user_id}:{kind}:{context.scope or ''}:{','.join(context.claim_ids)}:{context.payer or ''}"
-  risk_score = _deterministic_score(seed)
+def _assemble_response(kind: str, context: FinanceAIContext, membership: OrganizationMembership, db: Session) -> FinanceAIEnvelope:
+  primary_claim_id = context.claim_ids[0] if context.claim_ids else None
+  context_pack = build_context_pack(db, membership.organization_id, primary_claim_id)
+  risk_score = context_pack.risk_score.score
   confidence = _confidence_from_score(risk_score)
 
   response = FinanceAIResponse(
@@ -257,6 +270,7 @@ def _assemble_response(kind: str, context: FinanceAIContext, membership: Organiz
     assumptions=[
       "Ledger figures remain the source of truth",
       "No write operations performed by AI endpoints",
+      FINANCE_AI_GUARDRAILS,
     ],
     data_used={
       "context_scope": context.scope,
@@ -264,13 +278,15 @@ def _assemble_response(kind: str, context: FinanceAIContext, membership: Organiz
       "payer": context.payer,
       "cohort": context.cohort,
       "period": context.period,
+      "context_pack": context_pack.serialize(),
+      "guardrails": FINANCE_AI_GUARDRAILS,
     },
     confidence=confidence,
   )
 
   return FinanceAIEnvelope(
-    context_pack_version=CONTEXT_PACK_VERSION,
-    generated_at=utc_now(),
+    context_pack_version=context_pack.context_pack_version,
+    generated_at=context_pack.generated_at,
     risk_score=risk_score,
     advisory=response,
   )
@@ -278,7 +294,7 @@ def _assemble_response(kind: str, context: FinanceAIContext, membership: Organiz
 
 def _safe_response(kind: str, context: FinanceAIContext, membership: OrganizationMembership, db: Session) -> FinanceAIEnvelope:
   try:
-    return _assemble_response(kind, context, membership)
+    return _assemble_response(kind, context, membership, db)
   except Exception as exc:
     db.rollback()
     raise HTTPException(

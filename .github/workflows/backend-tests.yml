@@ -50,9 +50,12 @@ jobs:
           set -euo pipefail
           test -n "${DATABASE_URL:-}" || (echo "DATABASE_URL is required" >&2; exit 1)
           case "$DATABASE_URL" in
+            postgres://*) DATABASE_URL="${DATABASE_URL/postgres:\/\//postgresql+psycopg://}" ;;
+            postgresql://*) DATABASE_URL="${DATABASE_URL/postgresql:\/\//postgresql+psycopg://}" ;;
             postgresql+psycopg://*) ;;
-            *) echo "DATABASE_URL must start with postgresql+psycopg:// (Postgres-only enforcement)" >&2; exit 1 ;;
+            *) echo "DATABASE_URL must use Postgres (postgres:// or postgresql://)" >&2; exit 1 ;;
           esac
+          echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         shell: bash
