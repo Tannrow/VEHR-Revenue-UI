@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_membership, get_current_organization, require_permission
@@ -30,6 +30,7 @@ from app.services.revenue_era import (
     log_attempt,
     normalize_structured,
     record_processing_log,
+    RevenueEraStructuredV1,
     run_doc_intel,
     run_structuring_llm,
     store_revenue_file,
@@ -76,12 +77,28 @@ def _era_file_or_404(db: Session, *, era_file_id: str, organization_id: str) -> 
     return row
 
 
-def _mark_error(db: Session, era_file: RevenueEraFile, message: str) -> None:
-    db.rollback()
-    era_file.status = STATUS_ERROR
-    era_file.error_detail = message[:500]
-    db.add(era_file)
-    db.commit()
+def _latest_extract_result(db: Session, era_file_id: str) -> RevenueEraExtractResult | None:
+    return (
+        db.execute(
+            select(RevenueEraExtractResult)
+            .where(RevenueEraExtractResult.era_file_id == era_file_id)
+            .order_by(RevenueEraExtractResult.extracted_at.desc(), RevenueEraExtractResult.id.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _latest_structured_result(db: Session, era_file_id: str) -> RevenueEraStructuredResult | None:
+    return (
+        db.execute(
+            select(RevenueEraStructuredResult)
+            .where(RevenueEraStructuredResult.era_file_id == era_file_id)
+            .order_by(RevenueEraStructuredResult.created_at.desc(), RevenueEraStructuredResult.id.desc())
+        )
+        .scalars()
+        .first()
+    )
 
 
 @router.post("/revenue/era-pdfs/upload", response_model=list[EraFileResponse])
@@ -128,6 +145,12 @@ async def upload_era_pdfs(
                 received_date=None,
             )
             created.append(row)
+            record_processing_log(
+                db,
+                era_file_id=row.id,
+                stage="UPLOAD",
+                message=f"file_name={safe_name}",
+            )
             log_attempt(
                 db,
                 organization_id=organization.id,
@@ -187,54 +210,121 @@ def process_era_pdf(
     db: Session = Depends(get_db),
     organization=Depends(get_current_organization),
     membership: OrganizationMembership = Depends(get_current_membership),
+    retry: bool = False,
     _: None = Depends(require_permission("billing:write")),
 ) -> EraFileResponse:
-    era_file = _era_file_or_404(db, era_file_id=era_file_id, organization_id=organization.id)
+    era_file = (
+        db.execute(
+            select(RevenueEraFile)
+            .where(
+                RevenueEraFile.id == era_file_id,
+                RevenueEraFile.organization_id == organization.id,
+            )
+            .with_for_update()
+        )
+        .scalar_one_or_none()
+    )
+    if not era_file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="era_file_not_found")
+
     pdf_path = _repo_root() / era_file.storage_ref
     if not pdf_path.exists():
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stored_pdf_missing")
 
-    try:
-        di_result = run_doc_intel(pdf_path)
+    extract_row = _latest_extract_result(db, era_file.id)
+    structured_row = _latest_structured_result(db, era_file.id)
+
+    if era_file.status == STATUS_NORMALIZED:
+        db.rollback()
+        log_attempt(
+            db,
+            organization_id=organization.id,
+            actor=membership.user.email,
+            era_file_id=era_file.id,
+            action="era_pdf_processed",
+        )
+        return era_file
+
+    if era_file.status == STATUS_ERROR and not retry:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="retry_required")
+
+    valid_statuses = {STATUS_UPLOADED, STATUS_EXTRACTED, STATUS_STRUCTURED, STATUS_ERROR}
+    if era_file.status not in valid_statuses:
+        era_file.status = STATUS_ERROR
+        era_file.error_detail = "invalid_status"
+        record_processing_log(db, era_file_id=era_file.id, stage="ERROR", message="invalid_status", commit=False)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_status")
+
+    def _fail(message: str, http_status: int, detail: str) -> None:
+        era_file.status = STATUS_ERROR
+        era_file.error_detail = message[:500]
+        record_processing_log(db, era_file_id=era_file.id, stage="ERROR", message=message, commit=False)
+        db.commit()
+        raise HTTPException(status_code=http_status, detail=detail)
+
+    era_file.error_detail = None
+
+    if era_file.status in {STATUS_EXTRACTED, STATUS_STRUCTURED} and not extract_row:
+        _fail("missing_extract_results", status.HTTP_500_INTERNAL_SERVER_ERROR, "extract_missing")
+
+    if era_file.status in {STATUS_STRUCTURED} and not structured_row:
+        _fail("missing_structured_results", status.HTTP_500_INTERNAL_SERVER_ERROR, "structuring_failed")
+
+    if era_file.status in {STATUS_UPLOADED, STATUS_ERROR} and not extract_row:
+        try:
+            di_result = run_doc_intel(pdf_path)
+        except HTTPException as exc:
+            _fail(f"extract_failed: {exc.detail or exc}", exc.status_code, "extract_failed")
+        except Exception as exc:
+            _fail(f"extract_failed: {exc}", status.HTTP_502_BAD_GATEWAY, "doc_intelligence_failed")
+
+        extracted_payload = di_result.get("extracted") or {}
+        page_count = 0
+        if isinstance(extracted_payload, dict):
+            pages = extracted_payload.get("pages")
+            if isinstance(pages, list):
+                page_count = len(pages)
+
+        db.execute(delete(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_file.id))
         extract_row = RevenueEraExtractResult(
             id=str(uuid4()),
             era_file_id=era_file.id,
             extractor="azure_doc_intelligence",
             model_id=str(di_result.get("model_id", "")),
-            extracted_json=di_result.get("extracted") or {},
+            extracted_json=extracted_payload,
         )
         era_file.status = STATUS_EXTRACTED
-        era_file.error_detail = None
         db.add(extract_row)
         db.add(era_file)
-        db.commit()
         record_processing_log(
             db,
             era_file_id=era_file.id,
-            stage="extraction",
-            message=f"model_id={extract_row.model_id}",
+            stage="EXTRACTED",
+            message=f"extractor={extract_row.extractor}; model_id={extract_row.model_id}; page_count={page_count}",
+            commit=False,
         )
-    except HTTPException as exc:
-        _mark_error(db, era_file, f"extract_failed: {exc.detail or exc}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="error",
-            message=f"extract_failed: {exc.detail or exc}",
-        )
-        raise
-    except Exception as exc:
-        _mark_error(db, era_file, f"extract_failed: {exc}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="error",
-            message=f"extract_failed: {exc}",
-        )
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="doc_intelligence_failed") from exc
 
-    try:
-        structured = run_structuring_llm(extract_row.extracted_json)
+    structured: RevenueEraStructuredV1 | None = None
+    if structured_row and era_file.status in {STATUS_STRUCTURED, STATUS_EXTRACTED}:
+        structured = RevenueEraStructuredV1.model_validate(structured_row.structured_json)
+        era_file.status = STATUS_STRUCTURED
+    else:
+        if not extract_row:
+            _fail("extract_missing", status.HTTP_400_BAD_REQUEST, "extract_missing")
+        try:
+            structured = run_structuring_llm(extract_row.extracted_json)
+        except ValidationError as exc:
+            detail = summarize_validation_error(exc)
+            _fail(f"validation_failed: {detail}", status.HTTP_422_UNPROCESSABLE_ENTITY, "structured_validation_failed")
+        except HTTPException as exc:
+            _fail(f"structuring_failed: {exc.detail or exc}", exc.status_code, "structuring_failed")
+        except Exception as exc:
+            _fail(f"structuring_failed: {exc}", status.HTTP_502_BAD_GATEWAY, "structuring_failed")
+
+        db.execute(delete(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_file.id))
         structured_row = RevenueEraStructuredResult(
             id=str(uuid4()),
             era_file_id=era_file.id,
@@ -247,73 +337,46 @@ def process_era_pdf(
         era_file.status = STATUS_STRUCTURED
         db.add(structured_row)
         db.add(era_file)
-        db.commit()
         record_processing_log(
             db,
             era_file_id=era_file.id,
-            stage="structuring",
+            stage="STRUCTURED",
             message=(
-                f"deployment={structured_row.deployment}; "
-                f"api_version={structured_row.api_version}; prompt_version={structured_row.prompt_version}"
+                f"llm={structured_row.llm}; deployment={structured_row.deployment}; "
+                f"api_version={structured_row.api_version}; prompt_version={structured_row.prompt_version}; "
+                f"claim_count={len(structured.claim_lines)}"
             ),
+            commit=False,
         )
-    except ValidationError as exc:
-        detail = summarize_validation_error(exc)
-        _mark_error(db, era_file, f"validation_failed: {detail}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="validation",
-            message=detail,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="structured_validation_failed",
-        ) from exc
-    except HTTPException as exc:
-        _mark_error(db, era_file, f"structuring_failed: {exc.detail or exc}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="error",
-            message=f"structuring_failed: {exc.detail or exc}",
-        )
-        raise
-    except Exception as exc:
-        _mark_error(db, era_file, f"structuring_failed: {exc}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="error",
-            message=f"structuring_failed: {exc}",
-        )
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="structuring_failed") from exc
+
+    if not structured:
+        _fail("structured_missing", status.HTTP_500_INTERNAL_SERVER_ERROR, "structuring_failed")
 
     try:
-        claim_count, work_count = normalize_structured(db, era_file=era_file, structured=structured)
-        era_file.status = STATUS_NORMALIZED
-        if not era_file.payer_name_raw:
-            era_file.payer_name_raw = structured.payer_name
-        if not era_file.received_date and structured.received_date:
-            era_file.received_date = structured.received_date
-        db.add(era_file)
-        db.commit()
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="normalization",
-            message=f"claim_count={claim_count}; work_item_count={work_count}",
-        )
+        with db.begin_nested():
+            claim_count, work_count, dollars_total = normalize_structured(db, era_file=era_file, structured=structured)
+            era_file.status = STATUS_NORMALIZED
+            if not era_file.payer_name_raw:
+                era_file.payer_name_raw = structured.payer_name
+            if not era_file.received_date and structured.received_date:
+                era_file.received_date = structured.received_date
+            db.add(era_file)
+            record_processing_log(
+                db,
+                era_file_id=era_file.id,
+                stage="NORMALIZED",
+                message=(
+                    f"claim_count={claim_count}; work_item_count={work_count}; dollars_cents_total={dollars_total}"
+                ),
+                commit=False,
+            )
+    except ValidationError as exc:
+        detail = summarize_validation_error(exc)
+        _fail(f"validation_failed: {detail}", status.HTTP_422_UNPROCESSABLE_ENTITY, "structured_validation_failed")
     except Exception as exc:  # noqa: BLE001
-        _mark_error(db, era_file, f"normalization_failed: {exc}")
-        record_processing_log(
-            db,
-            era_file_id=era_file.id,
-            stage="error",
-            message=f"normalization_failed: {exc}",
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="normalization_failed") from exc
+        _fail(f"normalization_failed: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR, "normalization_failed")
 
+    db.commit()
     log_attempt(
         db,
         organization_id=organization.id,

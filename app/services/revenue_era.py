@@ -328,7 +328,7 @@ def normalize_structured(
     *,
     era_file: RevenueEraFile,
     structured: RevenueEraStructuredV1,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     db.execute(delete(RevenueEraWorkItem).where(RevenueEraWorkItem.era_file_id == era_file.id))
     db.execute(delete(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_file.id))
 
@@ -392,7 +392,8 @@ def normalize_structured(
 
     db.add_all(work_records)
     db.flush()
-    return len(line_records), len(work_records)
+    dollars_total = sum(item.dollars_cents for item in work_records)
+    return len(line_records), len(work_records), dollars_total
 
 
 def log_attempt(db: Session, *, organization_id: str, actor: str, era_file_id: str, action: str) -> None:
@@ -410,7 +411,14 @@ def log_attempt(db: Session, *, organization_id: str, actor: str, era_file_id: s
         pass
 
 
-def record_processing_log(db: Session, *, era_file_id: str, stage: str, message: str) -> None:
+def record_processing_log(
+    db: Session,
+    *,
+    era_file_id: str,
+    stage: str,
+    message: str,
+    commit: bool = True,
+) -> None:
     try:
         log = RevenueEraProcessingLog(
             id=str(uuid4()),
@@ -419,6 +427,9 @@ def record_processing_log(db: Session, *, era_file_id: str, stage: str, message:
             message=(message or "")[:500],
         )
         db.add(log)
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
         db.rollback()
