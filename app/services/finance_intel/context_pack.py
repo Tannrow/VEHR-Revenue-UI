@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
@@ -33,6 +33,8 @@ def _quantize(value: Decimal) -> Decimal:
 def _serialize_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(_quantize(value))
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
     if isinstance(value, list):
         return [_serialize_value(item) for item in value]
     if isinstance(value, dict):
@@ -78,6 +80,15 @@ class PayerProfile:
     avg_delay_days: Decimal = _ZERO
     top_adjustment_codes: list[str] = field(default_factory=list)
     appeal_win_rate: Decimal = _ZERO
+    variance_rate: Decimal = _ZERO
+    outcome_recovery_rate: Decimal = _ZERO
+    denial_cluster_frequency: Decimal = _ZERO
+    aging_tail_ratio: Decimal = _ZERO
+    aggression_score: int | None = None
+    aggression_tier: str | None = None
+    aggression_drivers: list[str] = field(default_factory=list)
+    aggression_last_computed_at: datetime | None = None
+    aggression_scoring_version: str | None = None
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -87,6 +98,17 @@ class PayerProfile:
             "avg_delay_days": _serialize_value(self.avg_delay_days),
             "top_adjustment_codes": list(self.top_adjustment_codes),
             "appeal_win_rate": _serialize_value(self.appeal_win_rate),
+            "variance_rate": _serialize_value(self.variance_rate),
+            "outcome_recovery_rate": _serialize_value(self.outcome_recovery_rate),
+            "denial_cluster_frequency": _serialize_value(self.denial_cluster_frequency),
+            "aging_tail_ratio": _serialize_value(self.aging_tail_ratio),
+            "aggression_score": self.aggression_score,
+            "aggression_tier": self.aggression_tier,
+            "aggression_drivers": list(self.aggression_drivers),
+            "aggression_last_computed_at": _serialize_value(self.aggression_last_computed_at)
+            if self.aggression_last_computed_at
+            else None,
+            "aggression_scoring_version": self.aggression_scoring_version,
         }
 
 
@@ -250,6 +272,9 @@ def _load_payer_profile(session: Session, org_id: str, payer_name: str | None) -
             func.count().filter(ClaimLedger.status == ClaimStatus.DENIED).label("denied_claims"),
             func.count().filter(ClaimLedger.variance > 0).label("underpaying_claims"),
             func.avg(ClaimLedger.aging_days).label("avg_delay"),
+            func.coalesce(func.sum(ClaimLedger.variance), 0).label("variance_sum"),
+            func.coalesce(func.sum(ClaimLedger.total_billed), 0).label("billed_sum"),
+            func.count().filter(ClaimLedger.aging_days > 90).label("aging_tail_claims"),
         ).select_from(ClaimLedger).join(Claim, Claim.id == ClaimLedger.claim_id).where(*base_filters)
     ).one_or_none()
 
@@ -257,11 +282,19 @@ def _load_payer_profile(session: Session, org_id: str, payer_name: str | None) -
     denial_rate = _ZERO
     underpay_rate = _ZERO
     avg_delay_days = _ZERO
+    variance_rate = _ZERO
+    aging_tail_ratio = _ZERO
 
     if total_claims > _ZERO:
         denial_rate = _quantize(_to_decimal(aggregates.denied_claims) / total_claims) if aggregates else _ZERO
         underpay_rate = _quantize(_to_decimal(aggregates.underpaying_claims) / total_claims) if aggregates else _ZERO
         avg_delay_days = _quantize(_to_decimal(aggregates.avg_delay)) if aggregates and aggregates.avg_delay is not None else _ZERO
+        billed_sum = _to_decimal(aggregates.billed_sum) if aggregates else _ZERO
+        variance_sum = _to_decimal(aggregates.variance_sum) if aggregates else _ZERO
+        if billed_sum > _ZERO:
+            variance_rate = _quantize(variance_sum / billed_sum)
+        aging_tail_claims = _to_decimal(aggregates.aging_tail_claims or 0) if aggregates else _ZERO
+        aging_tail_ratio = _quantize(aging_tail_claims / total_claims)
 
     decisions = session.execute(
         select(
@@ -277,6 +310,7 @@ def _load_payer_profile(session: Session, org_id: str, payer_name: str | None) -
         total_decisions = (decisions.payments or 0) + (decisions.denials or 0)
         if total_decisions:
             appeal_win_rate = _quantize(_to_decimal(decisions.payments or 0) / Decimal(total_decisions))
+    outcome_recovery_rate = appeal_win_rate
 
     adjustment_codes: dict[str, int] = {}
     adjustment_stmt = (
@@ -294,6 +328,21 @@ def _load_payer_profile(session: Session, org_id: str, payer_name: str | None) -
                 adjustment_codes[code] = adjustment_codes.get(code, 0) + 1
     top_adjustment_codes = sorted(adjustment_codes, key=adjustment_codes.get, reverse=True)[:3]
 
+    denial_clusters = session.execute(
+        select(
+            func.count(ClaimEvent.id).label("denial_events"),
+            func.count(func.distinct(ClaimEvent.claim_id)).label("denial_claims"),
+        )
+        .select_from(ClaimEvent)
+        .join(Claim, Claim.id == ClaimEvent.claim_id)
+        .where(*base_filters, ClaimEvent.event_type == ClaimEventType.DENIAL)
+    ).one_or_none()
+    denial_cluster_frequency = _ZERO
+    if denial_clusters and denial_clusters.denial_claims:
+        denial_cluster_frequency = _quantize(
+            _to_decimal(denial_clusters.denial_events or 0) / _to_decimal(denial_clusters.denial_claims)
+        )
+
     return PayerProfile(
         payer_id=payer_name,
         denial_rate=denial_rate,
@@ -301,6 +350,10 @@ def _load_payer_profile(session: Session, org_id: str, payer_name: str | None) -
         avg_delay_days=avg_delay_days,
         top_adjustment_codes=top_adjustment_codes,
         appeal_win_rate=appeal_win_rate,
+        variance_rate=variance_rate,
+        outcome_recovery_rate=outcome_recovery_rate,
+        denial_cluster_frequency=denial_cluster_frequency,
+        aging_tail_ratio=aging_tail_ratio,
     )
 
 

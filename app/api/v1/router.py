@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     analytics,
     audit,
     auth,
+    finance_intel,
     billing_recon,
     bi,
     clinical_audit,
@@ -46,6 +47,7 @@ api_router.include_router(billing_recon.router)
 api_router.include_router(me_preferences.router)
 api_router.include_router(ai_copilot.router)
 api_router.include_router(ai_finance.router)
+api_router.include_router(finance_intel.router)
 api_router.include_router(admin_center.router)
 api_router.include_router(organizations.router)
 api_router.include_router(organization_home.router)
