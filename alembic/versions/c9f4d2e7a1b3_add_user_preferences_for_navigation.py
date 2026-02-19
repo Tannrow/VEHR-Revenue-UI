@@ -30,7 +30,7 @@ def upgrade() -> None:
 
     # Use IF NOT EXISTS to avoid deploy-time collisions when a prior failed/parallel run
     # already created some objects.
-    if dialect in {"postgresql", "sqlite"}:
+    if dialect == "postgresql":
         op.execute(
             """
             CREATE TABLE IF NOT EXISTS user_preferences (
@@ -91,7 +91,7 @@ def downgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    if dialect in {"postgresql", "sqlite"}:
+    if dialect == "postgresql":
         op.execute("DROP INDEX IF EXISTS ix_user_preferences_last_active_module")
         op.execute("DROP INDEX IF EXISTS ix_user_preferences_user_id")
         op.execute("DROP INDEX IF EXISTS ix_user_preferences_organization_id")
