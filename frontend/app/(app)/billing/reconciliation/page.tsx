@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCcw } from "lucide-react";
 
+import { FinanceIntelligenceDrawer } from "@/app/components/finance-intelligence-drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, apiFetch } from "@/lib/api";
+import { fetchFinanceInsight, normalizeFinanceAIEnvelope, type FinanceAIEnvelope } from "@/lib/finance-ai";
 
 import {
   ClaimDetailDrawer,
@@ -189,6 +191,45 @@ function deriveHealthWarning(data: unknown): string | null {
   return null;
 }
 
+type ReconMetrics = {
+  totalClaims: number;
+  underpaid: string;
+  denied: string;
+  needsReview: number;
+  cleanPaidPercent: string;
+};
+
+function deriveReconMetrics(rows: ReconClaimRow[]): ReconMetrics {
+  let billedTotal = 0;
+  let paidTotal = 0;
+  let variancePositive = 0;
+  let deniedTotal = 0;
+  let needsReviewCount = 0;
+
+  for (const row of rows) {
+    const billed = typeof row.billed_total === "number" ? row.billed_total : Number(row.billed_total);
+    const paid = typeof row.paid_total === "number" ? row.paid_total : Number(row.paid_total);
+    const variance = typeof row.variance_total === "number" ? row.variance_total : Number(row.variance_total);
+    const status = (row.match_status || "").toUpperCase();
+
+    if (Number.isFinite(billed)) billedTotal += billed;
+    if (Number.isFinite(paid)) paidTotal += paid;
+    if (Number.isFinite(variance) && variance > 0) variancePositive += variance;
+    if (status === "DENIED" && Number.isFinite(billed)) deniedTotal += billed;
+    if (status === "NEEDS_REVIEW" || status === "NOT_RECEIVED") needsReviewCount += 1;
+  }
+
+  const cleanPaidPercent = billedTotal > 0 ? Math.max(0, Math.min(100, (paidTotal / billedTotal) * 100)) : 0;
+
+  return {
+    totalClaims: rows.length,
+    underpaid: formatCurrency(variancePositive),
+    denied: formatCurrency(deniedTotal),
+    needsReview: needsReviewCount,
+    cleanPaidPercent: `${cleanPaidPercent.toFixed(1)}%`,
+  };
+}
+
 export default function ReconciliationPage() {
   const pathname = usePathname();
   const router = useRouter();
@@ -219,7 +260,23 @@ export default function ReconciliationPage() {
   const [claimLineError, setClaimLineError] = useState<string | null>(null);
   const [claimLineNote, setClaimLineNote] = useState<string | null>(null);
 
+  const [insightOpen, setInsightOpen] = useState(false);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const [insightPayload, setInsightPayload] = useState<FinanceAIEnvelope | null>(null);
+
   const [healthWarning, setHealthWarning] = useState<string | null>(null);
+
+  const metrics = useMemo(() => deriveReconMetrics(claimRows), [claimRows]);
+  const systemStatuses = useMemo(
+    () => [
+      { label: "Database", status: "Operational" },
+      { label: "Ledger Engine", status: claimLoading ? "Syncing" : "Operational" },
+      { label: "Reconciliation Engine", status: statusError ? "Degraded" : "Operational" },
+      { label: "Assistant", status: insightLoading ? "Running" : "Ready" },
+    ],
+    [claimLoading, statusError, insightLoading],
+  );
 
   const updateQuery = useCallback(
     (patch: Record<string, string | null | undefined>, replace = false) => {
@@ -406,6 +463,24 @@ export default function ReconciliationPage() {
     return grouped;
   }, [claimRows]);
 
+  const handleExplain = useCallback(async () => {
+    setInsightOpen(true);
+    setInsightLoading(true);
+    setInsightError(null);
+    try {
+      const payload = await fetchFinanceInsight("/api/v1/ai/claim-analysis", {
+        scope: "reconciliation",
+        claim_ids: claimRows.slice(0, 12).map((row) => row.claim_id ?? row.account_id ?? String(row.id)),
+        include_drafts: true,
+      });
+      setInsightPayload(normalizeFinanceAIEnvelope(payload));
+    } catch (error) {
+      setInsightError(toErrorMessage(error, "Unable to load intelligence"));
+    } finally {
+      setInsightLoading(false);
+    }
+  }, [claimRows]);
+
   if (!jobId) {
     return (
       <div className="flex flex-col gap-6">
@@ -414,6 +489,38 @@ export default function ReconciliationPage() {
           <h1 className="text-[2rem] font-semibold tracking-tight text-slate-900">Reconciliation</h1>
           <p className="max-w-2xl text-base text-slate-600">Select an import job to view reconciliation results.</p>
         </div>
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-500">Total Claims</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold text-slate-900">{metrics.totalClaims}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-500">Underpaid ($)</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold text-slate-900">{metrics.underpaid}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-500">Denied ($)</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold text-slate-900">{metrics.denied}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-500">Needs Review</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold text-slate-900">{metrics.needsReview}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-500">Clean Paid %</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold text-slate-900">{metrics.cleanPaidPercent}</CardContent>
+          </Card>
+        </div>
         <Card className="bg-white shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg text-slate-900">No job selected</CardTitle>
@@ -421,7 +528,7 @@ export default function ReconciliationPage() {
           <CardContent className="space-y-3 text-sm text-slate-600">
             Run a new ERA import to generate reconciliation results.
             <Button asChild variant="outline">
-              <Link href="/billing/era-import">Start an import</Link>
+              <Link href="/billing/era-import">Upload ERA &amp; Billed Files</Link>
             </Button>
           </CardContent>
         </Card>
@@ -460,8 +567,72 @@ export default function ReconciliationPage() {
               {healthWarning}
             </div>
           ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/billing/era-import">Upload ERA &amp; Billed Files</Link>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handleExplain} disabled={insightLoading}>
+              {insightLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Explain
+            </Button>
+          </div>
         </div>
       </div>
+
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-500">Total Claims</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold text-slate-900">{metrics.totalClaims}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-500">Underpaid ($)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold text-slate-900">{metrics.underpaid}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-500">Denied ($)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold text-slate-900">{metrics.denied}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-500">Needs Review</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold text-slate-900">{metrics.needsReview}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-500">Clean Paid %</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold text-slate-900">{metrics.cleanPaidPercent}</CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base text-slate-900">System Status</CardTitle>
+          <Badge variant="outline">Monitored</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            {systemStatuses.map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between rounded-lg border border-[color-mix(in_srgb,var(--neutral-border)_80%,white)] bg-white px-3 py-2"
+              >
+                <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                <Badge variant={item.status === "Operational" || item.status === "Ready" ? "secondary" : "outline"}>
+                  {item.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs
         value={view}
@@ -589,9 +760,17 @@ export default function ReconciliationPage() {
         }))}
         loading={claimLineLoading}
         error={claimLineError}
-        note={claimLineNote}
-        showMemberId={Boolean(jobStatus?.member_id_is_useful)}
-        onClose={() => setSelectedClaim(null)}
+      note={claimLineNote}
+      showMemberId={Boolean(jobStatus?.member_id_is_useful)}
+      onClose={() => setSelectedClaim(null)}
+    />
+      <FinanceIntelligenceDrawer
+        open={insightOpen}
+        title="Reconciliation intelligence"
+        loading={insightLoading}
+        error={insightError}
+        payload={insightPayload ?? undefined}
+        onClose={() => setInsightOpen(false)}
       />
     </div>
   );
