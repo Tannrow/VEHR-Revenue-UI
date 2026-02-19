@@ -62,6 +62,13 @@ from app.db.models.claim import Claim  # noqa: F401
 from app.db.models.claim_line import ClaimLine  # noqa: F401
 from app.db.models.claim_event import ClaimEvent  # noqa: F401
 from app.db.models.claim_ledger import ClaimLedger  # noqa: F401
+from app.db.models.revenue_era import (  # noqa: F401
+    RevenueEraClaimLine,
+    RevenueEraExtractResult,
+    RevenueEraFile,
+    RevenueEraStructuredResult,
+    RevenueEraWorkItem,
+)
 from app.db.models.rpt_kpi_daily import RptKpiDaily  # noqa: F401
 from app.db.models.rpt_kpi_snapshot import RptKpiSnapshot  # noqa: F401
 from app.db.models.revenue_command_snapshot import RevenueCommandSnapshot  # noqa: F401
