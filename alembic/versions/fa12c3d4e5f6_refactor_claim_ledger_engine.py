@@ -76,7 +76,7 @@ def upgrade() -> None:
             WHEN 'PARTIAL_PAYMENT' THEN 'PARTIAL'
             WHEN 'DENIED' THEN 'DENIED'
             ELSE 'OPEN'
-        END
+        END::claim_status
         """
     )
     op.alter_column("claim_ledgers", "status_new", nullable=False, server_default="OPEN")

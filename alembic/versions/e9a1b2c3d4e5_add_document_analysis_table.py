@@ -24,7 +24,7 @@ def upgrade() -> None:
     dialect = bind.dialect.name
 
     json_type = postgresql.JSONB(astext_type=sa.Text()) if dialect == "postgresql" else sa.JSON()
-    doc_type_enum = sa.Enum("ERA", "BILLED", name="document_type")
+    doc_type_enum = postgresql.ENUM("ERA", "BILLED", name="document_type", create_type=False)
     if dialect == "postgresql":
         doc_type_enum.create(bind, checkfirst=True)
 

@@ -25,15 +25,16 @@ def upgrade() -> None:
 
     json_type = postgresql.JSONB(astext_type=sa.Text()) if dialect == "postgresql" else sa.JSON()
 
-    claim_event_type = sa.Enum(
+    claim_event_type = postgresql.ENUM(
         "SERVICE_RECORDED",
         "ERA_RECEIVED",
         "PAYMENT",
         "DENIAL",
         "ADJUSTMENT",
         name="claim_event_type",
+        create_type=False,
     )
-    claim_ledger_status = sa.Enum(
+    claim_ledger_status = postgresql.ENUM(
         "NOT_BILLED",
         "BILLED_NO_RESPONSE",
         "PAID_IN_FULL",
@@ -41,6 +42,7 @@ def upgrade() -> None:
         "DENIED",
         "OVERPAID",
         name="claim_ledger_status",
+        create_type=False,
     )
 
     op.create_table(
