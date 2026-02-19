@@ -15,7 +15,7 @@ import type {
 
 function normalizeCents(value: number | null | undefined): number {
   if (value === null || value === undefined) return 0;
-  const numeric = typeof value === "number" ? Math.trunc(value) : Number(value);
+  const numeric = typeof value === "number" ? value - (value % 1) : Number(value);
   if (Number.isNaN(numeric)) return 0;
   return numeric;
 }
@@ -23,8 +23,8 @@ function normalizeCents(value: number | null | undefined): number {
 function formatCents(value: number | null | undefined): string {
   const cents = normalizeCents(value);
   const negative = cents < 0;
-  const absolute = Math.abs(cents);
-  const dollars = Math.trunc(absolute / 100);
+  const absolute = negative ? -cents : cents;
+  const dollars = (absolute - (absolute % 100)) / 100;
   const remainder = absolute % 100;
   const dollarText = dollars.toLocaleString("en-US");
   const centText = remainder.toString().padStart(2, "0");
@@ -34,18 +34,21 @@ function formatCents(value: number | null | undefined): string {
 function formatShortCents(value: number | null | undefined): string {
   const cents = normalizeCents(value);
   const negative = cents < 0;
-  const absoluteDollars = Math.trunc(Math.abs(cents) / 100);
+  const absCents = negative ? -cents : cents;
+  const absoluteDollars = (absCents - (absCents % 100)) / 100;
   const sign = negative ? "-" : "";
 
   if (absoluteDollars >= 1_000_000) {
-    const millions = Math.trunc(absoluteDollars / 1_000_000);
-    const tenths = Math.trunc((absoluteDollars % 1_000_000) / 100_000);
+    const millions = (absoluteDollars - (absoluteDollars % 1_000_000)) / 1_000_000;
+    const rem = absoluteDollars % 1_000_000;
+    const tenths = (rem - (rem % 100_000)) / 100_000;
     return `${sign}$${millions}.${tenths}M`;
   }
 
   if (absoluteDollars >= 1_000) {
-    const thousands = Math.trunc(absoluteDollars / 1_000);
-    const tenths = Math.trunc((absoluteDollars % 1_000) / 100);
+    const thousands = (absoluteDollars - (absoluteDollars % 1_000)) / 1_000;
+    const rem = absoluteDollars % 1_000;
+    const tenths = (rem - (rem % 100)) / 100;
     return `${sign}$${thousands}.${tenths}k`;
   }
 
