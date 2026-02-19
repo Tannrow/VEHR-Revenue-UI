@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.db.models.claim import ClaimStatus
+from app.db.models.claim_event import ClaimEventType
 
 _MONEY_KEYS = {
     # line-level / claim-level common keys
@@ -72,6 +74,35 @@ class ClaimNormalizer:
 
         # Deepcopy first so caller’s object is never mutated.
         payload = deepcopy(raw_json)
+
+        required_keys = {"claim", "lines", "events"}
+        if not required_keys.issubset(payload):
+            raise ValueError("claim, lines, and events are required")
+
+        claim = payload.get("claim")
+        if not isinstance(claim, dict) or not claim.get("org_id"):
+            raise ValueError("claim.org_id is required")
+
+        status = claim.get("status")
+        if status is not None and status not in ClaimStatus._value2member_map_:
+            raise ValueError("invalid claim status")
+
+        lines = payload.get("lines")
+        if not isinstance(lines, list):
+            raise ValueError("lines must be a list")
+        for line in lines:
+            if not isinstance(line, dict) or "billed_amount" not in line:
+                raise ValueError("each line requires billed_amount")
+
+        events = payload.get("events")
+        if not isinstance(events, list):
+            raise ValueError("events must be a list")
+        for event in events:
+            if not isinstance(event, dict) or "event_type" not in event:
+                raise ValueError("each event requires event_type")
+            event_type = event.get("event_type")
+            if event_type is not None and event_type not in ClaimEventType._value2member_map_:
+                raise ValueError("invalid claim event type")
 
         # Strip monetary fields everywhere.
         return _strip_money(payload)
