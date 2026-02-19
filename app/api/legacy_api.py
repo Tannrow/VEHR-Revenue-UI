@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Request
 
@@ -18,6 +19,23 @@ _DEPRECATION_PAYLOAD = {
 }
 
 
+def _metadata(request: Request) -> dict[str, Any]:
+    metadata = {
+        "method": request.method,
+        "path": request.url.path,
+        "client": request.client.host if request.client else None,
+        "user_agent": request.headers.get("user-agent"),
+        "request_id": request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or request.headers.get("x-correlation-id"),
+        "forwarded_for": request.headers.get("x-forwarded-for"),
+        "host": request.headers.get("host"),
+        "organization_id": request.headers.get("x-organization-id"),
+        "user_id": request.headers.get("x-user-id"),
+    }
+    return {k: v for k, v in metadata.items() if v is not None}
+
+
 def _safe_audit(request: Request) -> None:
     try:
         db = SessionLocal()
@@ -26,15 +44,14 @@ def _safe_audit(request: Request) -> None:
         return
 
     try:
-        metadata = {
-            "method": request.method,
-            "path": request.url.path,
-            "client": request.client.host if request.client else None,
-            "user_agent": request.headers.get("user-agent"),
-            "request_id": request.headers.get("x-request-id")
-            or request.headers.get("x-requestid")
-            or request.headers.get("x-correlation-id"),
-        }
+        metadata = _metadata(request)
+        try:
+            logger.warning(
+                "legacy_api_root_hit %s",
+                " ".join(f"{key}={value}" for key, value in metadata.items()),
+            )
+        except Exception:
+            logger.exception("legacy_api_root_log_failed")
         log_event(
             db,
             action="platform.legacy_api_root_hit",
@@ -42,7 +59,7 @@ def _safe_audit(request: Request) -> None:
             entity_id="legacy_api_root",
             organization_id=None,
             actor=None,
-            metadata={k: v for k, v in metadata.items() if v is not None},
+            metadata=metadata,
         )
     except Exception:
         logger.exception("legacy_api_root_audit_failed")
@@ -50,6 +67,8 @@ def _safe_audit(request: Request) -> None:
         db.close()
 
 
+@router.get("/api/")
+@router.post("/api/")
 @router.get("/api")
 @router.post("/api")
 async def legacy_api_root(request: Request) -> dict[str, str | bool]:
