@@ -78,6 +78,7 @@ jobs:
             if python - <<'PY'
 import os
 import psycopg
+
 psycopg.connect(os.environ["DATABASE_URL"]).close()
 print("ok")
 PY
