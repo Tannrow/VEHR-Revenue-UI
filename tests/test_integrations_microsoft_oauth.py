@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
+import uuid
 from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 from jose import jwt
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.rbac import ROLE_ADMIN
@@ -12,10 +14,10 @@ from app.core.security import JWT_ALGORITHM, create_access_token, hash_password
 from app.db.base import Base
 from app.db.models.audit_event import AuditEvent
 from app.db.models.integration_account import IntegrationAccount
-from app.db.models.user_microsoft_connection import UserMicrosoftConnection
 from app.db.models.organization import Organization
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.user import User
+from app.db.models.user_microsoft_connection import UserMicrosoftConnection
 from app.db.session import get_db
 from app.main import app
 from app.services.integration_tokens import decrypt_token
@@ -25,17 +27,40 @@ def _auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _postgres_database_url() -> str:
+    url = (os.getenv("DATABASE_URL") or "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is required for Postgres-only tests")
+    if not (url.startswith("postgresql://") or url.startswith("postgresql+psycopg://")):
+        raise RuntimeError(f"Postgres-only tests require postgresql DATABASE_URL, got: {url.split(':', 1)[0]}")
+    return url
+
+
 def _build_session(tmp_path):
-    database_file = tmp_path / "integrations_microsoft_oauth.sqlite"
-    engine = create_engine(
-        f"sqlite:///{database_file}",
-        connect_args={"check_same_thread": False},
-    )
+    """
+    Postgres-only test DB isolation:
+    - Create a unique schema per test
+    - Set search_path to that schema for the SQLAlchemy engine
+    - Create all tables inside that schema
+    - Drop schema CASCADE on teardown
+
+    This avoids SQLite entirely and avoids cross-test table collisions.
+    """
+    database_url = _postgres_database_url()
+
+    schema = f"t_msoauth_{uuid.uuid4().hex}"
+    connect_args = {"options": f"-csearch_path={schema}"}
+
+    engine = create_engine(database_url, connect_args=connect_args)
+
+    # Create schema + tables in that schema
+    with engine.begin() as conn:
+        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+        conn.execute(text(f'SET search_path TO "{schema}"'))
+        from app.db import models as _models  # noqa: F401
+        Base.metadata.create_all(bind=conn)
+
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-    from app.db import models as _models  # noqa: F401
-
-    Base.metadata.create_all(bind=engine)
 
     def override_get_db():
         db = testing_session_local()
@@ -45,7 +70,19 @@ def _build_session(tmp_path):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    return engine, testing_session_local
+
+    # return schema too so teardown can drop it
+    return engine, testing_session_local, schema
+
+
+def _drop_schema(engine, schema: str) -> None:
+    # Drop schema and everything inside it
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+    except Exception:
+        # If teardown fails, don’t mask the real test failure.
+        pass
 
 
 def _seed_admin_token(session_factory) -> tuple[str, str, str]:
@@ -93,7 +130,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
     )
     monkeypatch.setenv("INTEGRATION_TOKEN_KEY", "integration-token-key-for-tests")
 
-    engine, session_factory = _build_session(tmp_path)
+    engine, session_factory, schema = _build_session(tmp_path)
     try:
         token, org_id, expected_user_id = _seed_admin_token(session_factory)
 
@@ -211,7 +248,7 @@ def test_microsoft_connect_and_callback_upserts_account(tmp_path, monkeypatch) -
             assert audit_event.organization_id == org_id
     finally:
         app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+        _drop_schema(engine, schema)
         engine.dispose()
 
 
@@ -224,7 +261,7 @@ def test_microsoft_callback_rejects_invalid_state(tmp_path, monkeypatch) -> None
     )
     monkeypatch.setenv("MS_POST_CONNECT_REDIRECT", "https://360-encompass.com/admin/integrations/microsoft")
 
-    engine, session_factory = _build_session(tmp_path)
+    engine, session_factory, schema = _build_session(tmp_path)
     try:
         _token, _org_id, _user_id = _seed_admin_token(session_factory)
 
@@ -242,12 +279,12 @@ def test_microsoft_callback_rejects_invalid_state(tmp_path, monkeypatch) -> None
             assert parsed["reason"] == ["invalid_state"]
     finally:
         app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+        _drop_schema(engine, schema)
         engine.dispose()
 
 
 def test_microsoft_test_connection_endpoint(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _build_session(tmp_path)
+    engine, session_factory, schema = _build_session(tmp_path)
     try:
         token, org_id, seeded_user_id = _seed_admin_token(session_factory)
 
@@ -282,12 +319,12 @@ def test_microsoft_test_connection_endpoint(tmp_path, monkeypatch) -> None:
             assert audit_event.organization_id == org_id
     finally:
         app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+        _drop_schema(engine, schema)
         engine.dispose()
 
 
 def test_microsoft_disconnect_revokes_connection(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _build_session(tmp_path)
+    engine, session_factory, schema = _build_session(tmp_path)
     try:
         token, org_id, user_id = _seed_admin_token(session_factory)
 
@@ -345,12 +382,12 @@ def test_microsoft_disconnect_revokes_connection(tmp_path, monkeypatch) -> None:
             assert audit_event.organization_id == org_id
     finally:
         app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+        _drop_schema(engine, schema)
         engine.dispose()
 
 
 def test_microsoft_refresh_endpoint(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _build_session(tmp_path)
+    engine, session_factory, schema = _build_session(tmp_path)
     try:
         token, org_id, user_id = _seed_admin_token(session_factory)
         expected_user_id = user_id
@@ -382,5 +419,5 @@ def test_microsoft_refresh_endpoint(tmp_path, monkeypatch) -> None:
             assert audit_event.organization_id == org_id
     finally:
         app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+        _drop_schema(engine, schema)
         engine.dispose()

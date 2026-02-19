@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
 import time
-import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time import utc_now
 from app.db.models.billed_line import BilledLine
+from app.db.models.document_analysis import DocumentAnalysis, DocumentType
 from app.db.models.era_line import EraLine
 from app.db.models.recon_claim_result import ReconClaimResult
 from app.db.models.recon_import_job import ReconImportJob
@@ -31,8 +32,6 @@ from app.db.session import SessionLocal
 from app.services.audit import log_event
 from scripts.era_extract.content_parsers import parse_billed_content, parse_era_content
 from scripts.era_extract.docintel_client import create_document_intelligence_client, load_repo_dotenv
-from app.db.models.document_analysis import DocumentAnalysis, DocumentType
-
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +90,7 @@ def _same_service(billed_row: dict[str, Any], era_row: dict[str, Any], tolerance
     era_proc = _norm_text(era_row.get("proc_code"))
     if billed_proc and era_proc and billed_proc != era_proc:
         return False
+
     billed_dos = billed_row.get("dos_from")
     era_dos = era_row.get("dos_from")
     if billed_dos is not None and era_dos is not None and billed_dos != era_dos:
@@ -100,6 +100,7 @@ def _same_service(billed_row: dict[str, Any], era_row: dict[str, Any], tolerance
     era_amt = _to_decimal(era_row.get("billed_amount"))
     if billed_amt is not None and era_amt is not None and abs(billed_amt - era_amt) > tolerance:
         return False
+
     return True
 
 
@@ -147,6 +148,7 @@ def _reconcile_rows(
             billed_by_claim[claim_id].append(row)
         else:
             billed_missing.append(row)
+
     for row in era_rows:
         claim_id = _claim_id(row)
         if claim_id:
@@ -161,26 +163,32 @@ def _reconcile_rows(
 
         used_era: set[int] = set()
         collisions = 0
+
         for billed in billed_group:
             candidates = [
                 idx
                 for idx, era in enumerate(era_group)
                 if idx not in used_era and _same_service(billed, era, tolerance)
             ]
+
             if len(candidates) == 1:
                 idx = candidates[0]
                 used_era.add(idx)
                 era = era_group[idx]
+
                 billed_amount = _to_decimal(billed.get("billed_amount"))
                 paid_amount = _to_decimal(era.get("paid_amount"))
+
                 variance = None
                 if billed_amount is not None and paid_amount is not None:
                     variance = paid_amount - billed_amount
+
                 status = "matched"
                 reason_code = era.get("adj_code")
                 if variance is not None and abs(variance) > tolerance:
                     status = "needs_review"
                     reason_code = "variance_outside_tolerance"
+
                 line_results.append(
                     {
                         "account_id": claim_id,
@@ -248,12 +256,14 @@ def _reconcile_rows(
         billed_total = Decimal("0")
         for row in billed_group:
             billed_total = _safe_add(billed_total, _to_decimal(row.get("billed_amount")))
+
         paid_total = Decimal("0")
         denial_seen = False
         for row in era_group:
             paid_total = _safe_add(paid_total, _to_decimal(row.get("paid_amount")))
             if _is_denial_code(row.get("adj_code")):
                 denial_seen = True
+
         variance_total = paid_total - billed_total
 
         if billed_group and not era_group:
@@ -275,6 +285,7 @@ def _reconcile_rows(
             else:
                 claim_status = "NEEDS_REVIEW"
                 reason_code = "fallback_review"
+
             if collisions > 0 and claim_status == "PAID":
                 claim_status = "NEEDS_REVIEW"
                 reason_code = "collision"
@@ -301,16 +312,20 @@ def _reconcile_rows(
             if idx not in used_era_missing and _same_service(billed, era, tolerance)
         ]
         billed_amount = _to_decimal(billed.get("billed_amount"))
+
         if len(candidates) == 1:
             idx = candidates[0]
             used_era_missing.add(idx)
             era = era_missing[idx]
             paid_amount = _to_decimal(era.get("paid_amount"))
+
             variance = None
             if billed_amount is not None and paid_amount is not None:
                 variance = paid_amount - billed_amount
+
             line_status = "matched" if variance is not None and abs(variance) <= tolerance else "needs_review"
             reason = era.get("adj_code") if line_status == "matched" else "missing_key_fallback"
+
             line_results.append(
                 {
                     "account_id": None,
@@ -620,11 +635,6 @@ def _process_job(job_id: str, *, tolerance: Decimal) -> None:
             )
         )
 
-        era_rows: list[dict[str, Any]] = []
-        billed_rows: list[dict[str, Any]] = []
-        era_counters: dict[str, int] = {}
-        billed_counters: dict[str, int] = {}
-
         era_rows, era_counters = parse_era_content(era_content, job_id=job.id)
         billed_rows, billed_counters = parse_billed_content(billed_content, billed_track="Billing")
 
@@ -642,16 +652,16 @@ def _process_job(job_id: str, *, tolerance: Decimal) -> None:
         era_orm_rows: list[EraLine] = []
         for row in era_rows:
             era_orm_rows.append(
-                    EraLine(
-                        job_id=job.id,
-                        org_id=job.org_id,
-                        account_id=row.get("account_id"),
-                        payer_claim_number=row.get("payer_claim_number"),
-                        icn=row.get("icn"),
-                        member_id=row.get("member_id"),
-                        dos_from=row.get("dos_from"),
-                        dos_to=row.get("dos_to"),
-                        proc_code=row.get("proc_code"),
+                EraLine(
+                    job_id=job.id,
+                    org_id=job.org_id,
+                    account_id=row.get("account_id"),
+                    payer_claim_number=row.get("payer_claim_number"),
+                    icn=row.get("icn"),
+                    member_id=row.get("member_id"),
+                    dos_from=row.get("dos_from"),
+                    dos_to=row.get("dos_to"),
+                    proc_code=row.get("proc_code"),
                     units=_to_decimal(row.get("units")),
                     billed_amount=_to_decimal(row.get("billed_amount")),
                     allowed_amount=_to_decimal(row.get("allowed_amount")),
@@ -667,14 +677,14 @@ def _process_job(job_id: str, *, tolerance: Decimal) -> None:
         billed_orm_rows: list[BilledLine] = []
         for row in billed_rows:
             billed_orm_rows.append(
-                    BilledLine(
-                        job_id=job.id,
-                        org_id=job.org_id,
-                        account_id=row.get("account_id"),
-                        member_id=row.get("member_id"),
-                        dos_from=row.get("dos_from"),
-                        dos_to=row.get("dos_to"),
-                        proc_code=row.get("proc_code"),
+                BilledLine(
+                    job_id=job.id,
+                    org_id=job.org_id,
+                    account_id=row.get("account_id"),
+                    member_id=row.get("member_id"),
+                    dos_from=row.get("dos_from"),
+                    dos_to=row.get("dos_to"),
+                    proc_code=row.get("proc_code"),
                     units=_to_decimal(row.get("units")),
                     billed_amount=_to_decimal(row.get("billed_amount")),
                 )
