@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import tanner_ai
 from app.api.v1.endpoints import (
     ai_copilot,
+    ai_finance,
     admin_center,
     analytics,
     audit,
@@ -43,6 +44,7 @@ api_router.include_router(auth.router)
 api_router.include_router(billing_recon.router)
 api_router.include_router(me_preferences.router)
 api_router.include_router(ai_copilot.router)
+api_router.include_router(ai_finance.router)
 api_router.include_router(admin_center.router)
 api_router.include_router(organizations.router)
 api_router.include_router(organization_home.router)

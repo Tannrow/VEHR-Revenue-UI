@@ -73,6 +73,9 @@ const MODULE_DEFINITIONS: ModuleDefinition[] = [
     description: "Billing and revenue operations.",
     defaultRoute: "/billing",
     navItems: [
+      { label: "Worklist", href: "/billing/worklist", requiredAnyPermissions: ["billing:read", "billing:write"] },
+      { label: "Payer Trends", href: "/billing/payer-trends", requiredAnyPermissions: ["billing:read", "billing:write"] },
+      { label: "Executive Summary", href: "/billing/executive-summary", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "Billing", href: "/billing", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "ERA Import", href: "/billing/era-import", requiredAnyPermissions: ["billing:read", "billing:write"] },
       { label: "Reconciliation", href: "/billing/reconciliation", requiredAnyPermissions: ["billing:read", "billing:write"] },
