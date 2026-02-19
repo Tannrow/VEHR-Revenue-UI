@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_membership, get_db
 from app.core.rbac import ROLE_ADMIN, has_permission_for_organization
+from app.db.models.claim import Claim, ClaimStatus
+from app.db.models.claim_ledger import ClaimLedger
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.revenue_command_snapshot import RevenueCommandSnapshot
 from app.services.revenue_command_snapshot import (
@@ -57,6 +59,49 @@ class RevenueCommandSnapshotRead(BaseModel):
         extra="forbid",
         json_encoders={Decimal: _serialize_decimal},
     )
+
+
+class RevenueSnapshotAggressivePayer(BaseModel):
+    payer: str
+    aggression_score: int
+    aggression_tier: str
+    aggression_drivers: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RevenueSnapshotWorklistItem(BaseModel):
+    id: str
+    claim_id: str
+    payer: str | None = None
+    status: str | None = None
+    aging_days: int = 0
+    dollars_per_hour_cents: int
+    task: str
+    priority: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RevenueSnapshotLatestResponse(BaseModel):
+    snapshot_id: str
+    organization_id: str
+    generated_at: datetime
+    total_exposure_cents: int
+    expected_recovery_30_day_cents: int
+    short_term_cash_opportunity_cents: int
+    high_risk_claim_count: int
+    critical_pre_submission_count: int
+    top_aggressive_payers: list[RevenueSnapshotAggressivePayer] = Field(default_factory=list)
+    top_revenue_loss_drivers: list[str] = Field(default_factory=list)
+    worklist_priority_summary: dict[str, int] = Field(default_factory=dict)
+    top_worklist: list[RevenueSnapshotWorklistItem] = Field(default_factory=list)
+    execution_plan_30_day: list[dict[str, Any]] = Field(default_factory=list)
+    structural_moves_90_day: list[str] = Field(default_factory=list)
+    aggression_change_alerts: list[dict[str, Any]] = Field(default_factory=list)
+    scoring_versions: ScoringVersions
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class RevenueCommandSummaryRequest(BaseModel):
@@ -114,6 +159,83 @@ def _to_read_model(snapshot: RevenueCommandSnapshot) -> RevenueCommandSnapshotRe
             pre_submission_version=snapshot.pre_submission_scoring_version or PRE_SUBMISSION_SCORING_VERSION,
         ),
     )
+
+
+def _to_cents(value: Decimal | int | str | float | None) -> int:
+    try:
+        decimal_value = Decimal(str(value or "0"))
+    except Exception:
+        decimal_value = Decimal("0")
+    return int((decimal_value * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _money_from_ledger(ledger: ClaimLedger) -> Decimal:
+    billed = Decimal(str(ledger.total_billed or "0"))
+    paid = Decimal(str(ledger.total_paid or "0"))
+    variance = Decimal(str(ledger.variance or "0"))
+    outstanding = variance if variance != 0 else billed - paid
+    return outstanding.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _priority_from_aging(aging_days: int | None) -> str:
+    aging = aging_days or 0
+    if aging >= 90:
+        return "high"
+    if aging >= 60:
+        return "medium"
+    return "low"
+
+
+def _load_worklist(db: Session, org_id: str, *, limit: int = 10) -> list[RevenueSnapshotWorklistItem]:
+    rows = (
+        db.query(ClaimLedger, Claim)
+        .join(Claim, Claim.id == ClaimLedger.claim_id)
+        .filter(ClaimLedger.org_id == org_id)
+        .order_by(ClaimLedger.variance.desc())
+        .limit(limit * 2)
+        .all()
+    )
+
+    items: list[RevenueSnapshotWorklistItem] = []
+    for ledger, claim in rows:
+        outstanding = _money_from_ledger(ledger)
+        dollars_per_hour = (outstanding / Decimal("8")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        status_value = claim.status.value if isinstance(claim.status, ClaimStatus) else str(claim.status or "")
+        is_denied = status_value.upper() == ClaimStatus.DENIED.value
+        items.append(
+            RevenueSnapshotWorklistItem(
+                id=ledger.claim_id,
+                claim_id=ledger.claim_id,
+                payer=(claim.payer_name or "").strip() or None,
+                status=status_value,
+                aging_days=int(ledger.aging_days or 0),
+                dollars_per_hour_cents=_to_cents(dollars_per_hour),
+                task="Escalate denial" if is_denied else "Follow up on open balance",
+                priority=_priority_from_aging(ledger.aging_days),
+            )
+        )
+
+    items.sort(key=lambda item: item.dollars_per_hour_cents, reverse=True)
+    return items[:limit]
+
+
+def _normalize_aggressive_payers(snapshot: RevenueCommandSnapshot) -> list[RevenueSnapshotAggressivePayer]:
+    payers: list[RevenueSnapshotAggressivePayer] = []
+    raw = snapshot.top_aggressive_payers or []
+    for entry in raw:
+        try:
+            if isinstance(entry, dict):
+                payers.append(
+                    RevenueSnapshotAggressivePayer(
+                        payer=str(entry.get("payer") or "Unknown"),
+                        aggression_score=int(entry.get("aggression_score") or 0),
+                        aggression_tier=str(entry.get("aggression_tier") or "unknown"),
+                        aggression_drivers=list(entry.get("aggression_drivers") or []),
+                    )
+                )
+        except Exception:
+            continue
+    return payers
 
 
 @router.get("/revenue/command/latest", response_model=RevenueCommandSnapshotRead)
@@ -197,4 +319,39 @@ def revenue_command_summary(
         execution_focus=execution_focus,
         generated_from_snapshot_id=snapshot.id,
         scoring_versions=snapshot.scoring_versions,
+    )
+
+
+@router.get("/revenue/snapshots/latest", response_model=RevenueSnapshotLatestResponse)
+def revenue_snapshot_latest(
+    membership: OrganizationMembership = Depends(_require_admin_or_exec),
+    db: Session = Depends(get_db),
+) -> RevenueSnapshotLatestResponse:
+    snapshot = latest_snapshot(db, membership.organization_id)
+    if snapshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="snapshot_not_found")
+
+    worklist = _load_worklist(db, membership.organization_id)
+
+    return RevenueSnapshotLatestResponse(
+        snapshot_id=snapshot.id,
+        organization_id=snapshot.org_id,
+        generated_at=snapshot.generated_at,
+        total_exposure_cents=_to_cents(snapshot.total_exposure),
+        expected_recovery_30_day_cents=_to_cents(snapshot.expected_recovery_30_day),
+        short_term_cash_opportunity_cents=_to_cents(snapshot.short_term_cash_opportunity),
+        high_risk_claim_count=snapshot.high_risk_claim_count,
+        critical_pre_submission_count=snapshot.critical_pre_submission_count,
+        top_aggressive_payers=_normalize_aggressive_payers(snapshot),
+        top_revenue_loss_drivers=[str(item) for item in snapshot.top_revenue_loss_drivers or []],
+        worklist_priority_summary={str(k): int(v) for k, v in (snapshot.worklist_priority_summary or {}).items()},
+        top_worklist=worklist,
+        execution_plan_30_day=list(snapshot.execution_plan_30_day or []),
+        structural_moves_90_day=list(snapshot.structural_moves_90_day or []),
+        aggression_change_alerts=list(snapshot.aggression_change_alerts or []),
+        scoring_versions=ScoringVersions(
+            risk_version=snapshot.risk_scoring_version or RISK_SCORING_VERSION,
+            aggression_version=snapshot.aggression_scoring_version,
+            pre_submission_version=snapshot.pre_submission_scoring_version or PRE_SUBMISSION_SCORING_VERSION,
+        ),
     )

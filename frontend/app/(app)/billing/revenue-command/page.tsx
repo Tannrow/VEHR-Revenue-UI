@@ -6,17 +6,50 @@ import { AlertTriangle, ArrowUpRight, Loader2, RefreshCcw, ShieldCheck, Workflow
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  type AggressivePayer,
-  type RevenueCommandSnapshot,
-  fetchLatestRevenueSnapshot,
-} from "@/lib/revenue-command";
+import { fetchLatestRevenueSnapshot } from "@/lib/revenue-command";
+import type {
+  RevenueSnapshot,
+  RevenueSnapshotAggressivePayer,
+  RevenueSnapshotWorklistItem,
+} from "@/types/revenueSnapshot";
 
-function formatMoney(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "$0";
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(numeric)) return "$0";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(numeric);
+function normalizeCents(value: number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const numeric = typeof value === "number" ? Math.trunc(value) : Number(value);
+  if (Number.isNaN(numeric)) return 0;
+  return numeric;
+}
+
+function formatCents(value: number | null | undefined): string {
+  const cents = normalizeCents(value);
+  const negative = cents < 0;
+  const absolute = Math.abs(cents);
+  const dollars = Math.trunc(absolute / 100);
+  const remainder = absolute % 100;
+  const dollarText = dollars.toLocaleString("en-US");
+  const centText = remainder.toString().padStart(2, "0");
+  return `${negative ? "-" : ""}$${dollarText}.${centText}`;
+}
+
+function formatShortCents(value: number | null | undefined): string {
+  const cents = normalizeCents(value);
+  const negative = cents < 0;
+  const absoluteDollars = Math.trunc(Math.abs(cents) / 100);
+  const sign = negative ? "-" : "";
+
+  if (absoluteDollars >= 1_000_000) {
+    const millions = Math.trunc(absoluteDollars / 1_000_000);
+    const tenths = Math.trunc((absoluteDollars % 1_000_000) / 100_000);
+    return `${sign}$${millions}.${tenths}M`;
+  }
+
+  if (absoluteDollars >= 1_000) {
+    const thousands = Math.trunc(absoluteDollars / 1_000);
+    const tenths = Math.trunc((absoluteDollars % 1_000) / 100);
+    return `${sign}$${thousands}.${tenths}k`;
+  }
+
+  return `${sign}$${absoluteDollars.toLocaleString("en-US")}`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -26,7 +59,7 @@ function formatDate(value: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-function AggressivePayerRow({ payer }: { payer: AggressivePayer }) {
+function AggressivePayerRow({ payer }: { payer: RevenueSnapshotAggressivePayer }) {
   return (
     <div className="flex items-start justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
       <div>
@@ -40,8 +73,27 @@ function AggressivePayerRow({ payer }: { payer: AggressivePayer }) {
   );
 }
 
+function WorklistRow({ item }: { item: RevenueSnapshotWorklistItem }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{item.task}</p>
+          <p className="text-xs text-slate-600">
+            {item.payer || "Unknown payer"} · Aging {item.aging_days}d · {item.status || "status n/a"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-slate-900">{formatCents(item.dollars_per_hour_cents)}</p>
+          <p className="text-[0.7rem] uppercase text-slate-500">{item.priority || "queue"}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RevenueCommandPage() {
-  const [snapshot, setSnapshot] = useState<RevenueCommandSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<RevenueSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,8 +154,8 @@ export default function RevenueCommandPage() {
             <CardTitle className="text-sm font-medium text-slate-700">Total Exposure</CardTitle>
           </CardHeader>
           <CardContent className="flex items-end justify-between">
-            <p className="text-2xl font-semibold text-slate-900">{formatMoney(snapshot?.total_exposure)}</p>
-            <Badge variant="outline">30d recovery {_formatShort(snapshot?.expected_recovery_30_day)}</Badge>
+            <p className="text-2xl font-semibold text-slate-900">{formatCents(snapshot?.total_exposure_cents)}</p>
+            <Badge variant="outline">30d recovery {formatShortCents(snapshot?.expected_recovery_30_day_cents)}</Badge>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-slate-50 to-white">
@@ -111,8 +163,10 @@ export default function RevenueCommandPage() {
             <CardTitle className="text-sm font-medium text-slate-700">Expected Recovery (30d)</CardTitle>
           </CardHeader>
           <CardContent className="flex items-end justify-between">
-            <p className="text-2xl font-semibold text-emerald-700">{formatMoney(snapshot?.expected_recovery_30_day)}</p>
-            <Badge variant="outline">Short-term {_formatShort(snapshot?.short_term_cash_opportunity)}</Badge>
+            <p className="text-2xl font-semibold text-emerald-700">
+              {formatCents(snapshot?.expected_recovery_30_day_cents)}
+            </p>
+            <Badge variant="outline">Short-term {formatShortCents(snapshot?.short_term_cash_opportunity_cents)}</Badge>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-slate-50 to-white">
@@ -120,7 +174,9 @@ export default function RevenueCommandPage() {
             <CardTitle className="text-sm font-medium text-slate-700">Short-Term Cash Opportunity</CardTitle>
           </CardHeader>
           <CardContent className="flex items-end justify-between">
-            <p className="text-2xl font-semibold text-blue-700">{formatMoney(snapshot?.short_term_cash_opportunity)}</p>
+            <p className="text-2xl font-semibold text-blue-700">
+              {formatCents(snapshot?.short_term_cash_opportunity_cents)}
+            </p>
             <Badge variant="outline">Alerts {aggressionAlertCount}</Badge>
           </CardContent>
         </Card>
@@ -191,6 +247,41 @@ export default function RevenueCommandPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-slate-900">Top Revenue Loss Drivers</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {snapshot?.top_revenue_loss_drivers?.length ? (
+              snapshot.top_revenue_loss_drivers.map((driver, idx) => (
+                <div
+                  key={`${driver}-${idx}`}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                >
+                  {driver}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-600">No loss drivers captured.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-slate-900">Today&apos;s Top Worklist</CardTitle>
+            <Badge variant="outline">Ordered by dollars/hr</Badge>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {snapshot?.top_worklist?.length ? (
+              snapshot.top_worklist.map((item) => <WorklistRow key={item.id} item={item} />)
+            ) : (
+              <p className="text-sm text-slate-600">No worklist items available.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
           <CardHeader className="flex items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-900">
               <Workflow className="h-4 w-4" />
@@ -241,17 +332,4 @@ export default function RevenueCommandPage() {
       </div>
     </div>
   );
-}
-
-function _formatShort(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "$0";
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(numeric)) return "$0";
-  if (numeric >= 1_000_000) {
-    return `${(numeric / 1_000_000).toFixed(1)}M`;
-  }
-  if (numeric >= 1_000) {
-    return `${(numeric / 1_000).toFixed(1)}k`;
-  }
-  return numeric.toFixed(0);
 }
