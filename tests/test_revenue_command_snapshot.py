@@ -178,12 +178,26 @@ def test_snapshot_endpoints_return_latest(tmp_path) -> None:
         "/api/v1/revenue/command/latest",
         headers={"Authorization": f"Bearer {token}"},
       )
+      latest_snapshot_response = client.get(
+        "/api/v1/revenue/snapshots/latest",
+        headers={"Authorization": f"Bearer {token}"},
+      )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["id"] == snapshot.id
     assert payload["scoring_versions"]["risk_version"]
     assert isinstance(payload["total_exposure"], str)
+    assert latest_snapshot_response.status_code == 200
+    latest_payload = latest_snapshot_response.json()
+    assert latest_payload["snapshot_id"] == snapshot.id
+    assert latest_payload["organization_id"] == org.id
+    assert isinstance(latest_payload["total_exposure_cents"], int)
+    assert isinstance(latest_payload["expected_recovery_30_day_cents"], int)
+    assert isinstance(latest_payload["short_term_cash_opportunity_cents"], int)
+    assert latest_payload["top_worklist"]
+    dollars_per_hour = [item["dollars_per_hour_cents"] for item in latest_payload["top_worklist"]]
+    assert dollars_per_hour == sorted(dollars_per_hour, reverse=True)
   finally:
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
