@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.env import truthy_env
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.main")
 
 _DEFAULT_CORS_ORIGINS = [
     "https://360-encompass.com",

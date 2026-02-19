@@ -37,8 +37,10 @@ def upgrade() -> None:
             END$$;
             """
         )
-    op.add_column("claims", sa.Column("resubmission_count", sa.Integer(), nullable=False, server_default="0"))
-    op.create_unique_constraint("uq_claim_event_per_job", "claim_events", ["claim_id", "event_type", "source_job_id"])
+    inspector = sa.inspect(bind)
+    existing_columns = {col["name"] for col in inspector.get_columns("claims")}
+    if "resubmission_count" not in existing_columns:
+        op.add_column("claims", sa.Column("resubmission_count", sa.Integer(), nullable=False, server_default="0"))
 
 
 def downgrade() -> None:

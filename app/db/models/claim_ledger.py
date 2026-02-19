@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
 from uuid import uuid4
 
 from sqlalchemy import Date, DateTime, Enum as PgEnum, ForeignKey, Integer, Numeric, String
@@ -10,15 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utc_now
 from app.db.base import Base
-
-
-class ClaimLedgerStatus(str, Enum):
-    NOT_BILLED = "NOT_BILLED"
-    BILLED_NO_RESPONSE = "BILLED_NO_RESPONSE"
-    PAID_IN_FULL = "PAID_IN_FULL"
-    PARTIAL_PAYMENT = "PARTIAL_PAYMENT"
-    DENIED = "DENIED"
-    OVERPAID = "OVERPAID"
+from app.db.models.claim import ClaimStatus
 
 
 class ClaimLedger(Base):
@@ -33,7 +24,7 @@ class ClaimLedger(Base):
     total_allowed: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     total_adjusted: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     variance: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
-    status: Mapped[ClaimLedgerStatus] = mapped_column(PgEnum(ClaimLedgerStatus, name="claim_ledger_status"), nullable=False, index=True)
+    status: Mapped[ClaimStatus] = mapped_column(PgEnum(ClaimStatus, name="claim_status"), nullable=False, index=True)
     aging_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_event_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 

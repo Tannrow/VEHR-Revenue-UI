@@ -20,13 +20,17 @@ target_metadata = Base.metadata
 
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
-    if database_url:
-        config.set_main_option("sqlalchemy.url", database_url)
-        try:
-            display_url = make_url(database_url).render_as_string(hide_password=True)
-        except Exception:
-            display_url = database_url
-        print(f"Alembic using database URL: {display_url}")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured")
+    if not database_url.lower().startswith("postgresql"):
+        raise RuntimeError("DATABASE_URL must start with 'postgresql'")
+
+    config.set_main_option("sqlalchemy.url", database_url)
+    try:
+        display_url = make_url(database_url).render_as_string(hide_password=True)
+    except Exception:
+        display_url = database_url
+    print(f"Alembic using database URL: {display_url}")
     return database_url
 
 
@@ -55,7 +59,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=connection.dialect.name == "sqlite",
         )
 
         with context.begin_transaction():

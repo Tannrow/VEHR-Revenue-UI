@@ -23,6 +23,7 @@ class ClaimLine(Base):
     cpt_code: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     dos_from: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     units: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    billed_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     expected_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

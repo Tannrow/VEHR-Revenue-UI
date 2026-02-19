@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Integer
+from sqlalchemy import Date, DateTime, Enum as PgEnum, ForeignKey, String, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utc_now
 from app.db.base import Base
+
+
+class ClaimStatus(str, Enum):
+    OPEN = "OPEN"
+    PARTIAL = "PARTIAL"
+    PAID = "PAID"
+    DENIED = "DENIED"
 
 
 class Claim(Base):
@@ -24,6 +32,12 @@ class Claim(Base):
     dos_from: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     dos_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     resubmission_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[ClaimStatus] = mapped_column(
+        PgEnum(ClaimStatus, name="claim_status"),
+        nullable=False,
+        default=ClaimStatus.OPEN,
+        index=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

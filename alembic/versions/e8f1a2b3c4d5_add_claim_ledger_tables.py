@@ -25,15 +25,16 @@ def upgrade() -> None:
 
     json_type = postgresql.JSONB(astext_type=sa.Text()) if dialect == "postgresql" else sa.JSON()
 
-    claim_event_type = sa.Enum(
+    claim_event_type = postgresql.ENUM(
         "SERVICE_RECORDED",
         "ERA_RECEIVED",
         "PAYMENT",
         "DENIAL",
         "ADJUSTMENT",
         name="claim_event_type",
+        create_type=False,
     )
-    claim_ledger_status = sa.Enum(
+    claim_ledger_status = postgresql.ENUM(
         "NOT_BILLED",
         "BILLED_NO_RESPONSE",
         "PAID_IN_FULL",
@@ -41,6 +42,7 @@ def upgrade() -> None:
         "DENIED",
         "OVERPAID",
         name="claim_ledger_status",
+        create_type=False,
     )
 
     op.create_table(
@@ -101,11 +103,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
         sa.ForeignKeyConstraint(["source_job_id"], ["recon_import_jobs.id"]),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("claim_id", "event_type", "source_job_id", name="uq_claim_event_per_job"),
     )
     op.create_index("ix_claim_events_claim_id", "claim_events", ["claim_id"], unique=False)
     op.create_index("ix_claim_events_org_id", "claim_events", ["org_id"], unique=False)
     op.create_index("ix_claim_events_event_date", "claim_events", ["event_date"], unique=False)
-    op.create_unique_constraint("uq_claim_event_per_job", "claim_events", ["claim_id", "event_type", "source_job_id"])
 
     op.create_table(
         "claim_ledgers",

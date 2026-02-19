@@ -1,99 +1,127 @@
 from __future__ import annotations
 
-import json
-import os
+from copy import deepcopy
 from typing import Any
 
-import httpx
+from app.db.models.claim import ClaimStatus
+from app.db.models.claim_event import ClaimEventType
+
+_MONEY_KEYS = {
+    # line-level / claim-level common keys
+    "billed_amount",
+    "allowed_amount",
+    "paid_amount",
+    "adjusted_amount",
+    "adj_amount",
+    "amount",
+    # ledger-like keys (defense in depth)
+    "total_billed",
+    "total_allowed",
+    "total_paid",
+    "total_adjusted",
+    "variance",
+}
 
 
-class ClaimNormalizationError(RuntimeError):
-    pass
+def _strip_money(obj: Any) -> Any:
+    """
+    Deterministic safety layer:
+    - Recursively traverse dict/list payloads
+    - Replace any monetary fields with None
+    - Preserve non-financial structure for downstream deterministic parsing
+    """
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if k in _MONEY_KEYS:
+                out[k] = None
+                continue
+            # common nested patterns
+            if k == "adjustments" and isinstance(v, list):
+                # ensure any adjustment amounts are also nulled
+                new_adjustments = []
+                for adj in v:
+                    if isinstance(adj, dict):
+                        adj2 = dict(adj)
+                        if "amount" in adj2:
+                            adj2["amount"] = None
+                        new_adjustments.append(_strip_money(adj2))
+                    else:
+                        new_adjustments.append(_strip_money(adj))
+                out[k] = new_adjustments
+                continue
+
+            out[k] = _strip_money(v)
+        return out
+    if isinstance(obj, list):
+        return [_strip_money(x) for x in obj]
+    return obj
 
 
-def _load_azure_openai_config() -> dict[str, str]:
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
-    key = os.getenv("AZURE_OPENAI_KEY", "").strip()
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip()
-    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "").strip() or "2024-08-01-preview"
+class ClaimNormalizer:
+    """
+    This service is explicitly NOT allowed to modify monetary values.
+    It may be used to standardize shape/fields, but all currency values are nulled.
 
-    missing = [name for name, value in [("AZURE_OPENAI_ENDPOINT", endpoint), ("AZURE_OPENAI_KEY", key), ("AZURE_OPENAI_DEPLOYMENT", deployment)] if not value]
-    if missing:
-        raise ClaimNormalizationError(f"Azure OpenAI config missing: {', '.join(missing)}")
+    NOTE:
+    - Do not call external AI services here.
+    - Deterministic systems must keep money parsing in deterministic parsers only.
+    """
 
-    return {
-        "endpoint": endpoint.rstrip("/"),
-        "key": key,
-        "deployment": deployment,
-        "api_version": api_version,
-    }
+    def normalize(self, raw_json: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(raw_json, dict):
+            raise ValueError("raw_json must be a dict")
+
+        # Deepcopy first so caller’s object is never mutated.
+        payload = deepcopy(raw_json)
+
+        required_keys = {"claim", "lines", "events"}
+        if not required_keys.issubset(payload):
+            raise ValueError("claim, lines, and events are required")
+
+        claim = payload.get("claim")
+        if not isinstance(claim, dict) or not claim.get("org_id"):
+            raise ValueError("claim.org_id is required")
+
+        status = claim.get("status")
+        if status is not None and status not in ClaimStatus._value2member_map_:
+            raise ValueError("invalid claim status")
+
+        lines = payload.get("lines")
+        if not isinstance(lines, list):
+            raise ValueError("lines must be a list")
+        for line in lines:
+            if not isinstance(line, dict) or "billed_amount" not in line:
+                raise ValueError("each line requires billed_amount")
+
+        events = payload.get("events")
+        if not isinstance(events, list):
+            raise ValueError("events must be a list")
+        for event in events:
+            if not isinstance(event, dict) or "event_type" not in event:
+                raise ValueError("each event requires event_type")
+            event_type = event.get("event_type")
+            if event_type is not None and event_type not in ClaimEventType._value2member_map_:
+                raise ValueError("invalid claim event type")
+
+        # Strip monetary fields everywhere.
+        return _strip_money(payload)
 
 
 def normalize_claims_from_azure(azure_json: dict[str, Any], document_type: str) -> list[dict[str, Any]]:
+    """
+    Backward-compatible helper for older call sites.
+    It does NOT call Azure OpenAI.
+    It returns a best-effort list wrapper around the provided structure,
+    with all monetary fields stripped.
+    """
     if not isinstance(azure_json, dict):
-        raise ClaimNormalizationError("azure_json must be a dict")
-    cfg = _load_azure_openai_config()
+        raise ValueError("azure_json must be a dict")
 
-    url = f"{cfg['endpoint']}/openai/deployments/{cfg['deployment']}/chat/completions"
-    params = {"api-version": cfg["api_version"]}
+    # Some upstreams might place claims under "claims"
+    claims = azure_json.get("claims")
+    if isinstance(claims, list):
+        return [_strip_money(deepcopy(c)) for c in claims if isinstance(c, (dict, list))]
 
-    system_prompt = (
-        "You normalize healthcare claims extracted from Azure Document Intelligence. "
-        "Return strict JSON matching the schema. "
-        "Never include PHI beyond what is provided. "
-        "Schema: list of claims with external_claim_id, patient_name, member_id, payer_name, dos_from, dos_to, "
-        "and lines[{cpt_code, units, billed_amount, allowed_amount, paid_amount, adjustments[{code, amount}]}]. "
-        "Dates must be YYYY-MM-DD or null. Numeric fields may be null."
-    )
-
-    user_payload = {
-        "document_type": document_type,
-        "azure_document_intelligence": azure_json,
-    }
-
-    body = {
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(user_payload)},
-        ],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-    }
-    headers = {
-        "api-key": cfg["key"],
-        "Content-Type": "application/json",
-    }
-
-    try:
-        with httpx.Client(timeout=60) as client:
-            resp = client.post(url, params=params, headers=headers, json=body)
-    except Exception as exc:
-        raise ClaimNormalizationError(f"Azure OpenAI request failed: {exc}")
-
-    if resp.status_code >= 400:
-        raise ClaimNormalizationError(f"Azure OpenAI HTTP {resp.status_code}")
-
-    try:
-        payload = resp.json()
-        content = (
-            payload.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-    except Exception as exc:
-        raise ClaimNormalizationError(f"Invalid Azure OpenAI response: {exc}")
-
-    if not content:
-        raise ClaimNormalizationError("Azure OpenAI returned empty content")
-
-    try:
-        parsed = json.loads(content)
-    except Exception as exc:
-        raise ClaimNormalizationError(f"Failed to parse normalized claims JSON: {exc}")
-
-    claims = parsed
-    if isinstance(parsed, dict) and "claims" in parsed:
-        claims = parsed.get("claims")
-    if not isinstance(claims, list):
-        raise ClaimNormalizationError("Normalized claims must be a list")
-    return claims
+    # Otherwise: return a single-item list containing the sanitized payload
+    return [_strip_money(deepcopy({"document_type": document_type, "payload": azure_json}))]
