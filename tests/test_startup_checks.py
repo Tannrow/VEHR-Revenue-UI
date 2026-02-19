@@ -46,7 +46,9 @@ def test_startup_fails_when_tanner_enabled_without_key(monkeypatch: pytest.Monke
 
 
 def test_startup_fails_for_non_postgresql_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _import_session(monkeypatch, "sqlite:///./invalid.db")
     with pytest.raises(RuntimeError):
-        _import_session(monkeypatch, "sqlite:///./invalid.db")
+        session._normalize_database_url(os.environ["DATABASE_URL"])
     sys.modules.pop("app.db.session", None)
-    _import_session(monkeypatch, "postgresql://user:pass@localhost:5432/okdb")
+    session_ok = _import_session(monkeypatch, "postgresql://user:pass@localhost:5432/okdb")
+    session_ok._normalize_database_url(os.environ["DATABASE_URL"])
