@@ -800,17 +800,18 @@ def parse_era_content(
 
         parsed_rows.extend(table_rows)
         parsed_rows.extend(monospace_rows)
-        parsed_rows.extend(
-            _fallback_table_rows(
-                block,
-                account_id=account_id,
-                claim_number=claim_number,
-                icn=icn,
-                patient_name=patient_name,
-                member_id=member_id,
-                claim_id=claim_id,
+        if not table_rows and not monospace_rows:
+            parsed_rows.extend(
+                _fallback_table_rows(
+                    block,
+                    account_id=account_id,
+                    claim_number=claim_number,
+                    icn=icn,
+                    patient_name=patient_name,
+                    member_id=member_id,
+                    claim_id=claim_id,
+                )
             )
-        )
 
         counters["rows_emitted_table"] += table_stats.get("logical_rows_emitted", 0)
         counters["rows_emitted_monospace"] += len(monospace_rows)
