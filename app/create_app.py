@@ -221,10 +221,12 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
 
     if include_router:
         from app.api.v1.router import api_router
+        from app.api.legacy_api import router as legacy_api_router
         from app.db.session import SessionLocal
         from sqlalchemy import text
 
         app.include_router(api_router)
+        app.include_router(legacy_api_router)
 
         @app.get("/health/db")
         def health_db():
