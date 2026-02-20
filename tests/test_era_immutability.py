@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from datetime import datetime
+import uuid
 
 import pytest
 import sqlalchemy.exc
@@ -8,49 +11,59 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 
+@contextmanager
 def _make_session():
     url = os.environ["DATABASE_URL"]
-    engine = create_engine(url)
-    session_factory = sessionmaker(bind=engine)
-    return session_factory()
+    engine = create_engine(url, future=True)
+    connection = engine.connect()
+    transaction = connection.begin()
+    session_factory = sessionmaker(bind=connection, future=True)
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+        engine.dispose()
 
 
 def test_revenue_era_structured_results_are_immutable_after_finalization() -> None:
-    db = _make_session()
-    try:
-        # Insert minimal parent rows
-        org_id = db.execute(
-            text(
-                "INSERT INTO organizations (name) VALUES (:name) RETURNING id"
-            ),
-            {"name": "ERA Immutability Org"},
-        ).scalar_one()
-        db.commit()
+    with _make_session() as db:
+        org_id = str(uuid.uuid4())
+        era_file_id = str(uuid.uuid4())
+        structured_id = str(uuid.uuid4())
 
-        era_file_id = db.execute(
+        # Insert minimal parent rows
+        db.execute(
+            text("INSERT INTO organizations (id, name, created_at) VALUES (:id, :name, :created_at)"),
+            {"id": org_id, "name": "ERA Immutability Org", "created_at": datetime.utcnow()},
+        )
+
+        db.execute(
             text(
                 "INSERT INTO revenue_era_files "
-                "(organization_id, file_name, sha256, storage_ref, status) "
-                "VALUES (:org_id, :file_name, :sha256, :storage_ref, :status) RETURNING id"
+                "(id, organization_id, file_name, sha256, storage_ref, status) "
+                "VALUES (:id, :org_id, :file_name, :sha256, :storage_ref, :status)"
             ),
             {
+                "id": era_file_id,
                 "org_id": org_id,
                 "file_name": "era.pdf",
                 "sha256": "immutable-era-sha",
                 "storage_ref": "s3://era.pdf",
                 "status": "structured",
             },
-        ).scalar_one()
-        db.commit()
+        )
 
-        structured_id = db.execute(
+        db.execute(
             text(
                 "INSERT INTO revenue_era_structured_results "
-                "(era_file_id, llm, deployment, api_version, prompt_version, structured_json) "
-                "VALUES (:era_file_id, :llm, :deployment, :api_version, :prompt_version, :json::jsonb) "
-                "RETURNING id"
+                "(id, era_file_id, llm, deployment, api_version, prompt_version, structured_json) "
+                "VALUES (:id, :era_file_id, :llm, :deployment, :api_version, :prompt_version, :json::jsonb)"
             ),
             {
+                "id": structured_id,
                 "era_file_id": era_file_id,
                 "llm": "gpt",
                 "deployment": "deploy",
@@ -58,8 +71,7 @@ def test_revenue_era_structured_results_are_immutable_after_finalization() -> No
                 "prompt_version": "p1",
                 "json": "{}",
             },
-        ).scalar_one()
-        db.commit()
+        )
 
         # Finalize the row
         db.execute(
@@ -68,30 +80,23 @@ def test_revenue_era_structured_results_are_immutable_after_finalization() -> No
             ),
             {"id": structured_id},
         )
-        db.commit()
 
         # Assert UPDATE is blocked
         with pytest.raises(sqlalchemy.exc.DBAPIError) as exc_info:
-            db.execute(
-                text(
-                    "UPDATE revenue_era_structured_results SET llm = :llm WHERE id = :id"
-                ),
-                {"llm": "blocked", "id": structured_id},
-            )
-            db.commit()
+            with db.begin_nested():
+                db.execute(
+                    text(
+                        "UPDATE revenue_era_structured_results SET llm = :llm WHERE id = :id"
+                    ),
+                    {"llm": "blocked", "id": structured_id},
+                )
         assert exc_info.value.orig.pgcode == "45000"
-        db.rollback()
 
         # Assert DELETE is blocked
         with pytest.raises(sqlalchemy.exc.DBAPIError) as exc_info:
-            db.execute(
-                text("DELETE FROM revenue_era_structured_results WHERE id = :id"),
-                {"id": structured_id},
-            )
-            db.commit()
+            with db.begin_nested():
+                db.execute(
+                    text("DELETE FROM revenue_era_structured_results WHERE id = :id"),
+                    {"id": structured_id},
+                )
         assert exc_info.value.orig.pgcode == "45000"
-        db.rollback()
-
-    finally:
-        db.rollback()
-        db.close()
