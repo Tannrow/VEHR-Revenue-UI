@@ -17,7 +17,7 @@ function applyRewrite(path) {
   if (path === "/api") {
     return `${normalized}/api/v1`;
   }
-  if (path.startsWith("/api/v1/")) {
+  if (path === "/api/v1" || path.startsWith("/api/v1/")) {
     return `${normalized}${path}`;
   }
   const match = /^\/api\/(?!v1\/)(.*)$/.exec(path);
@@ -28,7 +28,7 @@ function applyRewrite(path) {
 }
 
 assert.equal(applyRewrite("/api/tasks"), `${normalized}/api/v1/tasks`);
+assert.equal(applyRewrite("/api/v1"), `${normalized}/api/v1`);
 assert.equal(applyRewrite("/api/v1/tasks"), `${normalized}/api/v1/tasks`);
-assert.equal(applyRewrite("/api/v1/tasks").includes("/api/v1/v1/"), false);
 
 console.log("API rewrite checks passed");
