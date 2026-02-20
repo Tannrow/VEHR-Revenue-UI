@@ -77,6 +77,19 @@ def _seed_admin(db_session) -> tuple[str, str]:
         return token, org.id
 
 
+def test_upload_openapi_schema_is_multipart_binary_array() -> None:
+    schema = app.openapi()
+    request_body = schema["paths"]["/api/v1/revenue/era-pdfs/upload"]["post"]["requestBody"]
+    content = request_body["content"]["multipart/form-data"]["schema"]
+    body_schema = schema["components"]["schemas"][content["$ref"].split("/")[-1]]
+    properties = body_schema.get("properties", {})
+    files_property = properties.get("files", {})
+
+    assert request_body["required"] is True
+    assert files_property["type"] == "array"
+    assert files_property["items"] == {"type": "string", "format": "binary"}
+
+
 def test_upload_rejects_duplicate_sha(tmp_path, monkeypatch) -> None:
     session_factory = _setup_sqlite(tmp_path)
     token, _ = _seed_admin(session_factory)
@@ -101,6 +114,32 @@ def test_upload_rejects_duplicate_sha(tmp_path, monkeypatch) -> None:
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert response_dup.status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_upload_accepts_multiple_pdf_files(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    try:
+        with TestClient(app) as client:
+            files = [
+                ("files", ("era-1.pdf", b"%PDF-1.4 era one", "application/pdf")),
+                ("files", ("era-2.pdf", b"%PDF-1.4 era two", "application/pdf")),
+            ]
+            response = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert len(payload) == 2
+            for row in payload:
+                assert {"id", "file_name", "status", "created_at"} <= row.keys()
     finally:
         app.dependency_overrides.clear()
 

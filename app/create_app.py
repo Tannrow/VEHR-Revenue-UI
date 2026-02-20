@@ -111,6 +111,10 @@ def _skip_startup_checks() -> list[str]:
 
 
 def create_app(*, enable_startup_validation: bool = True, include_router: bool = True) -> FastAPI:
+    app_version = os.getenv("APP_VERSION", "").strip() or _safe_package_version("vehr")
+    if app_version in {"not-installed", "unknown"}:
+        app_version = ""
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if include_router:
@@ -169,7 +173,7 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
 
         yield
 
-    app = FastAPI(title="VEHR API", lifespan=lifespan)
+    app = FastAPI(title="VEHR API", version=app_version or "unknown", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -240,6 +244,13 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/version")
+    def version_info():
+        return {
+            "commit_sha": os.getenv("COMMIT_SHA", "").strip() or "unknown",
+            "app_version": app_version or "unknown",
+        }
 
     @app.get("/")
     def root():
