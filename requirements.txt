@@ -1,20 +1,21 @@
-fastapi==0.128.0
-uvicorn==0.40.0
-sqlalchemy==2.0.46
-pydantic==2.12.5
-alembic==1.18.3
-psycopg2-binary==2.9.9
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-python-multipart==0.0.9
-httpx==0.27.0
-boto3==1.34.0
-openai==1.57.4
-msal==1.34.0
-requests==2.32.3
-azure-ai-documentintelligence==1.0.2
-python-dotenv==1.0.1
-pandas==2.2.3
-openpyxl==3.1.5
-watchdog==5.0.3
+1| fastapi==0.128.0
+2| uvicorn==0.40.0
+3| sqlalchemy==2.0.46
+4| pydantic==2.12.5
+5| alembic==1.18.3
+6| psycopg==3.1.18
+7| psycopg2-binary==2.9.9
+8| python-jose[cryptography]==3.3.0
+9| passlib[bcrypt]==1.7.4
+10| bcrypt==4.0.1
+11| python-multipart==0.0.9
+12| httpx==0.27.0
+13| boto3==1.34.0
+14| openai==1.57.4
+15| msal==1.34.0
+16| requests==2.32.3
+17| azure-ai-documentintelligence==1.0.2
+18| python-dotenv==1.0.1
+19| pandas==2.2.3
+20| openpyxl==3.1.5
+21| watchdog==5.0.3
