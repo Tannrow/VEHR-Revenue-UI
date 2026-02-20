@@ -27,28 +27,30 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/test_db
-      ENVIRONMENT: test
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install backend dependencies
-        run: |
-          pip install -r requirements.txt
+      - name: Install deps
+        run: pip install -r requirements.txt
 
-      - name: Run Alembic migrations
-        run: |
-          alembic upgrade head
+      - name: Run migrations
+        run: alembic upgrade head
 
       - name: Run tests
-        run: |
-          PYTHONPATH=. pytest -q
+        run: PYTHONPATH=. pytest -q
 
       - name: Compile check
-        run: |
-          python -m compileall app
+        run: python -m compileall app
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Trigger Render deploy
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
