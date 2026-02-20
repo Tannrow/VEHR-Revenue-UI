@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -103,7 +103,7 @@ def _latest_structured_result(db: Session, era_file_id: str) -> RevenueEraStruct
 
 @router.post("/revenue/era-pdfs/upload", response_model=list[EraFileResponse])
 async def upload_era_pdfs(
-    files: list[UploadFile] = File(...),
+    files: List[UploadFile] = File(..., description="PDF files", media_type="application/pdf"),
     db: Session = Depends(get_db),
     organization=Depends(get_current_organization),
     membership: OrganizationMembership = Depends(get_current_membership),
