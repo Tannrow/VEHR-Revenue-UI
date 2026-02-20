@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "== Backend compile check =="
+python -m compileall app
+
+echo "== Backend tests =="
+PYTHONPATH=. python -m pytest -q
+
+if [ -d "frontend" ]; then
+  echo "== Frontend lint =="
+  (cd frontend && npm run lint)
+
+  echo "== Frontend build =="
+  (cd frontend && npm run build)
+fi
+
+echo "== All checks passed =="
