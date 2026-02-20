@@ -41,6 +41,11 @@ jobs:
       - name: Run migrations
         run: alembic upgrade head
 
+      - name: Show migration state
+        run: |
+          alembic current
+          alembic heads
+
       - name: Run tests
         run: PYTHONPATH=. pytest -q
 
