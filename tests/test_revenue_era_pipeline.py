@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -490,14 +491,13 @@ def test_process_phase2_failure_rolls_back_without_commits(tmp_path, monkeypatch
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
             assert file_row.organization_id == org_id
-            assert file_row.status == STATUS_UPLOADED
-            assert file_row.error_detail is None
-            assert (
+            assert file_row.status == STATUS_ERROR
+            assert "Jane Doe" not in (file_row.error_detail or "")
+            assert len(
                 db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
                 .scalars()
                 .all()
-                == []
-            )
+            ) == 1
             assert (
                 db.execute(select(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_id))
                 .scalars()
@@ -509,7 +509,7 @@ def test_process_phase2_failure_rolls_back_without_commits(tmp_path, monkeypatch
                 .scalars()
                 .all()
             )
-            assert {log.stage for log in logs} == {"UPLOAD"}
+            assert {"UPLOAD", "EXTRACTED"} <= {log.stage for log in logs}
             assert all("Jane Doe" not in (log.message or "") for log in logs)
     finally:
         app.dependency_overrides.clear()
@@ -647,7 +647,8 @@ def test_process_twice_does_not_duplicate_results(tmp_path, monkeypatch) -> None
                 f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert second.status_code == 200
+            assert second.status_code == 409
+            assert second.json()["detail"]["error_code"] == "ERA_ALREADY_COMPLETE"
 
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
@@ -731,7 +732,8 @@ def test_process_noop_when_already_normalized(tmp_path, monkeypatch) -> None:
                 f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert second.status_code == 200
+            assert second.status_code == 409
+            assert second.json()["detail"]["error_code"] == "ERA_ALREADY_COMPLETE"
             assert called == {"docintel": False, "structuring": False}
 
         with session_factory() as db:
@@ -811,9 +813,9 @@ def test_process_error_conflict_returns_state_and_diagnostics_endpoint(tmp_path,
         app.dependency_overrides.clear()
 
 
-def test_process_reuses_structured_results_without_extractor_calls(tmp_path, monkeypatch) -> None:
+def test_process_processing_structuring_state_returns_in_progress(tmp_path, monkeypatch) -> None:
     session_factory = _setup_sqlite(tmp_path)
-    token, org_id = _seed_admin(session_factory)
+    token, _ = _seed_admin(session_factory)
 
     monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
 
@@ -886,25 +888,221 @@ def test_process_reuses_structured_results_without_extractor_calls(tmp_path, mon
                 f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert process.status_code == 200
+            assert process.status_code == 409
+            assert process.json()["detail"]["error_code"] == "ERA_IN_PROGRESS"
 
         assert called == {"docintel": False, "structuring": False}
 
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
+            assert file_row.status == STATUS_STRUCTURED
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_double_process_call_returns_in_progress_conflict(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_docintel(_path: Path):
+        started.set()
+        assert release.wait(timeout=5)
+        return {"model_id": "di-model", "extracted": {"ok": True}}
+
+    structured = RevenueEraStructuredV1(
+        payer_name="Payer One",
+        claim_lines=[RevenueEraStructuredLine(claim_ref="CLM123", match_status=MATCH_UNMATCHED)],
+    )
+
+    monkeypatch.setattr(revenue_era, "run_doc_intel", _blocking_docintel)
+    monkeypatch.setattr(revenue_era, "run_structuring_llm", lambda payload: structured)
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            first_result: dict[str, int] = {}
+
+            def _first_call() -> None:
+                response = client.post(
+                    f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                first_result["status_code"] = response.status_code
+
+            thread = threading.Thread(target=_first_call)
+            thread.start()
+            assert started.wait(timeout=5)
+
+            second = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert second.status_code == 409
+            assert second.json()["detail"]["error_code"] == "ERA_IN_PROGRESS"
+
+            release.set()
+            thread.join(timeout=5)
+            assert first_result["status_code"] == 200
+
+        with session_factory() as db:
+            file_row = db.get(RevenueEraFile, era_id)
             assert file_row.status == STATUS_NORMALIZED
-            lines = (
+            assert file_row.current_stage == "complete"
+            extract_rows = (
+                db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            assert len(extract_rows) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_retry_resets_pipeline_and_reprocesses(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, org_id = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    fail_extract = {"value": True}
+
+    def _docintel(_path: Path):
+        if fail_extract["value"]:
+            raise TimeoutError("timed out")
+        return {"model_id": "di-model", "extracted": {"ok": True}}
+
+    structured = RevenueEraStructuredV1(
+        payer_name="Payer One",
+        claim_lines=[RevenueEraStructuredLine(claim_ref="CLM123", match_status=MATCH_UNMATCHED)],
+    )
+
+    monkeypatch.setattr(revenue_era, "run_doc_intel", _docintel)
+    monkeypatch.setattr(revenue_era, "run_structuring_llm", lambda payload: structured)
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            first = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert first.status_code == 502
+
+            blocked = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert blocked.status_code == 409
+            assert blocked.json()["detail"]["error_code"] == "ERA_INVALID_STATE"
+
+        with session_factory() as db:
+            db.add(
+                RevenueEraExtractResult(
+                    era_file_id=era_id,
+                    extractor="azure_doc_intelligence",
+                    model_id="old-di",
+                    extracted_json={"stale": True},
+                )
+            )
+            db.add(
+                RevenueEraStructuredResult(
+                    era_file_id=era_id,
+                    llm="gpt",
+                    deployment="old",
+                    api_version="v1",
+                    prompt_version="p1",
+                    structured_json=structured.model_dump(mode="json"),
+                )
+            )
+            db.add(
+                RevenueEraClaimLine(
+                    era_file_id=era_id,
+                    line_index=0,
+                    claim_ref="OLD",
+                    service_date=None,
+                    proc_code=None,
+                    charge_cents=1,
+                    allowed_cents=1,
+                    paid_cents=1,
+                    adjustments_json=[],
+                    match_status=MATCH_UNMATCHED,
+                )
+            )
+            db.add(
+                RevenueEraWorkItem(
+                    organization_id=org_id,
+                    era_file_id=era_id,
+                    era_claim_line_id=None,
+                    type="REVIEW_REQUIRED",
+                    dollars_cents=1,
+                    payer_name="Old",
+                    claim_ref="OLD",
+                    status="OPEN",
+                )
+            )
+            db.commit()
+
+        fail_extract["value"] = False
+        with TestClient(app) as client:
+            retried = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process?retry=true",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert retried.status_code == 200
+
+        with session_factory() as db:
+            file_row = db.get(RevenueEraFile, era_id)
+            assert file_row.status == STATUS_NORMALIZED
+            assert file_row.last_error_stage is None
+            extract_rows = (
+                db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            structured_rows = (
+                db.execute(select(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            claim_rows = (
                 db.execute(select(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_id))
                 .scalars()
                 .all()
             )
-            work_items = (
-                db.execute(select(RevenueEraWorkItem).where(RevenueEraWorkItem.organization_id == org_id))
+            work_rows = (
+                db.execute(select(RevenueEraWorkItem).where(RevenueEraWorkItem.era_file_id == era_id))
                 .scalars()
                 .all()
             )
-            assert len(lines) == 1
-            assert len(work_items) == 1
+            assert len(extract_rows) == 1
+            assert extract_rows[0].model_id == "di-model"
+            assert len(structured_rows) == 1
+            assert len(claim_rows) == 1
+            assert claim_rows[0].claim_ref == "CLM123"
+            assert len(work_rows) == 1
+            logs = (
+                db.execute(select(RevenueEraProcessingLog).where(RevenueEraProcessingLog.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            assert any(log.message == "event=retry_reset" for log in logs)
     finally:
         app.dependency_overrides.clear()
 
