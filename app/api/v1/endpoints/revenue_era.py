@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import os
+import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, List
 from uuid import uuid4
 
+import httpx
+import requests
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+
+try:
+    from azure.core.exceptions import AzureError
+except Exception:  # pragma: no cover - fallback when azure libs are unavailable in local test env
+    class AzureError(Exception):
+        pass
 
 from app.core.deps import get_current_membership, get_current_organization, require_permission
 from app.db.models.organization_membership import OrganizationMembership
@@ -53,6 +64,7 @@ from app.services.revenue_era import (
 from app.services.storage import sanitize_filename
 
 router = APIRouter(tags=["Revenue ERA"])
+logger = logging.getLogger(__name__)
 
 
 class EraFileResponse(BaseModel):
@@ -512,6 +524,7 @@ def process_era_pdf(
     retry: bool = False,
     _: None = Depends(require_permission("billing:write")),
 ) -> EraFileResponse:
+    timeout_seconds = 30
     era_file = (
         db.execute(
             select(RevenueEraFile)
@@ -564,6 +577,21 @@ def process_era_pdf(
         db.commit()
         raise HTTPException(status_code=http_status, detail=detail)
 
+    def _run_with_timeout(func, *args):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, *args)
+            return future.result(timeout=timeout_seconds)
+
+    def _external_service_failure(stage: str, message: str) -> JSONResponse:
+        era_file.status = STATUS_ERROR
+        era_file.error_detail = message[:500]
+        record_processing_log(db, era_file_id=era_file.id, stage=stage, message=message, commit=False)
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": "external_service_failure", "stage": stage},
+        )
+
     era_file.error_detail = None
 
     if era_file.status in {STATUS_EXTRACTED, STATUS_STRUCTURED} and not extract_row:
@@ -574,11 +602,13 @@ def process_era_pdf(
 
     if era_file.status in {STATUS_UPLOADED, STATUS_ERROR} and not extract_row:
         try:
-            di_result = run_doc_intel(pdf_path)
-        except HTTPException as exc:
-            _fail(f"extract_failed: {exc.detail or exc}", exc.status_code, "extract_failed")
-        except Exception as exc:
-            _fail(f"extract_failed: {exc}", status.HTTP_502_BAD_GATEWAY, "doc_intelligence_failed")
+            di_result = _run_with_timeout(run_doc_intel, pdf_path)
+        except (TimeoutError, FuturesTimeoutError, requests.exceptions.Timeout, httpx.TimeoutException, AzureError, Exception) as exc:
+            logger.exception(
+                "external_service_failure",
+                extra={"stage": "extract", "era_file_id": era_file.id, "organization_id": organization.id},
+            )
+            return _external_service_failure("extract", f"extract_failed: {exc}")
 
         extracted_payload = di_result.get("extracted") or {}
         page_count = 0
@@ -614,14 +644,16 @@ def process_era_pdf(
         if not extract_row:
             _fail("extract_missing", status.HTTP_400_BAD_REQUEST, "extract_missing")
         try:
-            structured = run_structuring_llm(extract_row.extracted_json)
+            structured = _run_with_timeout(run_structuring_llm, extract_row.extracted_json)
         except ValidationError as exc:
             detail = summarize_validation_error(exc)
             _fail(f"validation_failed: {detail}", status.HTTP_422_UNPROCESSABLE_ENTITY, "structured_validation_failed")
-        except HTTPException as exc:
-            _fail(f"structuring_failed: {exc.detail or exc}", exc.status_code, "structuring_failed")
-        except Exception as exc:
-            _fail(f"structuring_failed: {exc}", status.HTTP_502_BAD_GATEWAY, "structuring_failed")
+        except (TimeoutError, FuturesTimeoutError, requests.exceptions.Timeout, httpx.TimeoutException, AzureError, Exception) as exc:
+            logger.exception(
+                "external_service_failure",
+                extra={"stage": "structuring", "era_file_id": era_file.id, "organization_id": organization.id},
+            )
+            return _external_service_failure("structuring", f"structuring_failed: {exc}")
 
         db.execute(delete(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_file.id))
         structured_row = RevenueEraStructuredResult(

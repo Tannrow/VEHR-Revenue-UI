@@ -338,6 +338,7 @@ def test_structuring_failure_sets_error_status(tmp_path, monkeypatch) -> None:
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert process.status_code == 502
+            assert process.json() == {"error": "external_service_failure", "stage": "structuring"}
 
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
@@ -359,7 +360,45 @@ def test_structuring_failure_sets_error_status(tmp_path, monkeypatch) -> None:
                 .scalars()
                 .all()
             )
-            assert any(log.stage == "ERROR" for log in logs)
+            assert any(log.stage == "structuring" for log in logs)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_extract_failure_returns_external_service_error_payload(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(revenue_era, "run_doc_intel", lambda _path: (_ for _ in ()).throw(TimeoutError("timed out")))
+
+    try:
+        with TestClient(app) as client:
+            files = [("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))]
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            process = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert process.status_code == 502
+            assert process.json() == {"error": "external_service_failure", "stage": "extract"}
+
+        with session_factory() as db:
+            file_row = db.get(RevenueEraFile, era_id)
+            assert file_row.status == STATUS_ERROR
+            logs = (
+                db.execute(select(RevenueEraProcessingLog).where(RevenueEraProcessingLog.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            assert any(log.stage == "extract" for log in logs)
     finally:
         app.dependency_overrides.clear()
 
