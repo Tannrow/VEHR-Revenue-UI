@@ -89,6 +89,21 @@ jobs:
           # CI executes upgrade only; downgrades (which can be ambiguous at mergepoints) are not part of this check.
           alembic upgrade head
 
+      - name: Validate Alembic revision graph has a single head
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          heads = script.get_heads()
+          if len(heads) != 1:
+              raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
+          print(f"Alembic single head check passed: {heads[0]}")
+          PY
+
       - name: Run tests
         shell: bash
         run: |
