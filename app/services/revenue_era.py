@@ -249,7 +249,7 @@ def store_revenue_file(
     duplicate = db.execute(
         select(RevenueEraFile).where(
             RevenueEraFile.organization_id == organization_id,
-            RevenueEraFile.file_sha256 == sha256,
+            RevenueEraFile.sha256 == sha256,
         )
     ).scalar_one_or_none()
     if duplicate:
@@ -260,7 +260,6 @@ def store_revenue_file(
         organization_id=organization_id,
         file_name=file_name,
         sha256=sha256,
-        file_sha256=sha256,
         payer_name_raw=payer_name_raw,
         received_date=received_date,
         storage_ref=storage_ref,

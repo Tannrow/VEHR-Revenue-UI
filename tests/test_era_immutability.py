@@ -57,15 +57,14 @@ def test_revenue_era_structured_results_are_immutable_after_finalization() -> No
         db.execute(
             text(
                 "INSERT INTO revenue_era_files "
-                "(id, organization_id, file_name, sha256, file_sha256, storage_ref, status) "
-                "VALUES (:id, :org_id, :file_name, :sha256, :file_sha256, :storage_ref, :status)"
+                "(id, organization_id, file_name, sha256, storage_ref, status) "
+                "VALUES (:id, :org_id, :file_name, :sha256, :storage_ref, :status)"
             ),
             {
                 "id": era_file_id,
                 "org_id": org_id,
                 "file_name": "era.pdf",
                 "sha256": "immutable-era-sha",
-                "file_sha256": "immutable-era-sha",
                 "storage_ref": "s3://era.pdf",
                 "status": "structured",
             },

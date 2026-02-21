@@ -199,7 +199,7 @@ async def upload_era_pdfs(
             duplicate = db.execute(
                 select(RevenueEraFile).where(
                     RevenueEraFile.organization_id == organization.id,
-                    RevenueEraFile.file_sha256 == sha256,
+                    RevenueEraFile.sha256 == sha256,
                 )
             ).scalar_one_or_none()
             if duplicate:
@@ -276,7 +276,7 @@ async def validate_era_pdf(
         duplicate = db.execute(
             select(RevenueEraFile).where(
                 RevenueEraFile.organization_id == organization.id,
-                RevenueEraFile.file_sha256 == sha256,
+                RevenueEraFile.sha256 == sha256,
             )
         ).scalar_one_or_none()
         if duplicate:
@@ -291,7 +291,6 @@ async def validate_era_pdf(
             organization_id=organization.id,
             file_name=safe_name,
             sha256=sha256,
-            file_sha256=sha256,
             payer_name_raw=None,
             received_date=None,
             storage_ref=final_rel.as_posix(),

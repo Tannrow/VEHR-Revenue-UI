@@ -116,6 +116,10 @@ def test_upload_rejects_duplicate_sha(tmp_path, monkeypatch) -> None:
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert response_dup.status_code == 409
+        with session_factory() as db:
+            rows = db.execute(select(RevenueEraFile)).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].sha256
     finally:
         app.dependency_overrides.clear()
 
@@ -234,7 +238,6 @@ def test_claim_lines_unique_per_claim_key(tmp_path, monkeypatch) -> None:
                 organization_id=org_id,
                 file_name="era.pdf",
                 sha256="abc",
-                file_sha256="abc",
                 storage_ref="s3://era.pdf",
                 status="uploaded",
             )
@@ -959,7 +962,6 @@ def test_worklist_sorting_is_deterministic_with_tiebreaker(tmp_path, monkeypatch
                 organization_id=org_id,
                 file_name="era.pdf",
                 sha256="sha",
-                file_sha256="sha",
                 storage_ref="s3://era.pdf",
                 status=STATUS_NORMALIZED,
             )

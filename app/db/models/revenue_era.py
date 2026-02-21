@@ -35,14 +35,12 @@ class RevenueEraFile(Base):
     __tablename__ = "revenue_era_files"
     __table_args__ = (
         UniqueConstraint("organization_id", "sha256", name="uq_revenue_era_files_org_sha"),
-        UniqueConstraint("organization_id", "file_sha256", name="uq_revenue_era_files_org_file_sha256"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     organization_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     file_name: Mapped[str] = mapped_column(Text, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     payer_name_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
     received_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     storage_ref: Mapped[str] = mapped_column(Text, nullable=False)
