@@ -171,7 +171,7 @@ Run Revenue OS Standalone
    - Use frontend page: /revenue/era-intake
    - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
 
-Local Smoke Test
+## Local Smoke Test
 
 Prerequisites:
 

@@ -71,7 +71,7 @@ def _detail(payload: dict) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Local Revenue OS smoke path (bootstrap -> login -> upload -> process -> debug)")
+    parser = argparse.ArgumentParser(description="Local Revenue OS smoke test (bootstrap -> login -> upload -> process -> debug)")
     parser.add_argument("--file", required=True, help="Absolute path to ERA PDF")
     parser.add_argument("--base-url", default="http://localhost:8000")
     parser.add_argument("--org-name", default="Local Revenue OS")
@@ -176,8 +176,11 @@ def main() -> int:
     if debug_status != 200:
         print(f"stage=debug status={debug_status}", file=sys.stderr)
         return 1
+    if not isinstance(debug_payload, dict):
+        print("stage=debug status=200 error=invalid_response_shape", file=sys.stderr)
+        return 1
 
-    era_file = debug_payload.get("era_file") if isinstance(debug_payload, dict) else {}
+    era_file = debug_payload.get("era_file")
     if (
         "extracted_json" in debug_payload
         or "structured_json" in debug_payload
@@ -186,8 +189,8 @@ def main() -> int:
         print("stage=debug error=unsafe_keys_present", file=sys.stderr)
         return 1
 
-    row_counts = debug_payload.get("row_counts") if isinstance(debug_payload, dict) else {}
-    logs = debug_payload.get("latest_processing_logs") if isinstance(debug_payload, dict) else []
+    row_counts = debug_payload.get("row_counts")
+    logs = debug_payload.get("latest_processing_logs")
     latest_stages = [entry.get("stage") for entry in logs if isinstance(entry, dict) and isinstance(entry.get("stage"), str)][
         :5
     ]
