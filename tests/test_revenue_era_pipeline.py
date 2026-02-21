@@ -190,6 +190,8 @@ def test_debug_endpoint_excludes_raw_json_fields(tmp_path, monkeypatch) -> None:
             assert "structured_json" not in debug_body
             assert "extracted_json" not in debug_body["era_file"]
             assert "structured_json" not in debug_body["era_file"]
+            safe_error = debug_body["era_file"].get("error_detail_safe_json") or {}
+            assert {"patient_name", "member_id", "ssn", "dob"}.isdisjoint(set(safe_error.keys()))
     finally:
         app.dependency_overrides.clear()
 
@@ -385,7 +387,8 @@ def test_structuring_failure_sets_error_status(tmp_path, monkeypatch) -> None:
             assert process.json() == {
                 "error": "external_service_failure",
                 "stage": "structuring",
-                "error_code": "STRUCTURE_UNKNOWN_ERROR",
+                "error_code": "STRUCTURE_AZURE_ERROR",
+                "request_id": None,
             }
 
         with session_factory() as db:
@@ -445,6 +448,7 @@ def test_extract_failure_returns_external_service_error_payload(tmp_path, monkey
                 "error": "external_service_failure",
                 "stage": "extract",
                 "error_code": "EXTRACT_TIMEOUT",
+                "request_id": None,
             }
 
         with session_factory() as db:
@@ -493,7 +497,8 @@ def test_extract_failure_error_detail_is_sanitized(tmp_path, monkeypatch) -> Non
             assert process.json() == {
                 "error": "external_service_failure",
                 "stage": "extract",
-                "error_code": "EXTRACT_UNKNOWN_ERROR",
+                "error_code": "EXTRACT_AZURE_ERROR",
+                "request_id": None,
             }
 
         with session_factory() as db:
@@ -503,7 +508,7 @@ def test_extract_failure_error_detail_is_sanitized(tmp_path, monkeypatch) -> Non
             assert "John Doe" not in file_row.error_detail
             assert "member_id=12345" not in file_row.error_detail
             detail = json.loads(file_row.error_detail)
-            assert detail["error_code"] == "EXTRACT_UNKNOWN_ERROR"
+            assert detail["error_code"] == "EXTRACT_AZURE_ERROR"
             assert detail["exception_type"] == "_PhiLikeError"
             assert detail["stage"] == "extract"
     finally:
@@ -545,6 +550,7 @@ def test_process_phase2_failure_rolls_back_without_commits(tmp_path, monkeypatch
                 "error": "external_service_failure",
                 "stage": "structuring",
                 "error_code": "STRUCTURE_TIMEOUT",
+                "request_id": None,
             }
 
         with session_factory() as db:
@@ -610,6 +616,12 @@ def test_validation_failure_sets_error_status_and_logs(tmp_path, monkeypatch) ->
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert process.status_code == 422
+            assert process.json() == {
+                "error": "structured_schema_invalid",
+                "stage": "structuring",
+                "error_code": "STRUCTURE_SCHEMA_INVALID",
+                "request_id": None,
+            }
 
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
@@ -844,18 +856,15 @@ def test_process_error_conflict_returns_state_and_diagnostics_endpoint(tmp_path,
                 "error": "external_service_failure",
                 "stage": "extract",
                 "error_code": "EXTRACT_TIMEOUT",
+                "request_id": None,
             }
 
             second = client.post(
                 f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert second.status_code == 409
-            detail = second.json()["detail"]
-            assert detail["error_code"] == "ERA_INVALID_STATE"
-            assert detail["era_file_id"] == era_id
-            assert detail["current_status"] == STATUS_ERROR
-            assert detail["retry_required"] is True
+            assert second.status_code == 502
+            assert second.json()["error_code"] == "EXTRACT_TIMEOUT"
 
             diagnostics = client.get(
                 f"/api/v1/revenue/era-pdfs/{era_id}/diagnostics",
@@ -967,7 +976,7 @@ def test_process_processing_structuring_state_returns_in_progress(tmp_path, monk
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert process.status_code == 409
-            assert process.json()["detail"]["error_code"] == "ERA_IN_PROGRESS"
+            assert process.json()["detail"]["error_code"] == "ERA_ALREADY_PROCESSING"
 
         assert called == {"docintel": False, "structuring": False}
 
@@ -1027,7 +1036,7 @@ def test_double_process_call_returns_in_progress_conflict(tmp_path, monkeypatch)
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert second.status_code == 409
-            assert second.json()["detail"]["error_code"] == "ERA_IN_PROGRESS"
+            assert second.json()["detail"]["error_code"] == "ERA_ALREADY_PROCESSING"
 
             release.set()
             thread.join(timeout=5)
@@ -1043,6 +1052,57 @@ def test_double_process_call_returns_in_progress_conflict(tmp_path, monkeypatch)
                 .all()
             )
             assert len(extract_rows) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_process_blocks_when_finalized(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, org_id = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+        with session_factory() as db:
+            row = db.get(RevenueEraFile, era_id)
+            row.status = STATUS_ERROR
+            db.add(
+                RevenueEraValidationReport(
+                    org_id=org_id,
+                    era_file_id=era_id,
+                    claim_count=0,
+                    line_count=0,
+                    work_item_count=0,
+                    total_paid_cents=0,
+                    total_adjustment_cents=0,
+                    total_patient_resp_cents=0,
+                    net_cents=0,
+                    reconciled=False,
+                    declared_total_missing=True,
+                    phi_scan_passed=True,
+                    phi_hit_count=0,
+                    finalized=True,
+                )
+            )
+            db.add(row)
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["error_code"] == "ERA_FINALIZED"
     finally:
         app.dependency_overrides.clear()
 
@@ -1156,8 +1216,8 @@ def test_retry_resets_pipeline_and_reprocesses(tmp_path, monkeypatch) -> None:
                 f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert blocked.status_code == 409
-            assert blocked.json()["detail"]["error_code"] == "ERA_INVALID_STATE"
+            assert blocked.status_code == 502
+            assert blocked.json()["error_code"] == "EXTRACT_TIMEOUT"
 
         with session_factory() as db:
             db.add(
@@ -1208,8 +1268,42 @@ def test_retry_resets_pipeline_and_reprocesses(tmp_path, monkeypatch) -> None:
 
         fail_extract["value"] = False
         with TestClient(app) as client:
+            reset = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/retry-reset",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert reset.status_code == 200
+            assert reset.json()["status"] == STATUS_UPLOADED
+
+        with session_factory() as db:
+            assert (
+                db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
+                .scalars()
+                .all()
+                == []
+            )
+            assert (
+                db.execute(select(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_id))
+                .scalars()
+                .all()
+                == []
+            )
+            assert (
+                db.execute(select(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_id))
+                .scalars()
+                .all()
+                == []
+            )
+            assert (
+                db.execute(select(RevenueEraWorkItem).where(RevenueEraWorkItem.era_file_id == era_id))
+                .scalars()
+                .all()
+                == []
+            )
+
+        with TestClient(app) as client:
             retried = client.post(
-                f"/api/v1/revenue/era-pdfs/{era_id}/process?retry=true",
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert retried.status_code == 200

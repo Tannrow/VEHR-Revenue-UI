@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import date, datetime
 from pathlib import Path
@@ -175,6 +176,7 @@ class EraDebugResponse(BaseModel):
     era_file: EraDebugFileResponse
     latest_processing_logs: list[EraDebugLogResponse]
     row_counts: EraDebugRowCountsResponse
+    durations_ms: dict[str, int] | None = None
 
 
 def _repo_root() -> Path:
@@ -682,7 +684,18 @@ def process_era_pdf(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "error_code": "ERA_IN_PROGRESS",
+                "error_code": "ERA_ALREADY_PROCESSING",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+            },
+        )
+
+    if validation_report is not None and validation_report.finalized:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_FINALIZED",
                 "era_file_id": era_file.id,
                 "current_status": era_file.status,
             },
@@ -699,23 +712,8 @@ def process_era_pdf(
             },
         )
 
-    if era_file.status == STATUS_ERROR and not retry:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error_code": "ERA_INVALID_STATE",
-                "era_file_id": era_file.id,
-                "current_status": era_file.status,
-                "retry_required": True,
-                "has_extract_result": extract_row is not None,
-                "has_structured_result": structured_row is not None,
-                "finalized": validation_report.finalized if validation_report else None,
-            },
-        )
-
-    if retry:
-        if era_file.status != STATUS_ERROR or (validation_report is not None and validation_report.finalized):
+    if retry or era_file.status == STATUS_ERROR:
+        if era_file.status != STATUS_ERROR:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -734,7 +732,7 @@ def process_era_pdf(
         record_processing_log(
             db,
             era_file_id=era_file.id,
-            stage="RETRY",
+            stage="retry_reset",
             message="event=retry_reset",
             commit=False,
         )
@@ -783,16 +781,22 @@ def process_era_pdf(
         response = getattr(exc, "response", None)
         headers = getattr(response, "headers", None)
         if headers:
-            return headers.get("x-ms-request-id") or headers.get("x-request-id")
+            return (
+                headers.get("x-ms-request-id")
+                or headers.get("x-request-id")
+                or headers.get("apim-request-id")
+                or headers.get("x-ms-client-request-id")
+            )
         return None
 
     def _external_service_failure(stage: str, error_code: str, exc: Exception) -> JSONResponse:
         era_file = _locked_era_file()
+        request_id = _exception_request_id(exc)
         safe_error = {
             "error_code": error_code,
             "exception_type": exc.__class__.__name__,
             "stage": stage,
-            "request_id": _exception_request_id(exc),
+            "request_id": request_id,
         }
         _set_status(era_file, STATUS_ERROR)
         era_file.last_error_stage = stage
@@ -810,7 +814,54 @@ def process_era_pdf(
         db.commit()
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": "external_service_failure", "stage": stage, "error_code": error_code},
+            content={
+                "error": "external_service_failure",
+                "stage": stage,
+                "error_code": error_code,
+                "request_id": request_id,
+            },
+        )
+
+    def _schema_invalid_failure(stage: str, error_code: str) -> JSONResponse:
+        era_file = _locked_era_file()
+        safe_error = {"error_code": error_code, "exception_type": "ValidationError", "stage": stage, "request_id": None}
+        _set_status(era_file, STATUS_ERROR)
+        era_file.last_error_stage = stage
+        era_file.current_stage = stage
+        if era_file.stage_started_at and era_file.stage_completed_at is None:
+            era_file.stage_completed_at = utc_now()
+        era_file.error_detail = json.dumps(safe_error, separators=(",", ":"), ensure_ascii=True)
+        record_processing_log(
+            db,
+            era_file_id=era_file.id,
+            stage=stage,
+            message=f"error_code={error_code}; exception_type=ValidationError; request_id=",
+            commit=False,
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error": "structured_schema_invalid",
+                "stage": stage,
+                "error_code": error_code,
+                "request_id": None,
+            },
+        )
+
+    def _log_process_failure(stage: str, error_code: str, exc: Exception, *, duration_ms: int) -> None:
+        logger.error(
+            "era_process_failed",
+            extra={
+                "event": "era_process_failed",
+                "stage": stage,
+                "era_file_id": era_file.id,
+                "organization_id": organization.id,
+                "error_code": error_code,
+                "exception_type": exc.__class__.__name__,
+                "request_id": _exception_request_id(exc),
+                "duration_ms": duration_ms,
+            },
         )
 
     era_file.error_detail = None
@@ -821,50 +872,25 @@ def process_era_pdf(
     db.add(era_file)
     db.commit()
 
+    extract_started_at = time.perf_counter()
     try:
         di_result = _run_with_timeout(run_doc_intel, pdf_path)
     except (TimeoutError, FuturesTimeoutError, requests.exceptions.Timeout, httpx.TimeoutException) as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "extract",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "EXTRACT_TIMEOUT",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
+        duration_ms = int((time.perf_counter() - extract_started_at) * 1000)
+        _log_process_failure("extract", "EXTRACT_TIMEOUT", exc, duration_ms=duration_ms)
         return _external_service_failure("extract", "EXTRACT_TIMEOUT", exc)
+    except (requests.exceptions.RequestException, httpx.HTTPError) as exc:
+        duration_ms = int((time.perf_counter() - extract_started_at) * 1000)
+        _log_process_failure("extract", "EXTRACT_HTTP_ERROR", exc, duration_ms=duration_ms)
+        return _external_service_failure("extract", "EXTRACT_HTTP_ERROR", exc)
     except AzureError as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "extract",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "EXTRACT_AZURE_ERROR",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
+        duration_ms = int((time.perf_counter() - extract_started_at) * 1000)
+        _log_process_failure("extract", "EXTRACT_AZURE_ERROR", exc, duration_ms=duration_ms)
         return _external_service_failure("extract", "EXTRACT_AZURE_ERROR", exc)
     except Exception as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "extract",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "EXTRACT_UNKNOWN_ERROR",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
-        return _external_service_failure("extract", "EXTRACT_UNKNOWN_ERROR", exc)
+        duration_ms = int((time.perf_counter() - extract_started_at) * 1000)
+        _log_process_failure("extract", "EXTRACT_AZURE_ERROR", exc, duration_ms=duration_ms)
+        return _external_service_failure("extract", "EXTRACT_AZURE_ERROR", exc)
 
     extracted_payload = di_result.get("extracted") or {}
     page_count = 0
@@ -899,7 +925,10 @@ def process_era_pdf(
         db,
         era_file_id=era_file.id,
         stage="EXTRACTED",
-        message=f"extractor={extract_row.extractor}; model_id={extract_row.model_id}; page_count={page_count}",
+        message=(
+            f"extractor={extract_row.extractor}; model_id={extract_row.model_id}; page_count={page_count}; "
+            f"request_id={di_result.get('request_id') or ''}"
+        ),
         commit=False,
     )
     db.commit()
@@ -914,52 +943,40 @@ def process_era_pdf(
     structured: RevenueEraStructuredV1 | None = None
     if not extract_row:
         _fail("extract", "extract_missing", status.HTTP_400_BAD_REQUEST, "extract_missing")
+    structuring_started_at = time.perf_counter()
     try:
         structured = _run_with_timeout(run_structuring_llm, extract_row.extracted_json)
     except ValidationError:
-        _fail("structuring", "validation_failed", status.HTTP_422_UNPROCESSABLE_ENTITY, "structured_validation_failed")
+        duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
+        logger.error(
+            "era_process_failed",
+            extra={
+                "event": "era_process_failed",
+                "stage": "structuring",
+                "era_file_id": era_file.id,
+                "organization_id": organization.id,
+                "error_code": "STRUCTURE_SCHEMA_INVALID",
+                "request_id": None,
+                "duration_ms": duration_ms,
+            },
+        )
+        return _schema_invalid_failure("structuring", "STRUCTURE_SCHEMA_INVALID")
     except (TimeoutError, FuturesTimeoutError, requests.exceptions.Timeout, httpx.TimeoutException) as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "structuring",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "STRUCTURE_TIMEOUT",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
+        duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
+        _log_process_failure("structuring", "STRUCTURE_TIMEOUT", exc, duration_ms=duration_ms)
         return _external_service_failure("structuring", "STRUCTURE_TIMEOUT", exc)
+    except (requests.exceptions.RequestException, httpx.HTTPError) as exc:
+        duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
+        _log_process_failure("structuring", "STRUCTURE_HTTP_ERROR", exc, duration_ms=duration_ms)
+        return _external_service_failure("structuring", "STRUCTURE_HTTP_ERROR", exc)
     except AzureError as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "structuring",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "STRUCTURE_AZURE_ERROR",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
+        duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
+        _log_process_failure("structuring", "STRUCTURE_AZURE_ERROR", exc, duration_ms=duration_ms)
         return _external_service_failure("structuring", "STRUCTURE_AZURE_ERROR", exc)
     except Exception as exc:
-        logger.error(
-            "era_process_failed",
-            extra={
-                "event": "era_process_failed",
-                "stage": "structuring",
-                "era_file_id": era_file.id,
-                "organization_id": organization.id,
-                "error_code": "STRUCTURE_UNKNOWN_ERROR",
-                "exception_type": exc.__class__.__name__,
-                "request_id": _exception_request_id(exc),
-            },
-        )
-        return _external_service_failure("structuring", "STRUCTURE_UNKNOWN_ERROR", exc)
+        duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
+        _log_process_failure("structuring", "STRUCTURE_AZURE_ERROR", exc, duration_ms=duration_ms)
+        return _external_service_failure("structuring", "STRUCTURE_AZURE_ERROR", exc)
 
     era_file = _locked_era_file()
     if era_file.status != STATUS_PROCESSING_STRUCTURING:
@@ -1136,7 +1153,79 @@ def get_era_debug(
             EraDebugLogResponse(created_at=row.created_at, stage=row.stage, message=row.message) for row in latest_logs
         ],
         row_counts=counts,
+        durations_ms={
+            "stage_duration": int((era_file.stage_completed_at - era_file.stage_started_at).total_seconds() * 1000)
+        }
+        if era_file.stage_started_at and era_file.stage_completed_at
+        else None,
     )
+
+
+@router.post("/revenue/era-pdfs/{era_file_id}/retry-reset", response_model=EraFileResponse)
+def retry_reset_era_pdf(
+    era_file_id: str,
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("billing:write")),
+) -> EraFileResponse:
+    era_file = (
+        db.execute(
+            select(RevenueEraFile)
+            .where(
+                RevenueEraFile.id == era_file_id,
+                RevenueEraFile.organization_id == organization.id,
+            )
+            .with_for_update()
+        )
+        .scalar_one_or_none()
+    )
+    if not era_file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="era_file_not_found")
+
+    validation_report = _latest_validation_report(db, organization_id=organization.id, era_file_id=era_file.id)
+    if era_file.status != STATUS_ERROR:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_INVALID_STATE",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+            },
+        )
+    if validation_report is not None and validation_report.finalized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_FINALIZED",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+            },
+        )
+
+    db.execute(delete(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_file.id))
+    db.execute(delete(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_file.id))
+    db.execute(delete(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_file.id))
+    db.execute(delete(RevenueEraWorkItem).where(RevenueEraWorkItem.era_file_id == era_file.id))
+    era_file.status = STATUS_UPLOADED
+    era_file.error_detail = None
+    era_file.last_error_stage = None
+    era_file.current_stage = None
+    era_file.stage_started_at = None
+    era_file.stage_completed_at = None
+    db.add(era_file)
+    record_processing_log(db, era_file_id=era_file.id, stage="retry_reset", message="event=retry_reset", commit=False)
+    db.commit()
+    db.refresh(era_file)
+    log_attempt(
+        db,
+        organization_id=organization.id,
+        actor=membership.user.email,
+        era_file_id=era_file.id,
+        action="era_pdf_retry_reset",
+        metadata={"stage": "retry_reset"},
+    )
+    return era_file
 
 
 @router.get("/revenue/era-worklist", response_model=list[WorkItemResponse])

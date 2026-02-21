@@ -40,13 +40,15 @@ def test_doc_intel_falls_back_to_prebuilt_layout_and_structuring_receives_layout
             }
 
     class FakePoller:
-        def result(self) -> FakeResult:
+        def result(self, timeout: float | None = None) -> FakeResult:
+            captured["poller_timeout"] = timeout
             return FakeResult()
 
     class FakeDocIntelClient:
-        def __init__(self, endpoint: str, credential: FakeCredential) -> None:
+        def __init__(self, endpoint: str, credential: FakeCredential, **kwargs) -> None:
             captured["endpoint"] = endpoint
             captured["key"] = credential.key
+            captured["kwargs"] = kwargs
 
         def begin_analyze_document(self, *, model_id: str, body, content_type: str) -> FakePoller:
             captured["model_id"] = model_id

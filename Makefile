@@ -10,6 +10,11 @@ migrate:
 run:
 	uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+bootstrap-local:
+	curl -X POST http://127.0.0.1:8000/api/v1/bootstrap \
+		-H "Content-Type: application/json" \
+		-d '{"organization_name":"Revenue OS Org","admin_email":"admin@example.com","admin_password":"ChangeMeNow!","admin_name":"Admin User"}'
+
 dev: db-up migrate run
 
 test:

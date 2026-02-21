@@ -154,22 +154,32 @@ Authorization: Bearer <token>
 
 Run Revenue OS Standalone
 
-1. Copy env template and set DATABASE_URL:
-   - cp .env.example .env
-   - export DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/vehr
+1. Copy env template and set required Azure + DB vars:
+    - cp .env.example .env
+   - export DATABASE_URL=postgresql+psycopg://vehr:vehr@localhost:5432/vehr
+   - export AZURE_DOCINTEL_ENDPOINT=...
+   - export AZURE_DOCINTEL_KEY=...
+   - export AZURE_DOCINTEL_MODEL=prebuilt-layout
+   - export AZURE_OPENAI_ENDPOINT=...
+   - export AZURE_OPENAI_API_KEY=...
+   - export AZURE_OPENAI_DEPLOYMENT=...
+   - export AZURE_OPENAI_API_VERSION=...
+   - export LOCAL_DEV=1
+   - export BOOTSTRAP_ENABLED=1
 2. Start Postgres and run migrations:
    - make db-up
    - make migrate
 3. Start API:
    - make run
 4. Bootstrap org/admin (requires `BOOTSTRAP_ENABLED=1`):
-   - curl -X POST http://127.0.0.1:8000/api/v1/bootstrap \
-     -H "Content-Type: application/json" \
-     -d '{"organization_name":"Revenue OS Org","admin_email":"admin@example.com","admin_password":"ChangeMeNow!","admin_name":"Admin User"}'
+   - make bootstrap-local
 5. Login, upload ERA, process, and review worklist:
    - POST /api/v1/auth/login
    - Use frontend page: /revenue/era-intake
    - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
+6. Tests:
+   - make test
+   - make test-pg
 
 ## Local Smoke Test
 
@@ -256,6 +266,12 @@ Check base.py does NOT import models
 Check models are only imported in models/__init__.py
 
 Check main.py imports app.db.models on startup
+
+Revenue ERA processing failures
+
+- If `stage=extract`: verify `AZURE_DOCINTEL_ENDPOINT`, `AZURE_DOCINTEL_KEY`, and `AZURE_DOCINTEL_MODEL=prebuilt-layout`.
+- If `stage=structuring`: verify `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, and `AZURE_OPENAI_API_VERSION`.
+- If failures show timeout codes: verify Azure SDK timeout/retry envs (`AZURE_DOCINTEL_*_TIMEOUT_SECONDS`, `AZURE_DOCINTEL_MAX_RETRIES`, `AZURE_OPENAI_TIMEOUT_SECONDS`, `AZURE_OPENAI_MAX_RETRIES`) and Azure quota.
 
 📌 Roadmap (High Level)
 
