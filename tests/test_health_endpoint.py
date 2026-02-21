@@ -29,3 +29,12 @@ def test_version_endpoint_defaults_commit_to_unknown(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["commit_sha"] == "unknown"
+
+
+def test_api_v1_version_endpoint_exposes_commit_sha(monkeypatch) -> None:
+    monkeypatch.setenv("COMMIT_SHA", "abc123")
+    with TestClient(app) as client:
+        response = client.get("/api/v1/version")
+
+    assert response.status_code == 200
+    assert response.json()["commit_sha"] == "abc123"

@@ -1,0 +1,51 @@
+name: Verify API Rewrites
+
+on:
+  workflow_dispatch:
+    inputs:
+      FRONTEND_URL:
+        description: "Deployed frontend URL (for example https://360-encompass.com)"
+        required: true
+        type: string
+      EXPECTED_COMMIT_SHA:
+        description: "Commit SHA expected to be deployed"
+        required: true
+        type: string
+      API_BASE_URL:
+        description: "Optional direct API base URL fallback (for example https://api.360-encompass.com)"
+        required: false
+        type: string
+      RUN_BUILD:
+        description: "Run frontend build before verification"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  verify-rewrites:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build frontend
+        if: ${{ inputs.RUN_BUILD }}
+        run: npm --prefix frontend run build
+
+      - name: Verify deployed API rewrites
+        env:
+          FRONTEND_URL: ${{ inputs.FRONTEND_URL }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.EXPECTED_COMMIT_SHA }}
+          API_BASE_URL: ${{ inputs.API_BASE_URL }}
+          SKIP_BUILD_ARTIFACT_CHECK: ${{ inputs.RUN_BUILD && '0' || '1' }}
+        run: npm --prefix frontend run test:api-rewrite:deployment

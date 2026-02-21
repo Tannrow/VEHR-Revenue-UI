@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -10,9 +12,19 @@ class HealthResponse(BaseModel):
     ok: bool
 
 
+class VersionResponse(BaseModel):
+    commit_sha: str
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(ok=True)
+
+
+@router.get("/version", response_model=VersionResponse)
+def version() -> VersionResponse:
+    return VersionResponse(commit_sha=os.getenv("COMMIT_SHA", "").strip() or "unknown")
+
 
 @router.get("/health/db")
 def health_db():

@@ -7,10 +7,11 @@ const repoRoot = resolve(new URL("../..", import.meta.url).pathname);
 const frontendRoot = resolve(new URL("..", import.meta.url).pathname);
 const frontendUrl = (process.env.FRONTEND_URL ?? "https://360-encompass.com").replace(/\/$/, "");
 const deployBranch = process.env.FRONTEND_DEPLOY_BRANCH ?? "main";
+const apiBaseUrl = process.env.API_BASE_URL?.replace(/\/$/, "") ?? null;
 const expectedCommitSha =
   process.env.EXPECTED_COMMIT_SHA ??
   execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
-const deployedCommitSha = process.env.DEPLOYED_COMMIT_SHA ?? null;
+const skipBuildArtifactCheck = process.env.SKIP_BUILD_ARTIFACT_CHECK === "1";
 const accessLogPath = process.env.ACCESS_LOG_PATH ?? null;
 
 function readRuntimeCheck(pathname) {
@@ -77,6 +78,9 @@ function findHardcodedApiUrls() {
 }
 
 function checkBuiltArtifact() {
+  if (skipBuildArtifactCheck) {
+    return [];
+  }
   const manifestPath = join(frontendRoot, ".next", "routes-manifest.json");
   assert.ok(existsSync(manifestPath), "Missing .next/routes-manifest.json; run `npm run build` in frontend first");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -88,6 +92,67 @@ function checkBuiltArtifact() {
   assert.ok(rewriteSources.includes("/api/:path((?!v1/).*)"), "Missing guarded /api/:path rewrite");
 
   return rewrites;
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "cache-control": "no-cache",
+      pragma: "no-cache",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${url}`);
+  }
+  return response.json();
+}
+
+async function fetchDeployedCommitSha() {
+  const versionEndpoints = [`${frontendUrl}/api/v1/version`];
+  if (apiBaseUrl) {
+    versionEndpoints.push(`${apiBaseUrl}/version`);
+  }
+
+  let lastError = null;
+  for (const endpoint of versionEndpoints) {
+    try {
+      const body = await fetchJson(endpoint);
+      const commitSha = typeof body?.commit_sha === "string" ? body.commit_sha.trim() : "";
+      if (commitSha) {
+        return { commitSha, source: endpoint };
+      }
+      throw new Error(`Missing commit_sha in ${endpoint}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(`Unable to resolve deployed commit SHA: ${lastError?.message ?? "unknown error"}`);
+}
+
+async function fetchOpenApiSpec() {
+  const candidates = [`${frontendUrl}/api/v1/openapi.json`, `${frontendUrl}/openapi.json`];
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      const spec = await fetchJson(candidate);
+      return { spec, source: candidate };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(`Unable to fetch OpenAPI spec: ${lastError?.message ?? "unknown error"}`);
+}
+
+function assertEraUploadOpenApi(openApiSpec) {
+  const operation = openApiSpec?.paths?.["/api/v1/revenue/era-pdfs/upload"]?.post;
+  assert.ok(operation, "Missing POST /api/v1/revenue/era-pdfs/upload in OpenAPI");
+  const multipart = operation?.requestBody?.content?.["multipart/form-data"]?.schema;
+  assert.ok(multipart, "Missing multipart/form-data request body schema for ERA upload");
+  const files = multipart?.properties?.files;
+  assert.equal(files?.type, "array", "ERA upload files field must be an array");
+  assert.equal(files?.items?.format, "binary", "ERA upload files array items must be binary format");
 }
 
 function checkLogs() {
@@ -102,6 +167,9 @@ function checkLogs() {
 
 async function main() {
   const rewrites = checkBuiltArtifact();
+  const { commitSha: deployedCommitSha, source: deployedCommitShaSource } = await fetchDeployedCommitSha();
+  const { spec: openApiSpec, source: openApiSource } = await fetchOpenApiSpec();
+  assertEraUploadOpenApi(openApiSpec);
 
   const [apiHealth, apiV1Health, apiRoot, apiV1V1Health] = await Promise.all([
     readRuntimeCheck("/api/health"),
@@ -114,12 +182,6 @@ async function main() {
   assert.equal(apiHealth.body, apiV1Health.body, "/api/health body does not match /api/v1/health");
   assert.ok(!String(apiV1Health.location ?? "").includes("/api/v1/v1/"), "/api/v1/* appears to be rewritten twice");
   assert.ok(apiV1V1Health.status >= 400, "/api/v1/v1/* unexpectedly resolved successfully");
-
-  if (!deployedCommitSha) {
-    throw new Error(
-      "DEPLOYED_COMMIT_SHA is required to confirm deployment SHA (for example VERCEL_GIT_COMMIT_SHA or equivalent deploy metadata).",
-    );
-  }
   assert.equal(
     deployedCommitSha,
     expectedCommitSha,
@@ -134,6 +196,8 @@ async function main() {
     frontendBranch: deployBranch,
     expectedCommitSha,
     deployedCommitSha,
+    deployedCommitShaSource,
+    openApiSource,
     rewriteArtifact: rewrites,
     runtimeChecks: [apiHealth, apiV1Health, apiRoot, apiV1V1Health],
     accessLogSummary: logSummary,

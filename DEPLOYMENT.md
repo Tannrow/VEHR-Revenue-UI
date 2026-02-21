@@ -93,11 +93,11 @@ Requirements:
    FRONTEND_URL="https://360-encompass.com" \
    FRONTEND_DEPLOY_BRANCH="main" \
    EXPECTED_COMMIT_SHA="<merged-commit-sha>" \
-   DEPLOYED_COMMIT_SHA="<deployed-commit-sha>" \
+   API_BASE_URL="https://api.360-encompass.com" \
    ACCESS_LOG_PATH="<optional-access-log-path>" \
    npm run test:api-rewrite:deployment
    ```
-   This check validates local build rewrites, runtime `/api` behavior (`/api/health`, `/api/v1/health`, `/api`, `/api/v1/v1/health`), optional access-log signals, and hardcoded absolute API callsites in `frontend/src/**`.
+   This check validates local build rewrites, runtime `/api` behavior (`/api/health`, `/api/v1/health`, `/api`, `/api/v1/v1/health`), deployed SHA resolution via `/api/v1/version` (or `API_BASE_URL/version` fallback), OpenAPI upload schema for `POST /api/v1/revenue/era-pdfs/upload`, optional access-log signals, and hardcoded absolute API callsites in `frontend/src/**`.
 7. Microsoft delegated OAuth checklist:
    - Confirm all Microsoft env vars above are set in API service config.
    - Sign in as an org admin and open `/admin/integrations/microsoft` in the frontend.
