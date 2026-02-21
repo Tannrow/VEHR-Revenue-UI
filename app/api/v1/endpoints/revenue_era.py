@@ -126,6 +126,17 @@ class EraReportResponse(BaseModel):
     top_work_items: list[WorkItemResponse]
 
 
+class EraProcessDiagnosticsResponse(BaseModel):
+    era_file_id: str
+    current_status: str
+    retry_required: bool
+    has_extract_result: bool
+    has_structured_result: bool
+    finalized: bool | None = None
+    last_error_code: str | None = None
+    last_error_stage: str | None = None
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
@@ -182,6 +193,42 @@ def _top_work_items(db: Session, *, organization_id: str, era_file_id: str, limi
         .scalars()
         .all()
     )
+
+
+def _latest_validation_report(
+    db: Session,
+    *,
+    organization_id: str,
+    era_file_id: str,
+) -> RevenueEraValidationReport | None:
+    return (
+        db.execute(
+            select(RevenueEraValidationReport)
+            .where(
+                RevenueEraValidationReport.org_id == organization_id,
+                RevenueEraValidationReport.era_file_id == era_file_id,
+            )
+            .order_by(RevenueEraValidationReport.created_at.desc(), RevenueEraValidationReport.id.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _safe_error_metadata(error_detail: str | None) -> tuple[str | None, str | None]:
+    if not error_detail:
+        return None, None
+    try:
+        parsed = json.loads(error_detail)
+    except Exception:
+        return None, None
+    if not isinstance(parsed, dict):
+        return None, None
+    error_code = parsed.get("error_code")
+    stage = parsed.get("stage")
+    safe_error_code = str(error_code) if isinstance(error_code, str) else None
+    safe_stage = str(stage) if isinstance(stage, str) else None
+    return safe_error_code, safe_stage
 
 
 @router.post("/revenue/era-pdfs/upload", response_model=list[EraFileResponse])
@@ -546,6 +593,7 @@ def process_era_pdf(
 
     extract_row = _latest_extract_result(db, era_file.id)
     structured_row = _latest_structured_result(db, era_file.id)
+    validation_report = _latest_validation_report(db, organization_id=organization.id, era_file_id=era_file.id)
 
     if era_file.status == STATUS_NORMALIZED:
         db.rollback()
@@ -560,7 +608,18 @@ def process_era_pdf(
 
     if era_file.status == STATUS_ERROR and not retry:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="retry_required")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_INVALID_STATE",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+                "retry_required": True,
+                "has_extract_result": extract_row is not None,
+                "has_structured_result": structured_row is not None,
+                "finalized": validation_report.finalized if validation_report else None,
+            },
+        )
 
     valid_statuses = {STATUS_UPLOADED, STATUS_EXTRACTED, STATUS_STRUCTURED, STATUS_ERROR}
     if era_file.status not in valid_statuses:
@@ -813,6 +872,38 @@ def process_era_pdf(
         action="era_pdf_processed",
     )
     return era_file
+
+
+@router.get("/revenue/era-pdfs/{era_file_id}/diagnostics", response_model=EraProcessDiagnosticsResponse)
+def get_era_process_diagnostics(
+    era_file_id: str,
+    db: Session = Depends(get_db),
+    organization=Depends(get_current_organization),
+    membership: OrganizationMembership = Depends(get_current_membership),
+    _: None = Depends(require_permission("billing:read")),
+) -> EraProcessDiagnosticsResponse:
+    era_file = _era_file_or_404(db, era_file_id=era_file_id, organization_id=organization.id)
+    extract_row = _latest_extract_result(db, era_file.id)
+    structured_row = _latest_structured_result(db, era_file.id)
+    validation_report = _latest_validation_report(db, organization_id=organization.id, era_file_id=era_file.id)
+    last_error_code, last_error_stage = _safe_error_metadata(era_file.error_detail)
+    log_attempt(
+        db,
+        organization_id=organization.id,
+        actor=membership.user.email,
+        era_file_id=era_file.id,
+        action="era_pdf_process_diagnostics_view",
+    )
+    return EraProcessDiagnosticsResponse(
+        era_file_id=era_file.id,
+        current_status=era_file.status,
+        retry_required=era_file.status == STATUS_ERROR,
+        has_extract_result=extract_row is not None,
+        has_structured_result=structured_row is not None,
+        finalized=validation_report.finalized if validation_report else None,
+        last_error_code=last_error_code,
+        last_error_stage=last_error_stage,
+    )
 
 
 @router.get("/revenue/era-worklist", response_model=list[WorkItemResponse])

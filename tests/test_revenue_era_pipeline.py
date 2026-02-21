@@ -753,6 +753,64 @@ def test_process_noop_when_already_normalized(tmp_path, monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_process_error_conflict_returns_state_and_diagnostics_endpoint(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    def _timeout_doc_intel(_path: Path):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(revenue_era, "run_doc_intel", _timeout_doc_intel)
+
+    try:
+        with TestClient(app) as client:
+            files = [("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))]
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            first = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert first.status_code == 502
+            assert first.json() == {"error": "external_service_failure", "stage": "extract"}
+
+            second = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert second.status_code == 409
+            detail = second.json()["detail"]
+            assert detail["error_code"] == "ERA_INVALID_STATE"
+            assert detail["era_file_id"] == era_id
+            assert detail["current_status"] == STATUS_ERROR
+            assert detail["retry_required"] is True
+
+            diagnostics = client.get(
+                f"/api/v1/revenue/era-pdfs/{era_id}/diagnostics",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert diagnostics.status_code == 200
+            body = diagnostics.json()
+            assert body["era_file_id"] == era_id
+            assert body["current_status"] == STATUS_ERROR
+            assert body["retry_required"] is True
+            assert body["has_extract_result"] is False
+            assert body["has_structured_result"] is False
+            assert body["last_error_code"] == "EXTRACT_TIMEOUT"
+            assert body["last_error_stage"] == "extract"
+            assert "error_detail" not in body
+            assert "exception_type" not in body
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_process_reuses_structured_results_without_extractor_calls(tmp_path, monkeypatch) -> None:
     session_factory = _setup_sqlite(tmp_path)
     token, org_id = _seed_admin(session_factory)

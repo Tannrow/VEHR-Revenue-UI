@@ -298,13 +298,74 @@ def _remove_phi(extracted: dict[str, Any]) -> dict[str, Any]:
     return _clean(extracted)
 
 
+def _to_layout_envelope(payload: dict[str, Any]) -> dict[str, Any]:
+    pages = payload.get("pages") if isinstance(payload, dict) else []
+    tables = payload.get("tables") if isinstance(payload, dict) else []
+    tables_by_page: dict[int, list[dict[str, Any]]] = {}
+
+    for table in tables if isinstance(tables, list) else []:
+        if not isinstance(table, dict):
+            continue
+        table_pages: set[int] = set()
+        cells: list[dict[str, Any]] = []
+        for cell in table.get("cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            text = str(cell.get("content") or cell.get("text") or "").strip()
+            cells.append(
+                {
+                    "row_index": cell.get("row_index"),
+                    "column_index": cell.get("column_index"),
+                    "text": text,
+                }
+            )
+            for region in cell.get("bounding_regions") or []:
+                if isinstance(region, dict):
+                    page_number = region.get("page_number")
+                    if isinstance(page_number, int):
+                        table_pages.add(page_number)
+        for region in table.get("bounding_regions") or []:
+            if isinstance(region, dict):
+                page_number = region.get("page_number")
+                if isinstance(page_number, int):
+                    table_pages.add(page_number)
+        table_entry = {"cells": cells}
+        for page_number in table_pages:
+            tables_by_page.setdefault(page_number, []).append(table_entry)
+
+    normalized_pages: list[dict[str, Any]] = []
+    for page in pages if isinstance(pages, list) else []:
+        if not isinstance(page, dict):
+            continue
+        page_number = page.get("page_number")
+        if not isinstance(page_number, int):
+            continue
+        lines: list[dict[str, str]] = []
+        for line in page.get("lines") or []:
+            if not isinstance(line, dict):
+                continue
+            text = str(line.get("content") or line.get("text") or "").strip()
+            if text:
+                lines.append({"text": text})
+        normalized_pages.append(
+            {
+                "page_number": page_number,
+                "lines": lines,
+                "tables": tables_by_page.get(page_number, []),
+            }
+        )
+
+    return {"pages": normalized_pages}
+
+
 def run_doc_intel(pdf_path: Path) -> dict[str, Any]:
     from azure.ai.documentintelligence import DocumentIntelligenceClient
     from azure.core.credentials import AzureKeyCredential
 
     endpoint = os.getenv("AZURE_DOCINTEL_ENDPOINT", "").strip()
     key = os.getenv("AZURE_DOCINTEL_KEY", "").strip()
-    model_id = os.getenv("AZURE_DOCINTEL_MODEL", "").strip() or "prebuilt-layout"
+    custom_model_id = os.getenv("AZURE_DOCINTEL_MODEL", "").strip()
+    model_id = custom_model_id or "prebuilt-layout"
 
     if not endpoint or not key:
         raise RuntimeError("Azure Document Intelligence is not configured")
@@ -314,10 +375,7 @@ def run_doc_intel(pdf_path: Path) -> dict[str, Any]:
         poller = client.begin_analyze_document(model_id=model_id, body=data, content_type="application/pdf")
     result = poller.result()
     payload = result.to_dict() if hasattr(result, "to_dict") else json.loads(json.dumps(result, default=str))
-    return {
-        "model_id": model_id,
-        "extracted": _remove_phi(payload),
-    }
+    return {"model_id": model_id, "extracted": _remove_phi(_to_layout_envelope(payload))}
 
 
 def _structured_schema() -> dict[str, Any]:
@@ -351,7 +409,8 @@ def run_structuring_llm(extracted_json: dict[str, Any]) -> RevenueEraStructuredV
             {
                 "role": "system",
                 "content": (
-                    "You are a deterministic parser that converts ERA extraction JSON into a strict schema. "
+                    "You are a deterministic parser that converts ERA layout extraction JSON into a strict schema. "
+                    "Input contains pages[].lines[].text and pages[].tables[].cells[]. "
                     "Use integer cents only, do not emit floats. Omit any PHI fields."
                 ),
             },
