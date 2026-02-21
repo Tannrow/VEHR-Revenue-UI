@@ -22,8 +22,10 @@ except Exception:  # pragma: no cover - fallback when azure libs are unavailable
         pass
 
 from app.core.deps import get_current_membership, get_current_organization, require_permission
+from app.core.time import utc_now
 from app.db.models.organization_membership import OrganizationMembership
 from app.db.models.revenue_era import (
+    RevenueEraClaimLine,
     RevenueEraExtractResult,
     RevenueEraFile,
     RevenueEraStructuredResult,
@@ -60,7 +62,6 @@ from app.services.revenue_era import (
     run_doc_intel,
     run_structuring_llm,
     store_revenue_file,
-    utc_now,
     write_pdf_with_sha,
     summarize_validation_error,
 )
@@ -951,8 +952,8 @@ def process_era_pdf(
         _fail("structuring", "normalization_failed", status.HTTP_500_INTERNAL_SERVER_ERROR, "normalization_failed")
 
     db.commit()
-    final_row = _locked_era_file()
-    db.commit()
+    db.refresh(era_file)
+    final_row = era_file
     log_attempt(
         db,
         organization_id=organization.id,

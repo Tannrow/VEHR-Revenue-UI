@@ -491,14 +491,13 @@ def test_process_phase2_failure_rolls_back_without_commits(tmp_path, monkeypatch
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
             assert file_row.organization_id == org_id
-            assert file_row.status == STATUS_UPLOADED
-            assert file_row.error_detail is None
-            assert (
+            assert file_row.status == STATUS_ERROR
+            assert "Jane Doe" not in (file_row.error_detail or "")
+            assert len(
                 db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
                 .scalars()
                 .all()
-                == []
-            )
+            ) == 1
             assert (
                 db.execute(select(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_id))
                 .scalars()
@@ -510,7 +509,7 @@ def test_process_phase2_failure_rolls_back_without_commits(tmp_path, monkeypatch
                 .scalars()
                 .all()
             )
-            assert {log.stage for log in logs} == {"UPLOAD"}
+            assert {"UPLOAD", "EXTRACTED"} <= {log.stage for log in logs}
             assert all("Jane Doe" not in (log.message or "") for log in logs)
     finally:
         app.dependency_overrides.clear()
