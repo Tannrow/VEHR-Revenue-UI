@@ -1,3 +1,7 @@
+BASE_URL ?= http://127.0.0.1:8000
+EMAIL ?= admin@example.com
+POLL_SECONDS ?= 2
+
 db-up:
 	docker compose up -d postgres
 
@@ -28,3 +32,12 @@ era-validate:
 
 local-smoke:
 	python scripts/local_smoke.py --file "$(FILE)"
+
+era-login:
+	python scripts/era_ops.py login --base-url "$(BASE_URL)" --email "$(EMAIL)"
+
+era-ingest:
+	python scripts/era_ops.py ingest --dir "$(DIR)" --base-url "$(BASE_URL)" --email "$(EMAIL)"
+
+era-watch:
+	python scripts/era_ops.py ingest --dir "$(DIR)" --watch --poll-seconds "$(POLL_SECONDS)" --base-url "$(BASE_URL)" --email "$(EMAIL)"

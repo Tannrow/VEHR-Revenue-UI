@@ -177,9 +177,14 @@ Run Revenue OS Standalone
     - POST /api/v1/auth/login
     - Use frontend page: /revenue/era-intake
     - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
-    - Verify login only: `python -m scripts.era_ops login --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
-    - Or run ops CLI bulk ingest: `python -m scripts.era_ops ingest --dir /absolute/path/to/era-pdfs --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
-    - Watch-folder mode: `python -m scripts.era_ops ingest --dir /absolute/path/to/watch --watch --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Verify login only: `python scripts/era_ops.py login --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Or run ops CLI bulk ingest: `python scripts/era_ops.py ingest --dir /absolute/path/to/era-pdfs --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Watch-folder mode: `python scripts/era_ops.py ingest --dir /absolute/path/to/watch --watch --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Set password once in env: `export VEHR_PASSWORD=ChangeMeNow!`
+    - Make targets (same command flow):
+      - `make era-login BASE_URL=http://127.0.0.1:8000 EMAIL=admin@example.com`
+      - `make era-ingest DIR=/absolute/path/to/era-pdfs BASE_URL=http://127.0.0.1:8000 EMAIL=admin@example.com`
+      - `make era-watch DIR=/absolute/path/to/watch POLL_SECONDS=2 BASE_URL=http://127.0.0.1:8000 EMAIL=admin@example.com`
 6. Tests:
     - make test
     - make test-pg
