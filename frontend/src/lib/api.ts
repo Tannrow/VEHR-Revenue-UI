@@ -34,8 +34,11 @@ export function buildUrl(path: string) {
     return path;
   }
 
-  const baseUrl = getApiBaseUrl().replace(/\/$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (typeof window !== "undefined" && (normalizedPath === "/api" || normalizedPath.startsWith("/api/"))) {
+    return normalizedPath;
+  }
+  const baseUrl = getApiBaseUrl().replace(/\/$/, "");
   return `${baseUrl}${normalizedPath}`;
 }
 

@@ -22,16 +22,34 @@ type TaskRecord = {
 };
 
 const patientId = "patient-001";
-const baseApi = "http://127.0.0.1:8000";
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-test("client profile happy path: switch tabs, create task, verify row", async ({ page }) => {
+test("client profile happy path: switch tabs, create task, verify row", async ({ page }, testInfo) => {
   const tasks: TaskRecord[] = [];
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  const apiFailures: string[] = [];
 
-  await page.route(`${baseApi}/api/v1/auth/me`, async (route) => {
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  page.on("pageerror", (error) => {
+    pageErrors.push(error.message);
+  });
+
+  page.on("response", (response) => {
+    if (response.status() >= 400 && response.url().includes("/api/")) {
+      apiFailures.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+
+  await page.route("**/api/v1/auth/me", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -45,7 +63,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/me/preferences`, async (route) => {
+  await page.route("**/api/v1/me/preferences", async (route) => {
     if (route.request().method() === "PATCH") {
       await route.fulfill({
         status: 200,
@@ -88,7 +106,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -103,7 +121,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/services?include_inactive=true`, async (route) => {
+  await page.route("**/api/v1/services?include_inactive=true", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -119,7 +137,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/enrollments`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/enrollments`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -141,7 +159,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/documents`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/documents`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -175,7 +193,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/encounters`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/encounters`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -183,7 +201,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/episodes`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/episodes`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -204,7 +222,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/care-team`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/care-team`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -223,7 +241,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/requirements`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/requirements`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -231,7 +249,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/treatment-stage`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/treatment-stage`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -244,7 +262,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/patients/${patientId}/treatment-stage/events`, async (route) => {
+  await page.route(`**/api/v1/patients/${patientId}/treatment-stage/events`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -252,7 +270,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(new RegExp(`${baseApi}/api/v1/patients/${patientId}/notes(\\?.*)?$`), async (route) => {
+  await page.route(new RegExp(`/api/v1/patients/${patientId}/notes(\\?.*)?$`), async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -260,7 +278,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(`${baseApi}/api/v1/staff/teams`, async (route) => {
+  await page.route("**/api/v1/staff/teams", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -279,7 +297,7 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.route(new RegExp(`${baseApi}/api/v1/tasks(\\?.*)?$`), async (route) => {
+  await page.route(new RegExp("/api/v1/tasks(\\?.*)?$"), async (route) => {
     const method = route.request().method();
     if (method === "POST") {
       const payload = route.request().postDataJSON() as {
@@ -332,8 +350,27 @@ test("client profile happy path: switch tabs, create task, verify row", async ({
     });
   });
 
-  await page.goto(`/patients/${patientId}`);
-  await expect(page.getByTestId("client-profile-page")).toBeVisible();
+  try {
+    await Promise.all([
+      page.waitForResponse((response) => (
+        response.url().includes(`/api/v1/patients/${patientId}`) && response.status() === 200
+      )),
+      page.goto(`/patients/${patientId}`),
+    ]);
+    console.log(`[client-profile-e2e] final URL after goto: ${page.url()}`);
+    await expect(page).toHaveURL(new RegExp(`/patients/${patientId}(?:$|[?#])`));
+    await expect(page.getByTestId("client-profile-page")).toBeVisible();
+  } catch (error) {
+    const failurePath = testInfo.outputPath("client-profile-navigation-failure.png");
+    const profileRootCount = await page.getByTestId("client-profile-page").count();
+    await page.screenshot({ path: failurePath, fullPage: true });
+    console.log(`[client-profile-e2e] final URL: ${page.url()}`);
+    console.log(`[client-profile-e2e] client-profile-page count: ${profileRootCount}`);
+    console.log(`[client-profile-e2e] api failures: ${apiFailures.length ? apiFailures.join(" | ") : "none"}`);
+    console.log(`[client-profile-e2e] console errors: ${consoleErrors.length ? consoleErrors.join(" | ") : "none"}`);
+    console.log(`[client-profile-e2e] page errors: ${pageErrors.length ? pageErrors.join(" | ") : "none"}`);
+    throw error;
+  }
 
   await page.getByTestId("client-tab-notes").click();
   await expect(page.getByTestId("client-note-submit")).toBeVisible();
