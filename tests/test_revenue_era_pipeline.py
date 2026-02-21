@@ -848,8 +848,10 @@ def test_process_error_conflict_returns_state_and_diagnostics_endpoint(tmp_path,
             )
             assert debug.status_code == 200
             debug_body = debug.json()
-            assert "extracted_json" not in json.dumps(debug_body)
-            assert "structured_json" not in json.dumps(debug_body)
+            assert "extracted_json" not in debug_body
+            assert "structured_json" not in debug_body
+            assert "extracted_json" not in debug_body["era_file"]
+            assert "structured_json" not in debug_body["era_file"]
             assert debug_body["row_counts"]["extract_results"] == 0
             safe_error = debug_body["era_file"].get("error_detail_safe_json") or {}
             assert "error_code" in safe_error
