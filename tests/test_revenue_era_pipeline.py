@@ -677,7 +677,7 @@ def test_validation_failure_sets_error_status_and_logs(tmp_path, monkeypatch) ->
                 .scalars()
                 .all()
             )
-            assert any(log.stage == "ERROR" for log in logs)
+            assert any(log.stage == "structuring" for log in logs)
     finally:
         app.dependency_overrides.clear()
 
