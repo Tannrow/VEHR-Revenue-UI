@@ -31,6 +31,7 @@ from app.db.models.revenue_era import (
 from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
+from app.services import revenue_era as revenue_era_service
 from app.services.revenue_era import (
     MATCH_UNMATCHED,
     STATUS_ERROR,
@@ -40,6 +41,16 @@ from app.services.revenue_era import (
     RevenueEraStructuredLine,
     RevenueEraStructuredV1,
 )
+
+
+def test_status_constants_fit_revenue_era_file_status_column() -> None:
+    status_values = [
+        value
+        for name, value in vars(revenue_era_service).items()
+        if name.startswith("STATUS_") and isinstance(value, str)
+    ]
+    assert status_values
+    assert max(len(value) for value in status_values) < 50
 
 
 def _setup_sqlite(tmp_path: Path):
