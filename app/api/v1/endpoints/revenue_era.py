@@ -771,7 +771,6 @@ def process_era_pdf(
     era_file.stage_completed_at = None
     db.add(era_file)
     db.commit()
-    era_file = _locked_era_file()
 
     try:
         di_result = _run_with_timeout(run_doc_intel, pdf_path)
@@ -823,6 +822,16 @@ def process_era_pdf(
             page_count = len(pages)
 
     era_file = _locked_era_file()
+    if era_file.status != STATUS_PROCESSING_EXTRACT:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_INVALID_STATE",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+            },
+        )
     db.execute(delete(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_file.id))
     extract_row = RevenueEraExtractResult(
         id=str(uuid4()),
@@ -849,7 +858,6 @@ def process_era_pdf(
     era_file.stage_completed_at = None
     db.add(era_file)
     db.commit()
-    era_file = _locked_era_file()
 
     structured: RevenueEraStructuredV1 | None = None
     if not extract_row:
@@ -899,6 +907,16 @@ def process_era_pdf(
         return _external_service_failure("structuring", "UNKNOWN_ERROR", exc)
 
     era_file = _locked_era_file()
+    if era_file.status != STATUS_PROCESSING_STRUCTURING:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "ERA_INVALID_STATE",
+                "era_file_id": era_file.id,
+                "current_status": era_file.status,
+            },
+        )
     db.execute(delete(RevenueEraStructuredResult).where(RevenueEraStructuredResult.era_file_id == era_file.id))
     structured_row = RevenueEraStructuredResult(
         id=str(uuid4()),

@@ -31,6 +31,7 @@ from app.db.models.revenue_era import (
 from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
+from app.services import revenue_era as revenue_era_service
 from app.services.revenue_era import (
     MATCH_UNMATCHED,
     STATUS_ERROR,
@@ -40,6 +41,16 @@ from app.services.revenue_era import (
     RevenueEraStructuredLine,
     RevenueEraStructuredV1,
 )
+
+
+def test_status_constants_fit_revenue_era_file_status_column() -> None:
+    status_values = [
+        value
+        for name, value in vars(revenue_era_service).items()
+        if name.startswith("STATUS_") and isinstance(value, str)
+    ]
+    assert status_values
+    assert max(len(value) for value in status_values) < 50
 
 
 def _setup_sqlite(tmp_path: Path):
@@ -345,6 +356,7 @@ def test_structuring_failure_sets_error_status(tmp_path, monkeypatch) -> None:
         with session_factory() as db:
             file_row = db.get(RevenueEraFile, era_id)
             assert file_row.status == STATUS_ERROR
+            assert file_row.last_error_stage == "structuring"
             lines = (
                 db.execute(select(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_id))
                 .scalars()
@@ -965,6 +977,75 @@ def test_double_process_call_returns_in_progress_conflict(tmp_path, monkeypatch)
                 .all()
             )
             assert len(extract_rows) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_process_rejects_stage_drift_before_extract_write(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_docintel(_path: Path):
+        started.set()
+        assert release.wait(timeout=5)
+        return {"model_id": "di-model", "extracted": {"ok": True}}
+
+    monkeypatch.setattr(revenue_era, "run_doc_intel", _blocking_docintel)
+    monkeypatch.setattr(
+        revenue_era,
+        "run_structuring_llm",
+        lambda payload: RevenueEraStructuredV1(
+            payer_name="Payer One",
+            claim_lines=[RevenueEraStructuredLine(claim_ref="CLM123", match_status=MATCH_UNMATCHED)],
+        ),
+    )
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            process_status = {}
+
+            def _process() -> None:
+                response = client.post(
+                    f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                process_status["status_code"] = response.status_code
+                process_status["body"] = response.json()
+
+            thread = threading.Thread(target=_process)
+            thread.start()
+            assert started.wait(timeout=5)
+
+            with session_factory() as db:
+                row = db.get(RevenueEraFile, era_id)
+                row.status = STATUS_ERROR
+                db.add(row)
+                db.commit()
+
+            release.set()
+            thread.join(timeout=5)
+            assert process_status["status_code"] == 409
+            assert process_status["body"]["detail"]["error_code"] == "ERA_INVALID_STATE"
+
+        with session_factory() as db:
+            extract_rows = (
+                db.execute(select(RevenueEraExtractResult).where(RevenueEraExtractResult.era_file_id == era_id))
+                .scalars()
+                .all()
+            )
+            assert extract_rows == []
     finally:
         app.dependency_overrides.clear()
 
