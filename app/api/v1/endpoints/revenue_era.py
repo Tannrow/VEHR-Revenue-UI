@@ -226,7 +226,9 @@ def _safe_error_metadata(error_detail: str | None) -> tuple[str | None, str | No
         return None, None
     error_code = parsed.get("error_code")
     stage = parsed.get("stage")
-    return (str(error_code), str(stage)) if isinstance(error_code, str) else (None, str(stage) if isinstance(stage, str) else None)
+    safe_error_code = str(error_code) if isinstance(error_code, str) else None
+    safe_stage = str(stage) if isinstance(stage, str) else None
+    return safe_error_code, safe_stage
 
 
 @router.post("/revenue/era-pdfs/upload", response_model=list[EraFileResponse])
