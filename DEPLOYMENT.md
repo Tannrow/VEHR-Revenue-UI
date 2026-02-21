@@ -134,6 +134,74 @@ Login example:
 }
 ```
 
+## Incident Response: Production `500` on Login (`POST /api/v1/auth/login`)
+
+### Probable cause ranking (most likely first)
+1. **Alembic revision graph mismatch/cycle** causing schema drift on deployed DB (recent CI shows `FAILED: Cycle is detected in revisions (...)`).
+2. **Missing/renamed column in auth tables** (`users`, `organization_memberships`) after recent migration chain changes.
+3. **`DATABASE_URL` misconfiguration or connectivity failure** (bad scheme, stale creds, network/SSL issues).
+4. **JWT config/runtime issue** (`JWT_SECRET`/`JWT_ALGORITHM` invalid or missing in runtime env).
+5. **Password hashing runtime issue** (`passlib`/`bcrypt` backend mismatch).
+6. **Null/constraint mismatch introduced by migration** on rows read during login path.
+
+### Where to look in code (auth + boot path only)
+- Login route + query flow: `/home/runner/work/VEHR/VEHR/app/api/v1/endpoints/auth.py` (`login` at `@router.post("/auth/login")`).
+- DB session creation: `/home/runner/work/VEHR/VEHR/app/db/session.py` (`get_db`, `SessionLocal`, `_normalize_database_url`).
+- Password verify + JWT creation: `/home/runner/work/VEHR/VEHR/app/core/security.py` (`verify_password`, `create_access_token`).
+- Membership lookup model: `/home/runner/work/VEHR/VEHR/app/db/models/organization_membership.py`.
+- User model fields used on login: `/home/runner/work/VEHR/VEHR/app/db/models/user.py`.
+- App boot/router wiring: `/home/runner/work/VEHR/VEHR/app/create_app.py`, `/home/runner/work/VEHR/VEHR/app/api/v1/router.py`.
+- Migration chain: `/home/runner/work/VEHR/VEHR/alembic/versions/*.py`.
+
+### Render log queries to run (exact search terms)
+- **Migration chain mismatch**
+  - Query: `"Cycle is detected in revisions"`
+  - Query: `"No such revision"` or `"Revision .* is present more than once"`
+  - Confirms via: `alembic.util.messaging`, `CommandError`, migration abort on startup/deploy jobs.
+- **Missing column/table from drift**
+  - Query: `"UndefinedColumn"` / `"column .* does not exist"`
+  - Query: `"UndefinedTable"` / `"relation .* does not exist"`
+  - Confirms via: `sqlalchemy.exc.ProgrammingError`, `psycopg.errors.UndefinedColumn`, `psycopg.errors.UndefinedTable`.
+- **DB URL/config/connectivity**
+  - Query: `"DATABASE_URL must use Postgres"`
+  - Query: `"OperationalError"` / `"could not connect to server"` / `"password authentication failed"`
+  - Confirms via: `RuntimeError` from DB URL normalization, `sqlalchemy.exc.OperationalError`.
+- **JWT/env issues**
+  - Query: `"KeyError: JWT"` / `"JWTError"` / `"Invalid token"`
+  - Query: `"TypeError"` near `jwt.encode`/`create_access_token`
+  - Confirms via: failures in token generation path before response.
+- **Password hashing backend issue**
+  - Query: `"passlib"` / `"bcrypt"` / `"error reading bcrypt version"`
+  - Confirms via: `ValueError`, `AttributeError`, passlib backend exceptions during `verify_password`.
+- **Constraint/null mismatch**
+  - Query: `"IntegrityError"` / `"NotNullViolation"` / `"DataError"`
+  - Confirms via: `sqlalchemy.exc.IntegrityError`, `psycopg.errors.NotNullViolation`.
+
+### Minimal hotfix strategy (incident only)
+- **If migration mismatch/cycle**
+  1. Freeze deploys.
+  2. On prod DB service shell: `alembic current`, `alembic heads`, `alembic history --verbose`.
+  3. Resolve revision DAG in `alembic/versions` (single head, no cycles), redeploy, then `alembic upgrade head`.
+- **If missing env var**
+  1. In Render service env, verify: `DATABASE_URL`, `JWT_SECRET`, `JWT_ALGORITHM` (if set), `ACCESS_TOKEN_EXPIRE_MINUTES`.
+  2. Save + restart service, then re-test `/api/v1/auth/login`.
+- **If null/constraint mismatch**
+  1. Capture exact failing table/column from stack trace.
+  2. Apply minimal forward migration (or emergency SQL patch) to align schema with code.
+  3. Re-run `alembic upgrade head`; verify login.
+- **If DB revision mismatch**
+  1. Compare `alembic_version` value in prod DB vs repository head.
+  2. If DB is behind, apply forward migrations only.
+  3. If DB points to orphan revision, repair to nearest valid ancestor, then migrate forward.
+
+### Exact next debugging steps
+1. In Render logs, filter by `path="/api/v1/auth/login"` and collect the first traceback for a failing request.
+2. Classify the exception using the queries above (migration, schema drift, env, DB connectivity, JWT, bcrypt).
+3. Validate runtime env values in Render (especially `DATABASE_URL` + `JWT_SECRET`) without rotating unrelated settings.
+4. Check migration state on prod DB (`alembic current/heads/history`) and verify no cycle/duplicate revision IDs.
+5. Execute the corresponding minimal hotfix path, redeploy once, and re-test login with a known valid account.
+6. Confirm `200` login + token issuance; then verify `/api/v1/auth/me` for the same token/org context.
+
 **Tasks API (Phase 1)**
 Routes are mounted under `/api/v1`:
 
