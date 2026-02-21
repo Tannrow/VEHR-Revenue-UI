@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:api-rewrite": "node scripts/check-api-v1-rewrite.mjs",
+    "test:api-rewrite:deployment": "node scripts/verify-api-v1-rewrite-deployment.mjs",
     "test:revenue-tripwire": "node scripts/check-revenue-command-tripwire.cjs",
     "test:e2e": "npx playwright test playwright/client-profile.e2e.spec.ts",
     "test:visual": "npx playwright test",

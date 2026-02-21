@@ -86,13 +86,25 @@ Requirements:
 3. Confirm `CORS_ALLOWED_ORIGINS` includes the Vercel domain.
 4. Confirm `/health` returns `{"status":"ok"}` on the deployed API.
 5. Bootstrap the first organization/admin via `POST /api/v1/auth/bootstrap`.
-6. Microsoft delegated OAuth checklist:
+6. Verify frontend `/api → /api/v1` rewrites against the deployed frontend domain:
+   ```bash
+   cd frontend
+   npm run build
+   FRONTEND_URL="https://360-encompass.com" \
+   FRONTEND_DEPLOY_BRANCH="main" \
+   EXPECTED_COMMIT_SHA="<merged-commit-sha>" \
+   DEPLOYED_COMMIT_SHA="<deployed-commit-sha>" \
+   ACCESS_LOG_PATH="<optional-access-log-path>" \
+   npm run test:api-rewrite:deployment
+   ```
+   This check validates local build rewrites, runtime `/api` behavior (`/api/health`, `/api/v1/health`, `/api`, `/api/v1/v1/health`), optional access-log signals, and hardcoded absolute API callsites in `frontend/src/**`.
+7. Microsoft delegated OAuth checklist:
    - Confirm all Microsoft env vars above are set in API service config.
    - Sign in as an org admin and open `/admin/integrations/microsoft` in the frontend.
    - Click **Connect Microsoft** and complete Microsoft consent.
    - Confirm redirect returns to `/admin/integrations/microsoft?status=connected`.
    - Confirm a row exists in `integration_accounts` for `provider='microsoft'` with `revoked_at` null.
-7. RingCentral OAuth + webhook checklist:
+8. RingCentral OAuth + webhook checklist:
    - Confirm all RingCentral env vars above are set in API service config.
    - In Admin Center, open Integrations status and click **Connect RingCentral**.
    - Complete RingCentral consent and confirm redirect returns with `?connected=1` (or `?connected=0&err=<code>`).

@@ -28,7 +28,9 @@ function applyRewrite(path) {
 }
 
 assert.equal(applyRewrite("/api/tasks"), `${normalized}/api/v1/tasks`);
+assert.equal(applyRewrite("/api"), `${normalized}/api/v1`);
 assert.equal(applyRewrite("/api/v1"), `${normalized}/api/v1`);
 assert.equal(applyRewrite("/api/v1/tasks"), `${normalized}/api/v1/tasks`);
+assert.equal(applyRewrite("/api/v1/v1/health"), `${normalized}/api/v1/v1/health`);
 
 console.log("API rewrite checks passed");
