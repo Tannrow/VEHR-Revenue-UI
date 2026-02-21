@@ -9,6 +9,11 @@ export const metadata: Metadata = {
     template: `%s | ${BRANDING.name}`,
   },
   description: `${BRANDING.name} — ${BRANDING.tagline}.`,
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icon-192.svg",
+    apple: "/icon-192.svg",
+  },
 };
 
 export default function RootLayout({

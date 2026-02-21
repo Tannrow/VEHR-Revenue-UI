@@ -174,12 +174,20 @@ Run Revenue OS Standalone
 4. Bootstrap org/admin (requires `BOOTSTRAP_ENABLED=1`):
    - make bootstrap-local
 5. Login, upload ERA, process, and review worklist:
-   - POST /api/v1/auth/login
-   - Use frontend page: /revenue/era-intake
-   - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
+    - POST /api/v1/auth/login
+    - Use frontend page: /revenue/era-intake
+    - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
+    - Verify login only: `python -m scripts.era_ops login --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Or run ops CLI bulk ingest: `python -m scripts.era_ops ingest --dir /absolute/path/to/era-pdfs --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
+    - Watch-folder mode: `python -m scripts.era_ops ingest --dir /absolute/path/to/watch --watch --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow!`
 6. Tests:
-   - make test
-   - make test-pg
+    - make test
+    - make test-pg
+
+Installable local app (PWA)
+
+- Open `http://localhost:3000` in Chrome or Edge.
+- Use browser menu -> Install app (`Install 360 Encompass Revenue OS`).
 
 ## Local Smoke Test
 
