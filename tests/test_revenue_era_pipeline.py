@@ -163,6 +163,37 @@ def test_upload_accepts_multiple_pdf_files(tmp_path, monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_debug_endpoint_excludes_raw_json_fields(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    try:
+        with TestClient(app) as client:
+            files = [("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))]
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            debug = client.get(
+                f"/api/v1/revenue/era-pdfs/{era_id}/debug",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert debug.status_code == 200
+            debug_body = debug.json()
+            assert "extracted_json" not in debug_body
+            assert "structured_json" not in debug_body
+            assert "extracted_json" not in debug_body["era_file"]
+            assert "structured_json" not in debug_body["era_file"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_process_pipeline_creates_claims_and_worklist(tmp_path, monkeypatch) -> None:
     session_factory = _setup_sqlite(tmp_path)
     token, org_id = _seed_admin(session_factory)

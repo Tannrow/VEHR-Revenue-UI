@@ -20,3 +20,6 @@ test-pg:
 
 era-validate:
 	python scripts/era_validate.py --file "$(FILE)" --base-url "$(BASE_URL)" $(if $(TOKEN),--token "$(TOKEN)")
+
+local-smoke:
+	python scripts/local_smoke.py --file "$(FILE)"

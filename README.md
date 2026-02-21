@@ -171,6 +171,18 @@ Run Revenue OS Standalone
    - Use frontend page: /revenue/era-intake
    - Use debug endpoint: GET /api/v1/revenue/era-pdfs/{era_file_id}/debug
 
+Local Smoke Test
+
+Prerequisites:
+
+- `docker compose up -d`
+- `alembic upgrade head`
+- `python -m uvicorn app.main:app --reload`
+
+Run:
+
+- `make local-smoke FILE=/absolute/path/to/era.pdf`
+
 Invite emails (SMTP configuration)
 
 To send user invites by email, set all of the following API env vars:
