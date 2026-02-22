@@ -26,7 +26,11 @@ def _wait(url: str, timeout_seconds: int) -> bool:
                             pass
                     return True
         except Exception as exc:  # noqa: BLE001
-            print(f"wait_for_health attempt={attempt} url={url} status=retry reason={type(exc).__name__}", file=sys.stderr)
+            print(
+                f"wait_for_health attempt={attempt} url={url} status=retry "
+                f"reason={type(exc).__name__} detail={str(exc)[:160]}",
+                file=sys.stderr,
+            )
         time.sleep(1)
     return False
 
