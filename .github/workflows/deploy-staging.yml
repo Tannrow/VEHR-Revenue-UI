@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -13,6 +14,7 @@ env:
   RESOURCE_GROUP: vehr-revos-staging-rg
   CONTAINERAPP_NAME: vehr-revos-staging
   ACR_NAME: vehrrevostagingacr
+  ACR_LOGIN_SERVER: vehrrevostagingacr.azurecr.io
   IMAGE_NAME: vehr-api
 
 jobs:
@@ -20,9 +22,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # -----------------------------
+      # Checkout
+      # -----------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -----------------------------
+      # Azure Login (OIDC)
+      # -----------------------------
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -30,16 +38,55 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build and push image to ACR
+      # -----------------------------
+      # Verify Azure Context (Debug)
+      # -----------------------------
+      - name: Verify Azure context
+        shell: bash
         run: |
+          set -euxo pipefail
+          az account show
+          az group show -n $RESOURCE_GROUP -o table
+
+      # -----------------------------
+      # Build Image in ACR
+      # -----------------------------
+      - name: Build and push image to ACR
+        shell: bash
+        run: |
+          set -euxo pipefail
+          IMAGE_TAG=${{ github.sha }}
+          FULL_IMAGE=$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
+
+          echo "Building image: $FULL_IMAGE"
+
           az acr build \
-            -r $ACR_NAME \
-            -t $IMAGE_NAME:${{ github.sha }} \
+            --registry $ACR_NAME \
+            --image $IMAGE_NAME:$IMAGE_TAG \
             .
 
+          echo "FULL_IMAGE=$FULL_IMAGE" >> $GITHUB_ENV
+
+      # -----------------------------
+      # Deploy to Container Apps
+      # -----------------------------
       - name: Deploy to Azure Container Apps
+        shell: bash
         run: |
+          set -euxo pipefail
           az containerapp update \
-            -g $RESOURCE_GROUP \
-            -n $CONTAINERAPP_NAME \
-            --image $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+            --name $CONTAINERAPP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image $FULL_IMAGE
+
+      # -----------------------------
+      # Show Latest Revision
+      # -----------------------------
+      - name: Show latest revision
+        shell: bash
+        run: |
+          set -euxo pipefail
+          az containerapp revision list \
+            --name $CONTAINERAPP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            -o table | head -n 20
