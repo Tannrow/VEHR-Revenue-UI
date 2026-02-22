@@ -111,3 +111,5 @@ def test_compute_era_signature_is_stable_for_same_rows(tmp_path) -> None:
         assert first["work_items_count"] == 2
         assert first["totals_cents"] == 120
         assert first["claim_lines_hash"]
+        assert first["work_items_hash"]
+        assert first["aggregate_hash"]
