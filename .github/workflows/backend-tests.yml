@@ -33,6 +33,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/vehr_test
       PYTHONPATH: .
+      BOOTSTRAP_ENABLED: "1"
 
     steps:
       - name: Checkout
@@ -108,4 +109,52 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m compileall app scripts tests
           python -m pytest -q
+
+      - name: Run process-mode load validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn-load.out 2> /tmp/uvicorn-load.err &
+          UVICORN_PID=$!
+          cleanup() { kill "$UVICORN_PID" || true; }
+          trap cleanup EXIT
+          for i in {1..40}; do
+            curl -fsS http://127.0.0.1:8000/docs >/dev/null && break
+            sleep 1
+          done
+          python - <<'PY'
+          import json
+          import os
+          from urllib import request
+          payload = json.dumps({
+              "organization_name": "Load Org",
+              "admin_email": "admin@example.com",
+              "admin_password": "ChangeMeNow!",
+              "admin_name": "Admin User",
+          }).encode("utf-8")
+          req = request.Request(
+              "http://127.0.0.1:8000/api/v1/auth/bootstrap",
+              data=payload,
+              method="POST",
+              headers={"Content-Type": "application/json", "Accept": "application/json"},
+          )
+          with request.urlopen(req) as res:  # noqa: S310
+              body = json.loads(res.read().decode("utf-8"))
+          token = body["access_token"]
+          organization_id = body["organization_id"]
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"LOAD_TEST_TOKEN={token}\n")
+              fh.write(f"LOAD_TEST_ORGANIZATION_ID={organization_id}\n")
+          PY
+          python scripts/load_test.py \
+            --dir /home/runner/work/VEHR/VEHR/tests/fixtures/era \
+            --base-url http://127.0.0.1:8000 \
+            --mode processes \
+            --workers 20 \
+            --iterations 2 \
+            --memory-ceiling-mb 1024 \
+            --database-url "$DATABASE_URL" \
+            --token "$LOAD_TEST_TOKEN" \
+            --organization-id "$LOAD_TEST_ORGANIZATION_ID"

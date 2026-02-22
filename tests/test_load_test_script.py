@@ -5,6 +5,12 @@ from pathlib import Path
 from scripts import load_test
 
 
+def test_parser_defaults_to_process_mode() -> None:
+    parser = load_test._build_parser()
+    args = parser.parse_args(["--dir", "/tmp"])
+    assert args.mode == "processes"
+
+
 def test_percentile_handles_empty_and_interpolated_values() -> None:
     assert load_test._percentile([], 95) == 0
     assert load_test._percentile([10], 95) == 10
@@ -45,7 +51,7 @@ def test_main_rejects_invalid_base_url(tmp_path) -> None:
 def test_main_supports_concurrency_matrix(tmp_path, monkeypatch, capsys) -> None:
     pdf = tmp_path / "sample.pdf"
     pdf.write_bytes(b"%PDF-1.4")
-    monkeypatch.setattr(load_test, "_login", lambda *args, **kwargs: "tok")
+    monkeypatch.setattr(load_test, "_login", lambda *args, **kwargs: ("tok", "org-1"))
     monkeypatch.setattr(
         load_test,
         "_run_one",
@@ -55,9 +61,12 @@ def test_main_supports_concurrency_matrix(tmp_path, monkeypatch, capsys) -> None
             "request_id": "req-1",
             "duration_ms": 10,
             "stage_durations": {"extracted": 5, "structured": 4, "normalized": 1},
-            "db_invariant_ok": True,
+            "rss_mb": 32.0,
+            "source_file": "sample.pdf",
+            "deterministic_hash": "abc123",
         },
     )
+    monkeypatch.setattr(load_test, "_run_invariants", lambda *args, **kwargs: {"pass": True, "failures": []})
     monkeypatch.setattr(load_test, "_rss_mb", lambda: 64.0)
 
     for workers in (5, 20, 50):
@@ -71,9 +80,11 @@ def test_main_supports_concurrency_matrix(tmp_path, monkeypatch, capsys) -> None
                 str(workers),
                 "--iterations",
                 "1",
+                "--mode",
+                "threads",
                 "--memory-ceiling-mb",
                 "128",
             ]
         )
         assert rc == 0
-    assert '"db_invariant": "pass"' in capsys.readouterr().out
+    assert '"db_invariants": {"failures": [], "pass": true}' in capsys.readouterr().out

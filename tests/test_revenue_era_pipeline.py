@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.api.v1.endpoints import revenue_era
@@ -32,6 +32,7 @@ from app.db.models.revenue_era import (
 )
 from app.db.models.user import User
 from app.db.session import get_db
+from app.db.invariants.revenue_era_invariants import run_revenue_era_invariants
 from app.main import app
 from app.services import revenue_era as revenue_era_service
 from app.services.revenue_era import (
@@ -1805,5 +1806,133 @@ def test_process_response_includes_request_id(tmp_path, monkeypatch) -> None:
             generated_request_id = process_again.json()["request_id"]
             assert generated_request_id
             UUID(generated_request_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_process_lock_timeout_returns_controlled_conflict_json(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, _ = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+
+    original_execute = revenue_era.Session.execute
+
+    def _execute_with_lock_timeout(self, statement, *args, **kwargs):  # noqa: ANN001
+        if "FOR UPDATE" in str(statement):
+            raise OperationalError(
+                str(statement),
+                {},
+                Exception("canceling statement due to lock timeout"),
+            )
+        return original_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(revenue_era.Session, "execute", _execute_with_lock_timeout)
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+            process = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert process.status_code == 409
+            detail = process.json()["detail"]
+            assert detail["error"] == "concurrency_conflict"
+            assert detail["stage"] == "lock_acquire"
+            assert detail["error_code"] == "db_lock_timeout"
+            assert detail["request_id"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_fail_once_structuring_retry_is_atomic_and_deterministic(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, org_id = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("ENABLE_FAILURE_INJECTION", "true")
+    monkeypatch.setenv("AZURE_FAIL_ONCE_STAGE", "STRUCTURING")
+    monkeypatch.setenv("AZURE_FAIL_ONCE_ERROR", "azure_timeout")
+
+    monkeypatch.setattr(revenue_era, "run_doc_intel", lambda path, request_id=None: {"model_id": "di-model", "extracted": {"ok": True}})
+    monkeypatch.setattr(
+        revenue_era,
+        "run_structuring_llm",
+        lambda payload, request_id=None: RevenueEraStructuredV1(
+            payer_name="Payer One",
+            claim_lines=[RevenueEraStructuredLine(claim_ref="CLM123", match_status=MATCH_UNMATCHED, charge_cents=100, paid_cents=90)],
+        ),
+    )
+
+    def _snapshot(db, era_id: str) -> tuple[int, int, list[tuple[str, int | None, int | None]]]:
+        claims = (
+            db.execute(select(RevenueEraClaimLine).where(RevenueEraClaimLine.era_file_id == era_id))
+            .scalars()
+            .all()
+        )
+        work = (
+            db.execute(select(RevenueEraWorkItem).where(RevenueEraWorkItem.era_file_id == era_id))
+            .scalars()
+            .all()
+        )
+        claim_shape = sorted((row.claim_ref, row.charge_cents, row.paid_cents) for row in claims)
+        return len(claims), len(work), claim_shape
+
+    try:
+        with TestClient(app) as client:
+            upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era.pdf", b"%PDF-1.4 era", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert upload.status_code == 200
+            era_id = upload.json()[0]["id"]
+
+            first = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert first.status_code == 502
+            assert first.json()["error"] == "upstream_failure"
+            first_request_id = first.json()["request_id"]
+
+            with session_factory() as db:
+                assert run_revenue_era_invariants(db, organization_id=org_id, era_file_ids=[era_id])["pass"] is True
+                file_row = db.get(RevenueEraFile, era_id)
+                assert file_row.status == STATUS_ERROR
+                assert _snapshot(db, era_id)[:2] == (0, 0)
+
+            monkeypatch.delenv("AZURE_FAIL_ONCE_STAGE", raising=False)
+            second = client.post(
+                f"/api/v1/revenue/era-pdfs/{era_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert second.status_code == 200
+            second_request_id = second.json()["request_id"]
+            assert first_request_id != second_request_id
+
+            baseline_upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("era2.pdf", b"%PDF-1.4 era-two", "application/pdf"))],
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert baseline_upload.status_code == 200
+            baseline_id = baseline_upload.json()[0]["id"]
+            baseline = client.post(
+                f"/api/v1/revenue/era-pdfs/{baseline_id}/process",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert baseline.status_code == 200
+
+        with session_factory() as db:
+            assert run_revenue_era_invariants(db, organization_id=org_id)["pass"] is True
+            retried_snapshot = _snapshot(db, era_id)
+            baseline_snapshot = _snapshot(db, baseline_id)
+            assert retried_snapshot == baseline_snapshot
     finally:
         app.dependency_overrides.clear()

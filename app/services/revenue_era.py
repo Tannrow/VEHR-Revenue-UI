@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -79,6 +80,14 @@ ERROR_CODE_PHI_DETECTED = "ERA_PHI_DETECTED"
 ERROR_CODE_RECONCILIATION_FAILED = "ERA_RECONCILIATION_FAILED"
 ERROR_CODE_PROCESSING_FAILED = "ERA_PROCESSING_FAILED"
 
+_FAILURE_INJECTION_LOCK = threading.Lock()
+_FAILURE_INJECTION_USED: set[str] = set()
+_FAILURE_STAGE_MAP = {
+    "EXTRACTING": "document_intelligence_extract",
+    "STRUCTURING": "openai_structuring",
+    "PERSISTING": "persisting",
+}
+
 
 class EraSchemaInvalidError(RuntimeError):
     pass
@@ -90,6 +99,30 @@ class EraPhiDetectedError(RuntimeError):
 
 class EraReconciliationError(RuntimeError):
     pass
+
+
+def failure_injection_enabled() -> bool:
+    if env_default_bool("ENABLE_FAILURE_INJECTION", False):
+        return True
+    env_name = (os.getenv("ENV", "") or os.getenv("APP_ENV", "")).strip().lower()
+    return env_name in {"test", "dev", "development"}
+
+
+def maybe_raise_fail_once(*, stage: str, request_id: str) -> None:
+    configured = (os.getenv("AZURE_FAIL_ONCE_STAGE", "") or "").strip().upper()
+    if not configured or configured not in _FAILURE_STAGE_MAP:
+        return
+    if _FAILURE_STAGE_MAP[configured] != stage:
+        return
+    if not failure_injection_enabled():
+        return
+    error_code = (os.getenv("AZURE_FAIL_ONCE_ERROR", "") or "").strip().lower() or "azure_unavailable"
+    key = f"{configured}:{error_code}"
+    with _FAILURE_INJECTION_LOCK:
+        if key in _FAILURE_INJECTION_USED:
+            return
+        _FAILURE_INJECTION_USED.add(key)
+    raise AzureClientError(stage=stage, error_code=error_code, request_id=request_id)
 
 
 def phase2_validation_enabled() -> bool:

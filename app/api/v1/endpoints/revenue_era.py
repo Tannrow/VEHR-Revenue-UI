@@ -10,7 +10,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_membership, get_current_organization, require_permission
@@ -45,6 +46,7 @@ from app.services.revenue_era import (
     EraReconciliationError,
     EraSchemaInvalidError,
     fail_closed_enabled,
+    maybe_raise_fail_once,
     log_attempt,
     normalize_structured,
     phi_scan,
@@ -63,6 +65,28 @@ from infrastructure.azure_client import AzureClientError
 
 router = APIRouter(tags=["Revenue ERA"])
 logger = logging.getLogger(__name__)
+
+
+def _is_lock_timeout_error(exc: Exception) -> bool:
+    if isinstance(exc, (OperationalError, DBAPIError)):
+        orig = getattr(exc, "orig", None)
+        sqlstate = (
+            getattr(orig, "sqlstate", None)
+            or getattr(orig, "pgcode", None)
+            or getattr(exc, "code", None)
+        )
+        if sqlstate == "55P03":
+            return True
+    message = str(exc).lower()
+    return "lock timeout" in message or "canceling statement due to lock timeout" in message
+
+
+def _set_local_lock_timeouts(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "postgresql":
+        return
+    db.execute(text("SET LOCAL lock_timeout = '3s'"))
+    db.execute(text("SET LOCAL statement_timeout = '30s'"))
 
 
 class EraFileResponse(BaseModel):
@@ -631,17 +655,32 @@ def process_era_pdf(
     )
 
     def _locked_era_file() -> RevenueEraFile:
-        row = (
-            db.execute(
-                select(RevenueEraFile)
-                .where(
-                    RevenueEraFile.id == era_file_id,
-                    RevenueEraFile.organization_id == organization.id,
+        try:
+            _set_local_lock_timeouts(db)
+            row = (
+                db.execute(
+                    select(RevenueEraFile)
+                    .where(
+                        RevenueEraFile.id == era_file_id,
+                        RevenueEraFile.organization_id == organization.id,
+                    )
+                    .with_for_update()
                 )
-                .with_for_update()
+                .scalar_one_or_none()
             )
-            .scalar_one_or_none()
-        )
+        except Exception as exc:
+            if _is_lock_timeout_error(exc):
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "concurrency_conflict",
+                        "stage": "lock_acquire",
+                        "error_code": "db_lock_timeout",
+                        "request_id": request_id,
+                    },
+                ) from None
+            raise
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="era_file_not_found")
         return row
@@ -838,6 +877,7 @@ def process_era_pdf(
 
     extract_started_at = time.perf_counter()
     try:
+        maybe_raise_fail_once(stage="document_intelligence_extract", request_id=request_id)
         di_result = _invoke_with_request_id(run_doc_intel, pdf_path)
     except AzureClientError as exc:
         duration_ms = int((time.perf_counter() - extract_started_at) * 1000)
@@ -903,6 +943,7 @@ def process_era_pdf(
         _fail("extract", "extract_missing", status.HTTP_400_BAD_REQUEST, "extract_missing")
     structuring_started_at = time.perf_counter()
     try:
+        maybe_raise_fail_once(stage="openai_structuring", request_id=request_id)
         structured = _invoke_with_request_id(run_structuring_llm, extract_row.extracted_json)
     except AzureClientError as exc:
         duration_ms = int((time.perf_counter() - structuring_started_at) * 1000)
@@ -956,6 +997,7 @@ def process_era_pdf(
     normalize_started_at = time.perf_counter()
     try:
         with db.begin_nested():
+            maybe_raise_fail_once(stage="persisting", request_id=request_id)
             claim_count, work_count, dollars_total = normalize_structured(db, era_file=era_file, structured=structured)
             normalize_duration_ms = int((time.perf_counter() - normalize_started_at) * 1000)
             era_file.stage_completed_at = utc_now()
@@ -978,6 +1020,10 @@ def process_era_pdf(
             )
     except ValidationError:
         _fail("structuring", "validation_failed", status.HTTP_422_UNPROCESSABLE_ENTITY, "structured_validation_failed")
+    except AzureClientError as exc:
+        duration_ms = int((time.perf_counter() - normalize_started_at) * 1000)
+        _log_process_failure(exc.stage, exc.error_code, duration_ms=duration_ms)
+        return _external_service_failure(exc.stage, exc.error_code)
     except Exception:  # noqa: BLE001
         _fail("structuring", "normalization_failed", status.HTTP_500_INTERNAL_SERVER_ERROR, "normalization_failed")
 
@@ -1111,17 +1157,33 @@ def retry_reset_era_pdf(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:write")),
 ) -> EraFileResponse:
-    era_file = (
-        db.execute(
-            select(RevenueEraFile)
-            .where(
-                RevenueEraFile.id == era_file_id,
-                RevenueEraFile.organization_id == organization.id,
+    request_id = str(uuid4())
+    try:
+        _set_local_lock_timeouts(db)
+        era_file = (
+            db.execute(
+                select(RevenueEraFile)
+                .where(
+                    RevenueEraFile.id == era_file_id,
+                    RevenueEraFile.organization_id == organization.id,
+                )
+                .with_for_update()
             )
-            .with_for_update()
+            .scalar_one_or_none()
         )
-        .scalar_one_or_none()
-    )
+    except Exception as exc:
+        if _is_lock_timeout_error(exc):
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "concurrency_conflict",
+                    "stage": "lock_acquire",
+                    "error_code": "db_lock_timeout",
+                    "request_id": request_id,
+                },
+            ) from None
+        raise
     if not era_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="era_file_not_found")
 
