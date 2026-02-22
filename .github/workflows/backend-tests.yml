@@ -102,14 +102,14 @@ jobs:
             alembic current || true
             alembic heads || true
             python - <<'PY'
-            import os
-            import psycopg
-            url=os.environ["DATABASE_URL"].replace("postgresql+psycopg://","postgresql://",1)
-            with psycopg.connect(url) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT version_num FROM alembic_version")
-                    print("alembic_version=", cur.fetchall())
-            PY
+import os
+import psycopg
+url = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
+with psycopg.connect(url) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT version_num FROM alembic_version")
+        print("alembic_version=", cur.fetchall())
+PY
             exit 1
           fi
 
@@ -118,15 +118,15 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          from alembic.config import Config
-          from alembic.script import ScriptDirectory
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
-          script = ScriptDirectory.from_config(Config("alembic.ini"))
-          heads = script.get_heads()
-          if len(heads) != 1:
-              raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
-          print(f"Alembic single head check passed: {heads[0]}")
-          PY
+script = ScriptDirectory.from_config(Config("alembic.ini"))
+heads = script.get_heads()
+if len(heads) != 1:
+    raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
+print(f"Alembic single head check passed: {heads[0]}")
+PY
 
       - name: Verify app startup connectivity
         shell: bash
@@ -165,29 +165,31 @@ jobs:
           }
           curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
           python - <<'PY'
-          import json
-          import os
-          from urllib import request
-          payload = json.dumps({
-              "organization_name": "Load Org",
-              "admin_email": "admin@example.com",
-              "admin_password": "ChangeMeNow!",
-              "admin_name": "Admin User",
-          }).encode("utf-8")
-          req = request.Request(
-              f"http://127.0.0.1:{os.environ['APP_PORT']}/api/v1/auth/bootstrap",
-              data=payload,
-              method="POST",
-              headers={"Content-Type": "application/json", "Accept": "application/json"},
-          )
-          with request.urlopen(req, timeout=10) as res:  # noqa: S310 (CI localhost call only)
-              body = json.loads(res.read().decode("utf-8"))
-          token = body["access_token"]
-          organization_id = body["organization_id"]
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
-              fh.write(f"LOAD_TEST_TOKEN={token}\n")
-              fh.write(f"LOAD_TEST_ORGANIZATION_ID={organization_id}\n")
-          PY
+import json
+import os
+from urllib import request
+
+payload = json.dumps({
+    "organization_name": "Load Org",
+    "admin_email": "admin@example.com",
+    "admin_password": "ChangeMeNow!",
+    "admin_name": "Admin User",
+}).encode("utf-8")
+req = request.Request(
+    f"http://127.0.0.1:{os.environ['APP_PORT']}/api/v1/auth/bootstrap",
+    data=payload,
+    method="POST",
+    headers={"Content-Type": "application/json", "Accept": "application/json"},
+)
+with request.urlopen(req, timeout=10) as res:  # noqa: S310 (CI localhost call only)
+    body = json.loads(res.read().decode("utf-8"))
+token = body["access_token"]
+organization_id = body["organization_id"]
+with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+    fh.write(f"LOAD_TEST_TOKEN={token}\n")
+    fh.write(f"LOAD_TEST_ORGANIZATION_ID={organization_id}\n")
+PY
+          # Keep CI memory guard conservative to surface runaway buffering early.
           python scripts/load_test.py \
             --dir /home/runner/work/VEHR/VEHR/tests/fixtures/era \
             --base-url "http://127.0.0.1:${APP_PORT}" \
@@ -195,7 +197,6 @@ jobs:
             --workers 20 \
             --iterations 2 \
             --job-timeout-seconds 120 \
-            # Keep CI memory guard conservative to surface runaway buffering early.
             --memory-ceiling-mb 700 \
             --token "$LOAD_TEST_TOKEN" \
             --organization-id "$LOAD_TEST_ORGANIZATION_ID"

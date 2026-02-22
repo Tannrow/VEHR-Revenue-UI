@@ -64,7 +64,7 @@ def health_db():
 
 
 @router.get("/readyz")
-def readyz() -> dict[str, bool | str] | JSONResponse:
+def readyz() -> object:
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
