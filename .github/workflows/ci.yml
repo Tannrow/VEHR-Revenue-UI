@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: vehr
+          POSTGRES_PASSWORD: vehr
+          POSTGRES_DB: vehr
+        options: >-
+          --health-cmd "pg_isready -U vehr -d vehr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://vehr:vehr@localhost:5432/vehr
+      PYTHONPATH: .
+      BOOTSTRAP_ENABLED: "1"
+      ENV: test
+      ENABLE_FAILURE_INJECTION: "true"
+      AZURE_DOCINTEL_ENDPOINT: https://example.invalid
+      AZURE_DOCINTEL_KEY: dummy-key
+      AZURE_OPENAI_ENDPOINT: https://example.invalid
+      AZURE_OPENAI_API_KEY: dummy-key
+      AZURE_OPENAI_DEPLOYMENT: dummy-deployment
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "psycopg[binary]" pytest alembic
+
+      - name: Wait for Postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v pg_isready >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U vehr -d vehr; then
+              exit 0
+            fi
+            echo "Postgres not ready yet... ($i/30)"
+            sleep 2
+          done
+          echo "Postgres did not become ready in time" >&2
+          exit 1
+
+      - name: Run migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          alembic upgrade head
+
+      - name: Lint (if configured)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "pyproject.toml" ] && grep -q "^\[tool.ruff\]" pyproject.toml; then
+            pip install ruff
+            ruff check .
+          else
+            echo "No supported lint configuration detected; skipping lint"
+          fi
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q
+
+      - name: Build Docker image (local only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t vehr-ci:${{ github.sha }} .

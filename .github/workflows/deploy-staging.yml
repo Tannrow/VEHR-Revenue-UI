@@ -137,72 +137,116 @@ jobs:
           echo "Migration job did not complete in time"
           exit 1
 
-      # -----------------------------
-      # Deploy to Container Apps
-      # -----------------------------
-      - name: Deploy to Azure Container Apps
+      - name: Deploy safely (0% -> health/smoke -> 100%)
         shell: bash
         run: |
           set -euxo pipefail
-          az containerapp update \
-            --name $CONTAINERAPP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --image $FULL_IMAGE \
-            --set-env-vars RINGCENTRAL_REALTIME_ENABLED=false
 
-      # -----------------------------
-      # Wait for Latest Revision Healthy
-      # -----------------------------
-      - name: Wait for latest revision healthy
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          REVISION="$(az containerapp revision list \
+          OLD_REVISION="$(az containerapp ingress traffic show \
             --name "$CONTAINERAPP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --query "sort_by([].{name:name, created:properties.createdTime, health:properties.healthState}, &created)[-1].name" \
+            --query "sort_by([?weight > \`0\`].{revisionName:revisionName, weight:weight}, &weight)[-1].revisionName" \
             -o tsv)"
 
-          echo "Latest revision: $REVISION"
+          if [ -z "$OLD_REVISION" ]; then
+            OLD_REVISION="$(az containerapp revision list \
+              --name "$CONTAINERAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query "[?properties.active].name | [0]" \
+              -o tsv)"
+          fi
+
+          if [ -z "$OLD_REVISION" ]; then
+            echo "Could not determine old active revision"
+            exit 1
+          fi
+
+          az containerapp revision set-mode \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --mode multiple
+
+          az containerapp update \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$FULL_IMAGE" \
+            --set-env-vars RINGCENTRAL_REALTIME_ENABLED=false
+
+          NEW_REVISION="$(az containerapp revision list \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "sort_by([].{name:name, created:properties.createdTime}, &created)[-1].name" \
+            -o tsv)"
+
+          if [ -z "$NEW_REVISION" ] || [ "$NEW_REVISION" = "$OLD_REVISION" ]; then
+            echo "Failed to determine new revision"
+            exit 1
+          fi
+
+          rollback_and_fail() {
+            if ! az containerapp ingress traffic set \
+              --name "$CONTAINERAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0"; then
+              echo "Rollback traffic shift failed" >&2
+            fi
+            exit 1
+          }
+
+          az containerapp ingress traffic set \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0"
 
           for i in {1..36}; do
             HEALTH="$(az containerapp revision show \
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --revision "$REVISION" \
+              --revision "$NEW_REVISION" \
               --query "properties.healthState" \
               -o tsv)"
 
-            echo "[$i/36] healthState=$HEALTH"
-
+            echo "[$i/36] newRevision=$NEW_REVISION healthState=$HEALTH"
             if [ "$HEALTH" = "Healthy" ]; then
-              exit 0
+              break
             fi
-
             sleep 5
+            if [ "$i" -eq 36 ]; then
+              echo "New revision did not become Healthy in time"
+              rollback_and_fail
+            fi
           done
 
-          echo "Revision did not become Healthy in time"
-          exit 1
+          REVISION_FQDN="$(az containerapp revision show \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --revision "$NEW_REVISION" \
+            --query "properties.fqdn" \
+            -o tsv)"
 
-      # -----------------------------
-      # Smoke Test /healthz
-      # -----------------------------
-      - name: Smoke test healthz
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="$APP_URL/api/v1/healthz"
+          if [ -z "$REVISION_FQDN" ]; then
+            echo "Could not resolve new revision FQDN"
+            rollback_and_fail
+          fi
 
+          URL="https://$REVISION_FQDN/api/v1/healthz"
           for i in {1..12}; do
             echo "[$i/12] GET $URL"
             if curl -fsS --max-time 15 "$URL" | grep -q '"ok":true'; then
-              echo "Smoke test passed"
-              exit 0
+              az containerapp ingress traffic set \
+                --name "$CONTAINERAPP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --revision-weight "$NEW_REVISION=100" "$OLD_REVISION=0"
+              APP_SMOKE_URL="$APP_URL/api/v1/healthz"
+              if curl -fsS --max-time 15 "$APP_SMOKE_URL" | grep -q '"ok":true'; then
+                echo "Smoke test passed; traffic shifted to new revision"
+                exit 0
+              fi
+              echo "Post-promotion app URL smoke test failed"
+              rollback_and_fail
             fi
             sleep 5
           done
 
           echo "Smoke test failed"
-          exit 1
+          rollback_and_fail
