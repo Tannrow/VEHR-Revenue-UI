@@ -220,10 +220,12 @@ jobs:
           fi
 
           rollback_and_fail() {
-            az containerapp ingress traffic set \
+            if ! az containerapp ingress traffic set \
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0" || true
+              --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0"; then
+              echo "Rollback traffic shift failed" >&2
+            fi
             exit 1
           }
 
@@ -251,7 +253,19 @@ jobs:
             fi
           done
 
-          URL="$APP_URL/api/v1/healthz"
+          REVISION_FQDN="$(az containerapp revision show \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --revision "$NEW_REVISION" \
+            --query "properties.fqdn" \
+            -o tsv)"
+
+          if [ -z "$REVISION_FQDN" ]; then
+            echo "Could not resolve new revision FQDN"
+            rollback_and_fail
+          fi
+
+          URL="https://$REVISION_FQDN/api/v1/healthz"
           for i in {1..12}; do
             echo "[$i/12] GET $URL"
             if curl -fsS --max-time 15 "$URL" | grep -q '"ok":true'; then
@@ -259,8 +273,13 @@ jobs:
                 --name "$CONTAINERAPP_NAME" \
                 --resource-group "$RESOURCE_GROUP" \
                 --revision-weight "$NEW_REVISION=100" "$OLD_REVISION=0"
-              echo "Smoke test passed; traffic shifted to new revision"
-              exit 0
+              APP_SMOKE_URL="$APP_URL/api/v1/healthz"
+              if curl -fsS --max-time 15 "$APP_SMOKE_URL" | grep -q '"ok":true'; then
+                echo "Smoke test passed; traffic shifted to new revision"
+                exit 0
+              fi
+              echo "Post-promotion app URL smoke test failed"
+              rollback_and_fail
             fi
             sleep 5
           done
