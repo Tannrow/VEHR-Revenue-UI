@@ -34,6 +34,7 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.db.invariants.revenue_era_invariants import run_revenue_era_invariants
 from app.main import app
+from app.services.revenue_era_signature import compute_era_signature
 from app.services import revenue_era as revenue_era_service
 from app.services.revenue_era import (
     MATCH_UNMATCHED,
@@ -1934,5 +1935,82 @@ def test_fail_once_structuring_retry_is_atomic_and_deterministic(tmp_path, monke
             retried_snapshot = _snapshot(db, era_id)
             baseline_snapshot = _snapshot(db, baseline_id)
             assert retried_snapshot == baseline_snapshot
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_determinism_proof_fail_once_retry_hash_matches_baseline(tmp_path, monkeypatch) -> None:
+    session_factory = _setup_sqlite(tmp_path)
+    token, org_id = _seed_admin(session_factory)
+    monkeypatch.setattr(revenue_era, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("ENABLE_FAILURE_INJECTION", "true")
+
+    monkeypatch.setattr(
+        revenue_era,
+        "run_doc_intel",
+        lambda path, request_id=None: {"model_id": "di-model", "extracted": {"ok": True}},
+    )
+    monkeypatch.setattr(
+        revenue_era,
+        "run_structuring_llm",
+        lambda payload, request_id=None: RevenueEraStructuredV1(
+            payer_name="Payer One",
+            claim_lines=[
+                RevenueEraStructuredLine(
+                    claim_ref="CLM123",
+                    service_date=date(2026, 1, 2),
+                    proc_code="99213",
+                    charge_cents=10000,
+                    allowed_cents=8000,
+                    paid_cents=5000,
+                    adjustments=[],
+                    match_status=MATCH_UNMATCHED,
+                )
+            ],
+        ),
+    )
+
+    try:
+        with TestClient(app) as client:
+            baseline_upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("baseline.pdf", b"%PDF-1.4 baseline", "application/pdf"))],
+                headers={"Authorization": f"******"},
+            )
+            assert baseline_upload.status_code == 200
+            baseline_id = baseline_upload.json()[0]["id"]
+            baseline_process = client.post(
+                f"/api/v1/revenue/era-pdfs/{baseline_id}/process",
+                headers={"Authorization": f"******"},
+            )
+            assert baseline_process.status_code == 200
+
+            monkeypatch.setenv("AZURE_FAIL_ONCE_STAGE", "STRUCTURING")
+            monkeypatch.setenv("AZURE_FAIL_ONCE_ERROR", "azure_timeout_determinism_retry")
+            retry_upload = client.post(
+                "/api/v1/revenue/era-pdfs/upload",
+                files=[("files", ("retry.pdf", b"%PDF-1.4 retry", "application/pdf"))],
+                headers={"Authorization": f"******"},
+            )
+            assert retry_upload.status_code == 200
+            retry_id = retry_upload.json()[0]["id"]
+            retry_fail = client.post(
+                f"/api/v1/revenue/era-pdfs/{retry_id}/process",
+                headers={"Authorization": f"******"},
+            )
+            assert retry_fail.status_code == 502
+            retry_fail_request_id = retry_fail.json()["request_id"]
+            retry_success = client.post(
+                f"/api/v1/revenue/era-pdfs/{retry_id}/process",
+                headers={"Authorization": f"******"},
+            )
+            assert retry_success.status_code == 200
+            assert retry_success.json()["request_id"] != retry_fail_request_id
+
+        with session_factory() as db:
+            baseline_sig = compute_era_signature(db, baseline_id)
+            retry_sig = compute_era_signature(db, retry_id)
+            assert baseline_sig == retry_sig
+            assert run_revenue_era_invariants(db, organization_id=org_id, era_file_ids=[baseline_id, retry_id])["pass"] is True
     finally:
         app.dependency_overrides.clear()
