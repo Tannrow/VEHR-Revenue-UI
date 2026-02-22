@@ -16,6 +16,7 @@ env:
   ACR_NAME: vehrrevostagingacr
   ACR_LOGIN_SERVER: vehrrevostagingacr.azurecr.io
   IMAGE_NAME: vehr-api
+  APP_URL: https://vehr-revos-staging.whitemoss-9930542d.eastus.azurecontainerapps.io
 
 jobs:
   build-and-deploy:
@@ -39,7 +40,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # -----------------------------
-      # Verify Azure Context (Debug)
+      # Verify Azure Context
       # -----------------------------
       - name: Verify Azure context
         shell: bash
@@ -77,16 +78,62 @@ jobs:
           az containerapp update \
             --name $CONTAINERAPP_NAME \
             --resource-group $RESOURCE_GROUP \
-            --image $FULL_IMAGE
+            --image $FULL_IMAGE \
+            --set-env-vars RINGCENTRAL_REALTIME_ENABLED=false
 
       # -----------------------------
-      # Show Latest Revision
+      # Wait for Latest Revision Healthy
       # -----------------------------
-      - name: Show latest revision
+      - name: Wait for latest revision healthy
         shell: bash
         run: |
-          set -euxo pipefail
-          az containerapp revision list \
-            --name $CONTAINERAPP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            -o table | head -n 20
+          set -euo pipefail
+
+          REVISION="$(az containerapp revision list \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "sort_by([].{name:name, created:properties.createdTime, health:properties.healthState}, &created)[-1].name" \
+            -o tsv)"
+
+          echo "Latest revision: $REVISION"
+
+          for i in {1..36}; do
+            HEALTH="$(az containerapp revision show \
+              --name "$CONTAINERAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --revision "$REVISION" \
+              --query "properties.healthState" \
+              -o tsv)"
+
+            echo "[$i/36] healthState=$HEALTH"
+
+            if [ "$HEALTH" = "Healthy" ]; then
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Revision did not become Healthy in time"
+          exit 1
+
+      # -----------------------------
+      # Smoke Test /healthz
+      # -----------------------------
+      - name: Smoke test healthz
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$APP_URL/api/v1/healthz"
+
+          for i in {1..12}; do
+            echo "[$i/12] GET $URL"
+            if curl -fsS --max-time 15 "$URL" | grep -q '"ok":true'; then
+              echo "Smoke test passed"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Smoke test failed"
+          exit 1
