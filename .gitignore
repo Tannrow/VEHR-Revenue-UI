@@ -1,3 +1,6 @@
+# =============================
+# Python
+# =============================
 .venv/
 __pycache__/
 *.pyc
@@ -5,40 +8,64 @@ __pycache__/
 *.pyd
 .Python
 
+# =============================
+# Databases
+# =============================
 vehr.db
 vehr.db.bak
 *.sqlite
 *.sqlite3
 
+# =============================
+# Frontend
+# =============================
 frontend/node_modules/
 frontend/.next/
 
+# =============================
+# Environment Variables
+# =============================
 .env
 .env.local
 .env.*.local
 
-# Local secrets / notes
+# =============================
+# Secrets / Local Notes
+# =============================
 Entra app.txt
 doc intelligence end point.txt
+*.pem
 
+# =============================
+# Logs
+# =============================
 *.log
+logs/
 
-# Playwright / test artifacts
+# =============================
+# Playwright / Test Artifacts
+# =============================
 test-results/
 frontend/test-results/
 
-# Power BI authoring files (local only)
+# =============================
+# Power BI (local authoring)
+# =============================
 *.pbix
 power BI stuff.txt
 
-# Local extraction inputs/outputs
+# =============================
+# Local Extraction I/O
+# =============================
 inputs/eras/
 outputs/eras/
 
-# Local tooling folders that should never be committed
+# =============================
+# Local Tooling / Scratch
+# =============================
 app/api/v1/endpoints/Fabric codex/
 intel doc/
-
-# Local logs
-logs/
-
+AzureCLI*
+phase1/
+*.msi
+*.ms
