@@ -72,9 +72,8 @@ Root cause is likely missing/incorrect S3 bucket CORS for browser presigned uplo
 ## Manual Follow-Up Required (Tomorrow)
 1. Decide branch/deploy strategy:
    - `main` has the expanded app+frontend work.
-   - Render backend currently tied to `master`.
-2. Push/deploy chosen branch to Render.
-3. In Render API service env, set/update:
+2. Push/deploy chosen branch via GitHub Actions to Azure Container Apps.
+3. In Azure Container Apps API env vars, set/update:
    - `JWT_SECRET`
    - `CORS_ALLOWED_ORIGINS`
    - `AWS_REGION`
@@ -82,7 +81,7 @@ Root cause is likely missing/incorrect S3 bucket CORS for browser presigned uplo
    - `AWS_ACCESS_KEY_ID`
    - `AWS_SECRET_ACCESS_KEY`
    - legacy `S3_*` vars if document endpoints remain enabled.
-4. Run migrations on Render runtime:
+4. Run migrations on Azure runtime:
    - `alembic upgrade head`
 5. Verify production:
    - `/health`
@@ -93,4 +92,4 @@ Root cause is likely missing/incorrect S3 bucket CORS for browser presigned uplo
    - frontend pages (`/dashboard`, `/forms-builder`, `/audit-center`, `/integrations`, `/crm`)
 
 ## Known Constraints
-- Render credentials/API key are not present in this local environment, so Render runtime actions could not be automated here.
+- Azure credentials are not present in this local environment, so Azure runtime actions could not be automated here.

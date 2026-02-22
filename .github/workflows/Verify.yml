@@ -51,11 +51,3 @@ jobs:
 
       - name: Compile check
         run: python -m compileall app
-
-  deploy:
-    needs: verify
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Trigger Render deploy
-        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"

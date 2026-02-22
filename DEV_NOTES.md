@@ -18,7 +18,7 @@
 
 ## Env flags
 - `NEXT_PUBLIC_API_BASE_URL`:
-  - Frontend API base URL (`https://api.the-trapp-house.com` in Render).
+  - Frontend API base URL (`https://api.the-trapp-house.com` in Azure Container Apps).
 - `NEXT_PUBLIC_API_TOKEN`:
   - Optional static token fallback for frontend API calls.
   - Temporary option until full interactive login/session UX is added.

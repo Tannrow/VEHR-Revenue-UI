@@ -31,8 +31,11 @@ Required env vars:
 - GITHUB_APP_PRIVATE_KEY_PEM (preferred) or GITHUB_APP_PRIVATE_KEY_PATH
 - Plus any existing required env vars documented below (RingCentral, OpenAI, storage, etc.)
 
-Render deployment (agent-only)
-Set NEXUS_AGENT_MODE=1 to skip RingCentral startup validation for AI agent workloads.
+Deployment (GitHub Actions -> Azure Container Apps)
+- Staging deploys are handled by `.github/workflows/deploy-staging.yml`.
+- Trigger conditions: `push` to `main` and `workflow_dispatch` only.
+- This repository no longer includes any Render integration.
+- Set `NEXUS_AGENT_MODE=1` to skip RingCentral startup validation for AI agent workloads.
 
 Example Docker run:
 docker build -t vehr-nexus .

@@ -585,11 +585,10 @@ Notes:
 1. Build semantic model tables/views and backfill from operational sources.
 2. Publish dataset + create measure folders and standardized measures.
 3. Configure `TenantRLS` role in Desktop and publish.
-4. Set new report/dataset/workspace env vars in Render.
+4. Set new report/dataset/workspace env vars in Azure Container Apps.
 5. Run BI report seeding:
    - `python -m app.scripts.seed_bi_reports`
 6. Validate `/api/v1/bi/reports` returns all enabled keys.
 7. Validate `/analytics/<reportKey>` rendering and token refresh behavior.
 8. Verify Org 1 vs Org 2 isolation in embedded reports.
 9. Add visual regression snapshots for each flagship report route.
-

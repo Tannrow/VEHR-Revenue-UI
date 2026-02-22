@@ -166,7 +166,7 @@ Suggested key pages for screenshot tests:
 - `/call-center`
 - `/admin-center`
 
-## 3) CI (GitHub Actions + Render Deploy Gate)
+## 3) CI (GitHub Actions)
 
 Create workflow `.github/workflows/frontend-visual.yml`:
 
@@ -200,10 +200,9 @@ jobs:
       - run: npm run chromatic -- --project-token=${{ secrets.CHROMATIC_PROJECT_TOKEN }}
 ```
 
-Render integration:
+Deployment integration:
 
-- In Render settings, enable deploy gate on required GitHub checks.
-- Mark this workflow check as required before deploy.
+- Use GitHub Actions workflow requirements as the deploy gate before Azure Container Apps staging deploys.
 
 ## Safe Refactor Rules (Every PR)
 

@@ -54,7 +54,7 @@ This prints:
 
 Capture the IDs for `chart_audit`.
 
-## 5) Configure backend env vars (Render API service only)
+## 5) Configure backend env vars (Azure Container Apps API service only)
 
 Set these on the backend service (do not expose in frontend env):
 

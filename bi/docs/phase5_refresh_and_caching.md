@@ -54,12 +54,12 @@ Flags:
 - `--no-sync` to skip syncing into KPI tables (refresh only).
 - `--batch-size 1000` controls insert batching.
 
-### Scheduling on Render
+### Scheduling on Azure Container Apps Jobs
 
-Use Render’s “Cron Job” feature (recommended):
+Use an Azure Container Apps Job (recommended):
 
-1. Create a new Cron Job in Render.
-2. Point it at the same repo/Dockerfile as the API service.
+1. Create/update a Container Apps Job in the same environment as the API service.
+2. Point it at the same repo image as the API service.
 3. Command:
    - `python -m app.scripts.refresh_analytics_materializations`
 4. Schedule:
@@ -134,4 +134,3 @@ Manual authoring checklist (no code changes required):
    - Trigger a refresh and verify only recent partitions refresh
 5. RLS validation still applies:
    - Use “View as” in Desktop and embedded token tests in app.
-

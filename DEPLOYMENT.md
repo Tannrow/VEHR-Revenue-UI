@@ -1,5 +1,5 @@
 **Overview**
-This guide prepares The Daily Dose (EHR) for always-on dev deployment with Neon Postgres, Render (Docker), and Vercel. Alembic remains the single source of truth for schema changes.
+This guide prepares The Daily Dose (EHR) for always-on dev deployment with Neon Postgres, Azure Container Apps, and Vercel. Alembic remains the single source of truth for schema changes.
 
 **Neon Postgres**
 1. Create a Neon project and database.
@@ -22,10 +22,10 @@ $env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require"
 alembic upgrade head
 ```
 
-**Render Web Service (Docker)**
-1. Ensure `render.yaml` is at the repo root and `Dockerfile` is present.
-2. Create a Render Blueprint service from the repo. The blueprint config is ready for Docker.
-3. Set these environment variables for the service:
+**Azure Container Apps API Service (Docker)**
+1. Ensure `Dockerfile` is present at the repo root.
+2. Use `.github/workflows/deploy-staging.yml` to build/push the image and deploy to Azure Container Apps.
+3. Set these environment variables for the container app:
 
 `DATABASE_URL` = Neon connection string  
 `AUTO_CREATE_TABLES` = `false`  
@@ -58,13 +58,13 @@ Optional (required for webhook subscription flow):
 
 Notes:
 `AUTO_CREATE_TABLES` stays off so Alembic is the schema source of truth.  
-Render supplies `PORT` automatically for the Docker container.
+Azure Container Apps supplies `PORT` for the Docker container.
 
 **Vercel Frontend**
 1. Deploy the `frontend` directory as the project root.
 2. Set the environment variable:
 
-`NEXT_PUBLIC_API_BASE_URL` = `https://<your-render-service-domain>`
+`NEXT_PUBLIC_API_BASE_URL` = `https://<your-azure-container-app-domain>`
 `NEXT_PUBLIC_API_TOKEN` = `Bearer token` (optional for dev; use a token from `/api/v1/auth/login`)
 `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` = `.360-encompass.com` (optional; ensures auth cookies are sent to both app + api subdomains)
 
@@ -81,7 +81,7 @@ Requirements:
 3. Transition-only fallback (dev only): `FEATURE_SSE_QUERY_TOKEN_COMPAT=true` temporarily allows `?access_token=...` on the SSE URL. Leave this **off** in production.
 
 **Operational Checklist**
-1. Confirm `DATABASE_URL` is set for Alembic, Render, and any local scripts.
+1. Confirm `DATABASE_URL` is set for Alembic, Azure Container Apps, and any local scripts.
 2. Confirm `AUTO_CREATE_TABLES` is not set or is `false`.
 3. Confirm `CORS_ALLOWED_ORIGINS` includes the Vercel domain.
 4. Confirm `/health` returns `{"status":"ok"}` on the deployed API.
@@ -153,7 +153,7 @@ Login example:
 - App boot/router wiring: `app/create_app.py`, `app/api/v1/router.py`.
 - Migration chain: `alembic/versions/*.py`.
 
-### Render log queries to run (exact search terms)
+### Azure Container Apps log queries to run (exact search terms)
 - **Migration chain mismatch**
   - Query: `"Cycle is detected in revisions"`
   - Query: `"No such revision"` or `"Revision .* is present more than once"`
@@ -183,7 +183,7 @@ Login example:
   2. On prod DB service shell: `alembic current`, `alembic heads`, `alembic history --verbose`.
   3. Resolve revision DAG in `alembic/versions` (single head, no cycles), redeploy, then `alembic upgrade head`.
 - **If missing env var**
-  1. In Render service env, verify: `DATABASE_URL`, `JWT_SECRET`, `JWT_ALGORITHM` (optional; defaults to `HS256` in `app/core/security.py`), `ACCESS_TOKEN_EXPIRE_MINUTES`.
+  1. In Azure Container Apps env vars, verify: `DATABASE_URL`, `JWT_SECRET`, `JWT_ALGORITHM` (optional; defaults to `HS256` in `app/core/security.py`), `ACCESS_TOKEN_EXPIRE_MINUTES`.
   2. Save + restart service, then re-test `/api/v1/auth/login`.
 - **If null/constraint mismatch**
   1. Capture exact failing table/column from stack trace.
@@ -198,9 +198,9 @@ Login example:
      - `alembic upgrade head`
 
 ### Exact next debugging steps
-1. In Render logs, filter by `path="/api/v1/auth/login"` and collect the first traceback for a failing request.
+1. In Azure Container Apps logs, filter by `path="/api/v1/auth/login"` and collect the first traceback for a failing request.
 2. Classify the exception using the queries above (migration, schema drift, env, DB connectivity, JWT, bcrypt).
-3. Validate runtime env values in Render (especially `DATABASE_URL` + `JWT_SECRET`) without rotating unrelated settings.
+3. Validate runtime env values in Azure Container Apps (especially `DATABASE_URL` + `JWT_SECRET`) without rotating unrelated settings.
 4. Check migration state on prod DB (`alembic current/heads/history`) and verify no cycle/duplicate revision IDs.
 5. Execute the corresponding minimal hotfix path, redeploy once, and re-test login with a known valid account.
 6. Confirm `200` login + token issuance; then verify `/api/v1/auth/me` for the same token/org context.
