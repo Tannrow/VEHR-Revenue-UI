@@ -34,6 +34,14 @@ jobs:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/vehr_test
       PYTHONPATH: .
       BOOTSTRAP_ENABLED: "1"
+      ENV: test
+      ENABLE_FAILURE_INJECTION: "true"
+      AZURE_DOCINTEL_ENDPOINT: https://example.invalid
+      AZURE_DOCINTEL_KEY: dummy-key
+      AZURE_OPENAI_ENDPOINT: https://example.invalid
+      AZURE_OPENAI_API_KEY: dummy-key
+      AZURE_OPENAI_DEPLOYMENT: dummy-deployment
+      APP_PORT: "8000"
 
     steps:
       - name: Checkout
@@ -88,7 +96,21 @@ jobs:
         run: |
           set -euo pipefail
           # CI executes upgrade only; downgrades (which can be ambiguous at mergepoints) are not part of this check.
-          alembic upgrade head
+          if ! alembic upgrade head; then
+            echo "alembic upgrade failed; dumping migration diagnostics" >&2
+            alembic current || true
+            alembic heads || true
+            python - <<'PY'
+            import os
+            import psycopg
+            url=os.environ["DATABASE_URL"].replace("postgresql+psycopg://","postgresql://",1)
+            with psycopg.connect(url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT version_num FROM alembic_version")
+                    print("alembic_version=", cur.fetchall())
+            PY
+            exit 1
+          fi
 
       - name: Validate Alembic revision graph has a single head
         shell: bash
@@ -105,6 +127,18 @@ jobs:
           print(f"Alembic single head check passed: {heads[0]}")
           PY
 
+      - name: Verify app startup connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_LOG=/tmp/uvicorn-ci-check.log
+          APP_ERR=/tmp/uvicorn-ci-check.err
+          python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}" --log-level info >"${APP_LOG}" 2>"${APP_ERR}" &
+          APP_PID=$!
+          trap "kill $APP_PID || true" EXIT
+          python scripts/ci_wait_for_health.py --url "http://127.0.0.1:${APP_PORT}/api/v1/healthz" --timeout-seconds 90
+          curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
+
       - name: Run tests
         shell: bash
         run: |
@@ -116,14 +150,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn-load.out 2> /tmp/uvicorn-load.err &
-          UVICORN_PID=$!
-          cleanup() { kill "$UVICORN_PID" || true; }
+          APP_LOG=/tmp/uvicorn-load.log
+          APP_ERR=/tmp/uvicorn-load.err
+          python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}" --log-level info >"${APP_LOG}" 2>"${APP_ERR}" &
+          APP_PID=$!
+          cleanup() { kill "$APP_PID" || true; }
           trap cleanup EXIT
-          for i in {1..40}; do
-            curl -fsS http://127.0.0.1:8000/docs >/dev/null && break
-            sleep 1
-          done
+          python scripts/ci_wait_for_health.py --url "http://127.0.0.1:${APP_PORT}/api/v1/healthz" --timeout-seconds 90 || {
+            echo "Healthcheck timeout; app logs:" >&2
+            tail -n 200 "${APP_LOG}" >&2 || true
+            tail -n 200 "${APP_ERR}" >&2 || true
+            exit 1
+          }
+          curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
           python - <<'PY'
           import json
           import os
@@ -135,7 +174,7 @@ jobs:
               "admin_name": "Admin User",
           }).encode("utf-8")
           req = request.Request(
-              "http://127.0.0.1:8000/api/v1/auth/bootstrap",
+              f"http://127.0.0.1:{os.environ['APP_PORT']}/api/v1/auth/bootstrap",
               data=payload,
               method="POST",
               headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -150,10 +189,29 @@ jobs:
           PY
           python scripts/load_test.py \
             --dir /home/runner/work/VEHR/VEHR/tests/fixtures/era \
-            --base-url http://127.0.0.1:8000 \
+            --base-url "http://127.0.0.1:${APP_PORT}" \
             --mode processes \
             --workers 20 \
             --iterations 2 \
-            --memory-ceiling-mb 1024 \
+            --job-timeout-seconds 120 \
+            --memory-ceiling-mb 700 \
             --token "$LOAD_TEST_TOKEN" \
             --organization-id "$LOAD_TEST_ORGANIZATION_ID"
+
+      - name: Diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "== curl healthz ==" >&2
+          curl -v "http://127.0.0.1:${APP_PORT}/api/v1/healthz" >&2 || true
+          echo "== curl readyz ==" >&2
+          curl -v "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >&2 || true
+          echo "== app logs ==" >&2
+          tail -n 200 /tmp/uvicorn-load.log >&2 || true
+          tail -n 200 /tmp/uvicorn-load.err >&2 || true
+          echo "== alembic current/heads ==" >&2
+          alembic current >&2 || true
+          alembic heads >&2 || true
+          echo "== postgres docker logs ==" >&2
+          docker logs $(docker ps -q --filter ancestor=postgres:16 | head -n 1) >&2 || true
