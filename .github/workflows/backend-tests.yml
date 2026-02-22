@@ -140,7 +140,7 @@ jobs:
               method="POST",
               headers={"Content-Type": "application/json", "Accept": "application/json"},
           )
-          with request.urlopen(req) as res:  # noqa: S310
+          with request.urlopen(req, timeout=10) as res:  # noqa: S310 (CI localhost call only)
               body = json.loads(res.read().decode("utf-8"))
           token = body["access_token"]
           organization_id = body["organization_id"]
@@ -155,6 +155,5 @@ jobs:
             --workers 20 \
             --iterations 2 \
             --memory-ceiling-mb 1024 \
-            --database-url "$DATABASE_URL" \
             --token "$LOAD_TEST_TOKEN" \
             --organization-id "$LOAD_TEST_ORGANIZATION_ID"

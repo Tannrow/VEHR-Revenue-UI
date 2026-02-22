@@ -65,6 +65,8 @@ from infrastructure.azure_client import AzureClientError
 
 router = APIRouter(tags=["Revenue ERA"])
 logger = logging.getLogger(__name__)
+LOCK_TIMEOUT_SECONDS = int(os.getenv("REVENUE_ERA_LOCK_TIMEOUT_SECONDS", "3"))
+LOCK_STATEMENT_TIMEOUT_SECONDS = int(os.getenv("REVENUE_ERA_LOCK_STATEMENT_TIMEOUT_SECONDS", "30"))
 
 
 def _is_lock_timeout_error(exc: Exception) -> bool:
@@ -85,8 +87,14 @@ def _set_local_lock_timeouts(db: Session) -> None:
     bind = db.get_bind()
     if bind is None or bind.dialect.name != "postgresql":
         return
-    db.execute(text("SET LOCAL lock_timeout = '3s'"))
-    db.execute(text("SET LOCAL statement_timeout = '30s'"))
+    db.execute(
+        text("SET LOCAL lock_timeout = :lock_timeout"),
+        {"lock_timeout": f"{LOCK_TIMEOUT_SECONDS}s"},
+    )
+    db.execute(
+        text("SET LOCAL statement_timeout = :statement_timeout"),
+        {"statement_timeout": f"{LOCK_STATEMENT_TIMEOUT_SECONDS}s"},
+    )
 
 
 class EraFileResponse(BaseModel):
@@ -1157,7 +1165,6 @@ def retry_reset_era_pdf(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:write")),
 ) -> EraFileResponse:
-    request_id = str(uuid4())
     try:
         _set_local_lock_timeouts(db)
         era_file = (
@@ -1174,6 +1181,7 @@ def retry_reset_era_pdf(
     except Exception as exc:
         if _is_lock_timeout_error(exc):
             db.rollback()
+            request_id = str(uuid4())
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={

@@ -195,7 +195,7 @@ Stress & Concurrency Validation
   - `large_20p.pdf`, `large_50p.pdf`, `large_100p.pdf`
   - `malformed_truncated.pdf`, `malformed_not_pdf.pdf`, `encrypted.pdf`
 - Run repeatable load harness:
-  - `python scripts/load_test.py --dir /absolute/path/to/tests/fixtures/era --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow! --mode processes --workers 5 --iterations 1 --memory-ceiling-mb 1024 --database-url "$DATABASE_URL"`
+  - `DATABASE_URL=... python scripts/load_test.py --dir /absolute/path/to/tests/fixtures/era --base-url http://127.0.0.1:8000 --email admin@example.com --password ChangeMeNow! --mode processes --workers 5 --iterations 1 --memory-ceiling-mb 1024`
   - Re-run with `--workers 20` and `--workers 50` for concurrency matrix.
 - Harness output includes:
   - success/failure rate, failure rate by `error_code`

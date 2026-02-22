@@ -117,6 +117,7 @@ def maybe_raise_fail_once(*, stage: str, request_id: str) -> None:
     if not failure_injection_enabled():
         return
     error_code = (os.getenv("AZURE_FAIL_ONCE_ERROR", "") or "").strip().lower() or "azure_unavailable"
+    # Intentionally global fail-once behavior per configured stage+error_code for deterministic retry tests.
     key = f"{configured}:{error_code}"
     with _FAILURE_INJECTION_LOCK:
         if key in _FAILURE_INJECTION_USED:

@@ -12,7 +12,7 @@ import statistics
 import sys
 import uuid
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError as CFTimeoutError
 from pathlib import Path
 from time import perf_counter
 from urllib import error, request
@@ -253,16 +253,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=("threads", "processes"), default="processes")
     parser.add_argument("--job-timeout-seconds", type=float, default=60.0)
     parser.add_argument("--memory-ceiling-mb", type=float, default=1024.0)
-    parser.add_argument("--database-url", default=os.getenv("DATABASE_URL", ""))
     return parser
 
 
-def _run_invariants(database_url: str, *, organization_id: str) -> dict:
+def _run_invariants(*, organization_id: str) -> dict:
+    database_url = os.getenv("DATABASE_URL", "")
     if not database_url.strip() or not organization_id.strip():
         return {"pass": False, "failures": [{"name": "missing_db_context", "count": 1, "sample_ids": []}]}
     engine = create_engine(database_url)
-    SessionLocal = sessionmaker(bind=engine)
-    with SessionLocal() as db:
+    session_factory = sessionmaker(bind=engine)
+    with session_factory() as db:
         era_ids = db.execute(
             select(RevenueEraFile.id).where(RevenueEraFile.organization_id == organization_id)
         ).scalars().all()
@@ -310,15 +310,17 @@ def main(argv: list[str] | None = None) -> int:
     success_count = 0
     failure_count = 0
     worker_timeout_or_crash = False
+    worker_timeout = max(args.job_timeout_seconds, 1.0)
 
     if args.mode == "processes":
+        # Use spawn for clean interpreter/process isolation under stress runs.
         mp_context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max(args.workers, 1), mp_context=mp_context) as pool:
             futures = [pool.submit(_run_one_worker, (args.base_url, token, str(path))) for path in tasks]
             for future in futures:
                 try:
-                    outcome = future.result(timeout=max(args.job_timeout_seconds, 1.0))
-                except TimeoutError:
+                    outcome = future.result(timeout=worker_timeout)
+                except CFTimeoutError:
                     failure_count += 1
                     failures_by_code["worker_timeout"] += 1
                     worker_timeout_or_crash = True
@@ -347,8 +349,8 @@ def main(argv: list[str] | None = None) -> int:
             futures = [pool.submit(_run_one, args.base_url, token=token, pdf_path=path) for path in tasks]
             for future in futures:
                 try:
-                    outcome = future.result(timeout=max(args.job_timeout_seconds, 1.0))
-                except TimeoutError:
+                    outcome = future.result(timeout=worker_timeout)
+                except CFTimeoutError:
                     failure_count += 1
                     failures_by_code["worker_timeout"] += 1
                     worker_timeout_or_crash = True
@@ -381,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                 {"name": "nondeterministic_output", "count": len(unique_hashes), "sample_ids": [file_name]}
             )
 
-    invariants = _run_invariants(args.database_url, organization_id=organization_id)
+    invariants = _run_invariants(organization_id=organization_id)
     max_memory = max(worker_rss_samples + [_rss_mb()]) if worker_rss_samples else _rss_mb()
 
     summary = {
