@@ -102,11 +102,13 @@ def _create_issue(*, token: str, payload: CodexTaskRequest) -> dict[str, Any]:
 
     if not isinstance(body, dict):
         raise HTTPException(status_code=500, detail="Unexpected GitHub issue response format")
-
     return body
 
 
 def _dispatch_workflow(*, token: str, issue_number: int, risk: str) -> None:
+    # Contract requires retry_count as well (string for workflow_dispatch inputs)
+    retry_count = "0"
+
     try:
         response = httpx.post(
             f"{GITHUB_API_BASE_URL}/repos/Tannrow/VEHR/actions/workflows/codex_task.yml/dispatches",
@@ -116,6 +118,7 @@ def _dispatch_workflow(*, token: str, issue_number: int, risk: str) -> None:
                 "inputs": {
                     "issue_number": str(issue_number),
                     "risk": risk,
+                    "retry_count": retry_count,
                 },
             },
             timeout=GITHUB_HTTP_TIMEOUT_SECONDS,
@@ -148,7 +151,6 @@ def create_codex_task(payload: CodexTaskRequest) -> CodexTaskResponse:
         raise HTTPException(status_code=500, detail=exc.detail) from exc
 
     issue = _create_issue(token=token, payload=payload)
-
     issue_number_raw = issue.get("number")
     issue_url = str(issue.get("html_url", "")).strip()
 
@@ -156,14 +158,8 @@ def create_codex_task(payload: CodexTaskRequest) -> CodexTaskResponse:
         issue_number = int(issue_number_raw)
     except Exception:
         raise HTTPException(status_code=500, detail="GitHub issue response missing number")
-
     if not issue_url:
         raise HTTPException(status_code=500, detail="GitHub issue response missing html_url")
 
     _dispatch_workflow(token=token, issue_number=issue_number, risk=payload.risk)
-
-    return CodexTaskResponse(
-        status="started",
-        issue_number=issue_number,
-        issue_url=issue_url,
-    )
+    return CodexTaskResponse(status="started", issue_number=issue_number, issue_url=issue_url)
