@@ -24,15 +24,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------
-      # Checkout
-      # -----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # Azure Login (OIDC)
-      # -----------------------------
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -40,9 +34,6 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # -----------------------------
-      # Verify Azure Context
-      # -----------------------------
       - name: Verify Azure context
         shell: bash
         run: |
@@ -57,6 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+
           IMAGE_TAG=${{ github.sha }}
           FULL_IMAGE=$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
 
@@ -76,6 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+
           ENVIRONMENT_ID="$(az containerapp show \
             --name "$CONTAINERAPP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
@@ -86,12 +79,16 @@ jobs:
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             >/dev/null 2>&1; then
+
             az containerapp job update \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --image "$FULL_IMAGE" \
+              --registry-server "$ACR_LOGIN_SERVER" \
               --command alembic upgrade head
+
           else
+
             az containerapp job create \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$RESOURCE_GROUP" \
@@ -102,6 +99,7 @@ jobs:
               --replica-completion-count 1 \
               --parallelism 1 \
               --image "$FULL_IMAGE" \
+              --registry-server "$ACR_LOGIN_SERVER" \
               --cpu 0.5 \
               --memory 1.0Gi \
               --command alembic upgrade head
@@ -110,11 +108,11 @@ jobs:
           JOB_EXECUTION_NAME="$(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "$FULL_IMAGE" \
             --query "name" \
             -o tsv)"
 
           echo "Started migration execution: $JOB_EXECUTION_NAME"
+
           for i in {1..360}; do
             EXEC_STATUS="$(az containerapp job execution show \
               --name "$MIGRATION_JOB_NAME" \
@@ -124,20 +122,29 @@ jobs:
               -o tsv)"
 
             echo "[$i/360] status=$EXEC_STATUS"
+
             if [ "$EXEC_STATUS" = "Succeeded" ]; then
-              exit 0
+              echo "Migration succeeded"
+              break
             fi
+
             if [ "$EXEC_STATUS" = "Failed" ]; then
               echo "Migration job failed"
               exit 1
             fi
+
             sleep 5
+
+            if [ "$i" -eq 360 ]; then
+              echo "Migration job did not complete in time"
+              exit 1
+            fi
           done
 
-          echo "Migration job did not complete in time"
-          exit 1
-
-      - name: Deploy safely (0% -> health/smoke -> 100%)
+      # -----------------------------
+      # Safe Deploy with Traffic Control
+      # -----------------------------
+      - name: Deploy safely (0% → health → 100%)
         shell: bash
         run: |
           set -euxo pipefail
@@ -184,12 +191,10 @@ jobs:
           fi
 
           rollback_and_fail() {
-            if ! az containerapp ingress traffic set \
+            az containerapp ingress traffic set \
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0"; then
-              echo "Rollback traffic shift failed" >&2
-            fi
+              --revision-weight "$OLD_REVISION=100" "$NEW_REVISION=0" || true
             exit 1
           }
 
@@ -206,13 +211,16 @@ jobs:
               --query "properties.healthState" \
               -o tsv)"
 
-            echo "[$i/36] newRevision=$NEW_REVISION healthState=$HEALTH"
+            echo "[$i/36] healthState=$HEALTH"
+
             if [ "$HEALTH" = "Healthy" ]; then
               break
             fi
+
             sleep 5
+
             if [ "$i" -eq 36 ]; then
-              echo "New revision did not become Healthy in time"
+              echo "New revision never became Healthy"
               rollback_and_fail
             fi
           done
@@ -225,28 +233,34 @@ jobs:
             -o tsv)"
 
           if [ -z "$REVISION_FQDN" ]; then
-            echo "Could not resolve new revision FQDN"
             rollback_and_fail
           fi
 
           URL="https://$REVISION_FQDN/api/v1/healthz"
+
           for i in {1..12}; do
             echo "[$i/12] GET $URL"
+
             if curl -fsS --max-time 15 "$URL" | grep -q '"ok":true'; then
+
               az containerapp ingress traffic set \
                 --name "$CONTAINERAPP_NAME" \
                 --resource-group "$RESOURCE_GROUP" \
                 --revision-weight "$NEW_REVISION=100" "$OLD_REVISION=0"
+
               APP_SMOKE_URL="$APP_URL/api/v1/healthz"
+
               if curl -fsS --max-time 15 "$APP_SMOKE_URL" | grep -q '"ok":true'; then
-                echo "Smoke test passed; traffic shifted to new revision"
+                echo "Smoke test passed — deployment successful"
                 exit 0
               fi
-              echo "Post-promotion app URL smoke test failed"
+
+              echo "Post-promotion smoke failed"
               rollback_and_fail
             fi
+
             sleep 5
           done
 
-          echo "Smoke test failed"
+          echo "Revision smoke test failed"
           rollback_and_fail
