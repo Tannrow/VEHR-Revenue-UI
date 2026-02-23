@@ -42,6 +42,8 @@ jobs:
       AZURE_OPENAI_API_KEY: dummy-key
       AZURE_OPENAI_DEPLOYMENT: dummy-deployment
       APP_PORT: "8000"
+      LOAD_TEST_EMAIL: ${{ secrets.LOAD_TEST_EMAIL }}
+      LOAD_TEST_PASSWORD: ${{ secrets.LOAD_TEST_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -120,28 +122,67 @@ jobs:
 
           curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
 
-          # Bootstrap test org + admin
-          BOOTSTRAP_URL="http://127.0.0.1:${APP_PORT}/api/v1/auth/bootstrap"
+          # Strip newline garbage from secrets
+          EMAIL="$(printf '%s' "${LOAD_TEST_EMAIL}" | tr -d '\r\n')"
+          PASS="$(printf '%s' "${LOAD_TEST_PASSWORD}" | tr -d '\r\n')"
 
-          BOOTSTRAP_RESP="$(
-            curl -sS -X POST "${BOOTSTRAP_URL}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d '{"organization_name":"Load Org","admin_email":"admin@example.com","admin_password":"ChangeMeNow!","admin_name":"Admin User"}'
-          )"
+          # 1) Standalone bootstrap (idempotent)
+          BOOT_URL="http://127.0.0.1:${APP_PORT}/api/v1/bootstrap"
 
-          LOAD_TEST_TOKEN="$(printf '%s' "${BOOTSTRAP_RESP}" | jq -r '.access_token // empty')"
-          LOAD_TEST_ORGANIZATION_ID="$(printf '%s' "${BOOTSTRAP_RESP}" | jq -r '.organization_id // empty')"
+          BOOT_PAYLOAD="$(jq -nc \
+            --arg org "CI Org" \
+            --arg email "$EMAIL" \
+            --arg pass "$PASS" \
+            --arg name "CI Loadtest" \
+            '{organization_name:$org, admin_email:$email, admin_password:$pass, admin_name:$name}')"
 
-          if [[ -z "${LOAD_TEST_TOKEN}" ]]; then
-            echo "Bootstrap failed: missing access_token"
-            echo "${BOOTSTRAP_RESP}"
+          BOOT_TMP=/tmp/bootstrap.json
+          BOOT_CODE="$(curl -sS -o "$BOOT_TMP" -w "%{http_code}" -X POST "$BOOT_URL" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$BOOT_PAYLOAD" || true)"
+
+          if [[ "$BOOT_CODE" -lt 200 || "$BOOT_CODE" -ge 300 ]]; then
+            echo "Standalone bootstrap failed HTTP $BOOT_CODE. Body:" >&2
+            cat "$BOOT_TMP" >&2 || true
             exit 1
           fi
 
-          if [[ -z "${LOAD_TEST_ORGANIZATION_ID}" ]]; then
-            echo "Bootstrap failed: missing organization_id"
-            echo "${BOOTSTRAP_RESP}"
+          ORG_ID="$(jq -r '.organization_id // empty' < "$BOOT_TMP")"
+
+          if [[ -z "$ORG_ID" ]]; then
+            echo "Bootstrap missing organization_id. Body:" >&2
+            cat "$BOOT_TMP" >&2 || true
+            exit 1
+          fi
+
+          # 2) Login (JSON)
+          LOGIN_URL="http://127.0.0.1:${APP_PORT}/api/v1/auth/login"
+
+          LOGIN_PAYLOAD="$(jq -nc \
+            --arg email "$EMAIL" \
+            --arg password "$PASS" \
+            --arg org "$ORG_ID" \
+            '{email:$email, password:$password, organization_id:$org}')"
+
+          LOGIN_TMP=/tmp/login.json
+          LOGIN_CODE="$(curl -sS -o "$LOGIN_TMP" -w "%{http_code}" -X POST "$LOGIN_URL" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$LOGIN_PAYLOAD" || true)"
+
+          if [[ "$LOGIN_CODE" -lt 200 || "$LOGIN_CODE" -ge 300 ]]; then
+            echo "Login failed HTTP $LOGIN_CODE. Body:" >&2
+            cat "$LOGIN_TMP" >&2 || true
+            exit 1
+          fi
+
+          LOAD_TEST_TOKEN="$(jq -r '.access_token // empty' < "$LOGIN_TMP")"
+          LOAD_TEST_ORGANIZATION_ID="$(jq -r '.organization_id // empty' < "$LOGIN_TMP")"
+
+          if [[ -z "$LOAD_TEST_TOKEN" || -z "$LOAD_TEST_ORGANIZATION_ID" ]]; then
+            echo "Login response missing token/org. Body:" >&2
+            cat "$LOGIN_TMP" >&2 || true
             exit 1
           fi
 
