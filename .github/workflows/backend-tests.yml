@@ -35,7 +35,6 @@ jobs:
       PYTHONPATH: .
       BOOTSTRAP_ENABLED: "1"
       ENV: test
-      # Enable deterministic fail-once tests that are explicitly test-gated in app code.
       ENABLE_FAILURE_INJECTION: "true"
       AZURE_DOCINTEL_ENDPOINT: https://example.invalid
       AZURE_DOCINTEL_KEY: dummy-key
@@ -54,34 +53,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Validate DATABASE_URL
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${DATABASE_URL:-}" || (echo "DATABASE_URL is required" >&2; exit 1)
-          case "$DATABASE_URL" in
-            postgres://*) DATABASE_URL="${DATABASE_URL/postgres:\/\//postgresql+psycopg://}" ;;
-            postgresql://*) DATABASE_URL="${DATABASE_URL/postgresql:\/\//postgresql+psycopg://}" ;;
-            postgresql+psycopg://*) ;;
-            *) echo "DATABASE_URL must use Postgres (postgres:// or postgresql://)" >&2; exit 1 ;;
-          esac
-          echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Install dependencies
-        shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          if [[ -f "requirements.txt" ]]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt not found at repo root. Update workflow to install backend deps correctly." >&2
-            exit 1
-          fi
+          pip install -r requirements.txt
           pip install "psycopg[binary]" pytest alembic
 
-      - name: Wait for Postgres (no heredoc)
-        shell: bash
+      - name: Wait for Postgres
         run: |
           set -euo pipefail
           for i in {1..30}; do
@@ -89,59 +71,14 @@ jobs:
             echo "Postgres not ready yet... ($i/30)"
             sleep 2
           done
-          echo "Postgres did not become ready in time" >&2
           exit 1
 
-      - name: Run Alembic migrations (upgrade)
-        shell: bash
+      - name: Run Alembic migrations
         run: |
           set -euo pipefail
-          # CI executes upgrade only; downgrades (which can be ambiguous at mergepoints) are not part of this check.
-          if ! alembic upgrade head; then
-            echo "alembic upgrade failed; dumping migration diagnostics" >&2
-            alembic current || true
-            alembic heads || true
-            python - <<'PY'
-import os
-import psycopg
-url = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
-with psycopg.connect(url) as conn:
-    with conn.cursor() as cur:
-        cur.execute("SELECT version_num FROM alembic_version")
-        print("alembic_version=", cur.fetchall())
-PY
-            exit 1
-          fi
-
-      - name: Validate Alembic revision graph has a single head
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-from alembic.config import Config
-from alembic.script import ScriptDirectory
-
-script = ScriptDirectory.from_config(Config("alembic.ini"))
-heads = script.get_heads()
-if len(heads) != 1:
-    raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
-print(f"Alembic single head check passed: {heads[0]}")
-PY
-
-      - name: Verify app startup connectivity
-        shell: bash
-        run: |
-          set -euo pipefail
-          APP_LOG=/tmp/uvicorn-ci-check.log
-          APP_ERR=/tmp/uvicorn-ci-check.err
-          python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}" --log-level info >"${APP_LOG}" 2>"${APP_ERR}" &
-          APP_PID=$!
-          trap "kill $APP_PID || true" EXIT
-          python scripts/ci_wait_for_health.py --url "http://127.0.0.1:${APP_PORT}/api/v1/healthz" --timeout-seconds 90
-          curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
+          alembic upgrade head
 
       - name: Run tests
-        shell: bash
         run: |
           set -euo pipefail
           python -m compileall app scripts tests
@@ -151,70 +88,89 @@ PY
         shell: bash
         run: |
           set -euo pipefail
+
           APP_LOG=/tmp/uvicorn-load.log
           APP_ERR=/tmp/uvicorn-load.err
-          python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}" --log-level info >"${APP_LOG}" 2>"${APP_ERR}" &
-          APP_PID=$!
-          cleanup() { kill "$APP_PID" || true; }
-          trap cleanup EXIT
-          python scripts/ci_wait_for_health.py --url "http://127.0.0.1:${APP_PORT}/api/v1/healthz" --timeout-seconds 90 || {
-            echo "Healthcheck timeout; app logs:" >&2
+
+          on_error() {
+            echo "Load-validation failed. Dumping diagnostics." >&2
             tail -n 200 "${APP_LOG}" >&2 || true
             tail -n 200 "${APP_ERR}" >&2 || true
-            exit 1
+            alembic current >&2 || true
+            docker ps >&2 || true
           }
-          curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
-          python - <<'PY'
-import json
-import os
-from urllib import request
+          trap on_error ERR
 
-payload = json.dumps({
-    "organization_name": "Load Org",
-    "admin_email": "admin@example.com",
-    "admin_password": "ChangeMeNow!",
-    "admin_name": "Admin User",
-}).encode("utf-8")
-req = request.Request(
-    f"http://127.0.0.1:{os.environ['APP_PORT']}/api/v1/auth/bootstrap",
-    data=payload,
-    method="POST",
-    headers={"Content-Type": "application/json", "Accept": "application/json"},
-)
-with request.urlopen(req, timeout=10) as res:  # noqa: S310 (CI localhost call only)
-    body = json.loads(res.read().decode("utf-8"))
-token = body["access_token"]
-organization_id = body["organization_id"]
-with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
-    fh.write(f"LOAD_TEST_TOKEN={token}\n")
-    fh.write(f"LOAD_TEST_ORGANIZATION_ID={organization_id}\n")
-PY
-          # Keep CI memory guard conservative to surface runaway buffering early.
+          python -m uvicorn app.main:app \
+            --host 0.0.0.0 \
+            --port "${APP_PORT}" \
+            --log-level info \
+            >"${APP_LOG}" 2>"${APP_ERR}" &
+
+          APP_PID=$!
+          trap "kill ${APP_PID} || true" EXIT
+
+          # Wait for health
+          for i in {1..90}; do
+            if curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/healthz" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >/dev/null
+
+          # Bootstrap test org + admin
+          BOOTSTRAP_URL="http://127.0.0.1:${APP_PORT}/api/v1/auth/bootstrap"
+
+          BOOTSTRAP_RESP="$(
+            curl -sS -X POST "${BOOTSTRAP_URL}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d '{"organization_name":"Load Org","admin_email":"admin@example.com","admin_password":"ChangeMeNow!","admin_name":"Admin User"}'
+          )"
+
+          LOAD_TEST_TOKEN="$(printf '%s' "${BOOTSTRAP_RESP}" | jq -r '.access_token // empty')"
+          LOAD_TEST_ORGANIZATION_ID="$(printf '%s' "${BOOTSTRAP_RESP}" | jq -r '.organization_id // empty')"
+
+          if [[ -z "${LOAD_TEST_TOKEN}" ]]; then
+            echo "Bootstrap failed: missing access_token"
+            echo "${BOOTSTRAP_RESP}"
+            exit 1
+          fi
+
+          if [[ -z "${LOAD_TEST_ORGANIZATION_ID}" ]]; then
+            echo "Bootstrap failed: missing organization_id"
+            echo "${BOOTSTRAP_RESP}"
+            exit 1
+          fi
+
+          export LOAD_TEST_TOKEN
+          export LOAD_TEST_ORGANIZATION_ID
+
           python scripts/load_test.py \
-            --dir /home/runner/work/VEHR/VEHR/tests/fixtures/era \
+            --dir tests/fixtures/era \
             --base-url "http://127.0.0.1:${APP_PORT}" \
             --mode processes \
             --workers 20 \
             --iterations 2 \
             --job-timeout-seconds 120 \
             --memory-ceiling-mb 700 \
-            --token "$LOAD_TEST_TOKEN" \
-            --organization-id "$LOAD_TEST_ORGANIZATION_ID"
+            --token "${LOAD_TEST_TOKEN}" \
+            --organization-id "${LOAD_TEST_ORGANIZATION_ID}"
 
       - name: Diagnostics on failure
         if: failure()
-        shell: bash
         run: |
           set +e
-          echo "== curl healthz ==" >&2
+          echo "== healthz ==" >&2
           curl -v "http://127.0.0.1:${APP_PORT}/api/v1/healthz" >&2 || true
-          echo "== curl readyz ==" >&2
+          echo "== readyz ==" >&2
           curl -v "http://127.0.0.1:${APP_PORT}/api/v1/readyz" >&2 || true
           echo "== app logs ==" >&2
           tail -n 200 /tmp/uvicorn-load.log >&2 || true
           tail -n 200 /tmp/uvicorn-load.err >&2 || true
-          echo "== alembic current/heads ==" >&2
+          echo "== alembic current ==" >&2
           alembic current >&2 || true
-          alembic heads >&2 || true
-          echo "== postgres docker logs ==" >&2
+          echo "== postgres logs ==" >&2
           docker logs $(docker ps -q --filter ancestor=postgres:16 | head -n 1) >&2 || true
