@@ -55,5 +55,6 @@ def test_dispatch_inputs_match_workflow_contract(monkeypatch):
     inputs = dispatch_calls[0]["json"]["inputs"]
 
     # Hard contract: must match workflow exactly
-    assert set(inputs.keys()) == {"issue_number", "risk"}, inputs
+    assert set(inputs.keys()) == {"issue_number", "risk", "retry_count"}, inputs
     assert inputs["issue_number"] not in (None, "")
+    assert inputs["retry_count"] == "0"
