@@ -48,6 +48,7 @@ jobs:
       - name: Build and push image to ACR
         run: |
           set -euxo pipefail
+
           IMAGE_TAG=${{ github.sha }}
           FULL_IMAGE=$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
 
@@ -91,39 +92,28 @@ jobs:
             ) | join(" ")
           ')
 
-          if az containerapp job show \
+          echo "Deleting existing migration job if it exists..."
+          az containerapp job delete \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            >/dev/null 2>&1; then
+            --yes || true
 
-            echo "Updating existing migration job..."
-            az containerapp job update \
-              --name "$MIGRATION_JOB_NAME" \
-              --resource-group "$RESOURCE_GROUP" \
-              --image "$FULL_IMAGE" \
-              --registry-server "$ACR_LOGIN_SERVER" \
-              --env-vars $ENV_VARS \
-              --command alembic upgrade head
-
-          else
-
-            echo "Creating migration job..."
-            az containerapp job create \
-              --name "$MIGRATION_JOB_NAME" \
-              --resource-group "$RESOURCE_GROUP" \
-              --environment "$ENVIRONMENT_ID" \
-              --trigger-type Manual \
-              --replica-timeout 1800 \
-              --replica-retry-limit 0 \
-              --replica-completion-count 1 \
-              --parallelism 1 \
-              --image "$FULL_IMAGE" \
-              --registry-server "$ACR_LOGIN_SERVER" \
-              --cpu 0.5 \
-              --memory 1.0Gi \
-              --env-vars $ENV_VARS \
-              --command alembic upgrade head
-          fi
+          echo "Creating fresh migration job..."
+          az containerapp job create \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --environment "$ENVIRONMENT_ID" \
+            --trigger-type Manual \
+            --replica-timeout 1800 \
+            --replica-retry-limit 0 \
+            --replica-completion-count 1 \
+            --parallelism 1 \
+            --image "$FULL_IMAGE" \
+            --registry-server "$ACR_LOGIN_SERVER" \
+            --cpu 0.5 \
+            --memory 1.0Gi \
+            --env-vars $ENV_VARS \
+            --command alembic upgrade head
 
           echo "Starting migration execution..."
           JOB_EXECUTION_NAME="$(az containerapp job start \
