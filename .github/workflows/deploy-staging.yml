@@ -24,8 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
@@ -34,8 +33,10 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Ensure jq is installed
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Verify Azure context
-        shell: bash
         run: |
           set -euxo pipefail
           az account show
@@ -45,10 +46,8 @@ jobs:
       # Build Image in ACR
       # -----------------------------
       - name: Build and push image to ACR
-        shell: bash
         run: |
           set -euxo pipefail
-
           IMAGE_TAG=${{ github.sha }}
           FULL_IMAGE=$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
 
@@ -65,30 +64,50 @@ jobs:
       # Run migrations via ACA Job
       # -----------------------------
       - name: Run migration job and wait
-        shell: bash
         run: |
           set -euxo pipefail
 
+          echo "Fetching container app environment..."
           ENVIRONMENT_ID="$(az containerapp show \
             --name "$CONTAINERAPP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.managedEnvironmentId" \
             -o tsv)"
 
+          echo "Cloning environment variables from running app..."
+          ENV_JSON="$(az containerapp show \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[0].env" \
+            -o json)"
+
+          ENV_VARS=$(echo "$ENV_JSON" | jq -r '
+            map(
+              if has("value") then
+                "\(.name)=\(.value)"
+              else
+                "\(.name)=secretref:\(.secretRef)"
+              end
+            ) | join(" ")
+          ')
+
           if az containerapp job show \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             >/dev/null 2>&1; then
 
+            echo "Updating existing migration job..."
             az containerapp job update \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --image "$FULL_IMAGE" \
               --registry-server "$ACR_LOGIN_SERVER" \
+              --env-vars $ENV_VARS \
               --command alembic upgrade head
 
           else
 
+            echo "Creating migration job..."
             az containerapp job create \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$RESOURCE_GROUP" \
@@ -102,41 +121,45 @@ jobs:
               --registry-server "$ACR_LOGIN_SERVER" \
               --cpu 0.5 \
               --memory 1.0Gi \
+              --env-vars $ENV_VARS \
               --command alembic upgrade head
           fi
 
+          echo "Starting migration execution..."
           JOB_EXECUTION_NAME="$(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --query "name" \
-            -o tsv)"
+            --query "name" -o tsv)"
 
-          echo "Started migration execution: $JOB_EXECUTION_NAME"
+          echo "Execution: $JOB_EXECUTION_NAME"
 
           for i in {1..360}; do
-            EXEC_STATUS="$(az containerapp job execution show \
+            STATUS="$(az containerapp job execution show \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --job-execution-name "$JOB_EXECUTION_NAME" \
-              --query "properties.status" \
-              -o tsv)"
+              --query "properties.status" -o tsv)"
 
-            echo "[$i/360] status=$EXEC_STATUS"
+            echo "[$i/360] status=$STATUS"
 
-            if [ "$EXEC_STATUS" = "Succeeded" ]; then
+            if [ "$STATUS" = "Succeeded" ]; then
               echo "Migration succeeded"
               break
             fi
 
-            if [ "$EXEC_STATUS" = "Failed" ]; then
-              echo "Migration job failed"
+            if [ "$STATUS" = "Failed" ]; then
+              echo "Migration failed. Fetching logs..."
+              az containerapp job execution logs show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --job-execution-name "$JOB_EXECUTION_NAME" || true
               exit 1
             fi
 
             sleep 5
 
             if [ "$i" -eq 360 ]; then
-              echo "Migration job did not complete in time"
+              echo "Migration timed out"
               exit 1
             fi
           done
@@ -145,7 +168,6 @@ jobs:
       # Safe Deploy with Traffic Control
       # -----------------------------
       - name: Deploy safely (0% → health → 100%)
-        shell: bash
         run: |
           set -euxo pipefail
 
@@ -159,14 +181,10 @@ jobs:
             OLD_REVISION="$(az containerapp revision list \
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --query "[?properties.active].name | [0]" \
-              -o tsv)"
+              --query "[?properties.active].name | [0]" -o tsv)"
           fi
 
-          if [ -z "$OLD_REVISION" ]; then
-            echo "Could not determine old active revision"
-            exit 1
-          fi
+          echo "Old revision: $OLD_REVISION"
 
           az containerapp revision set-mode \
             --name "$CONTAINERAPP_NAME" \
@@ -185,12 +203,10 @@ jobs:
             --query "sort_by([].{name:name, created:properties.createdTime}, &created)[-1].name" \
             -o tsv)"
 
-          if [ -z "$NEW_REVISION" ] || [ "$NEW_REVISION" = "$OLD_REVISION" ]; then
-            echo "Failed to determine new revision"
-            exit 1
-          fi
+          echo "New revision: $NEW_REVISION"
 
-          rollback_and_fail() {
+          rollback() {
+            echo "Rolling back traffic..."
             az containerapp ingress traffic set \
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
@@ -208,8 +224,7 @@ jobs:
               --name "$CONTAINERAPP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --revision "$NEW_REVISION" \
-              --query "properties.healthState" \
-              -o tsv)"
+              --query "properties.healthState" -o tsv)"
 
             echo "[$i/36] healthState=$HEALTH"
 
@@ -220,8 +235,7 @@ jobs:
             sleep 5
 
             if [ "$i" -eq 36 ]; then
-              echo "New revision never became Healthy"
-              rollback_and_fail
+              rollback
             fi
           done
 
@@ -229,18 +243,12 @@ jobs:
             --name "$CONTAINERAPP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --revision "$NEW_REVISION" \
-            --query "properties.fqdn" \
-            -o tsv)"
-
-          if [ -z "$REVISION_FQDN" ]; then
-            rollback_and_fail
-          fi
+            --query "properties.fqdn" -o tsv)"
 
           URL="https://$REVISION_FQDN/api/v1/healthz"
 
           for i in {1..12}; do
-            echo "[$i/12] GET $URL"
-
+            echo "[$i/12] Checking revision health..."
             if curl -fsS --max-time 15 "$URL" | grep -q '"ok":true'; then
 
               az containerapp ingress traffic set \
@@ -248,19 +256,15 @@ jobs:
                 --resource-group "$RESOURCE_GROUP" \
                 --revision-weight "$NEW_REVISION=100" "$OLD_REVISION=0"
 
-              APP_SMOKE_URL="$APP_URL/api/v1/healthz"
-
-              if curl -fsS --max-time 15 "$APP_SMOKE_URL" | grep -q '"ok":true'; then
-                echo "Smoke test passed — deployment successful"
+              if curl -fsS --max-time 15 "$APP_URL/api/v1/healthz" | grep -q '"ok":true'; then
+                echo "Deployment successful"
                 exit 0
               fi
 
-              echo "Post-promotion smoke failed"
-              rollback_and_fail
+              rollback
             fi
 
             sleep 5
           done
 
-          echo "Revision smoke test failed"
-          rollback_and_fail
+          rollback
