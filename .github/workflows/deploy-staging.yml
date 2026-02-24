@@ -63,10 +63,14 @@ jobs:
 
       # -----------------------------
       # Run migrations via ACA Job
+      # Deterministic: job is NOT deleted; secrets are set explicitly on the JOB.
+      # Requires GitHub Secret: STAGING_DATABASE_URL
       # -----------------------------
       - name: Run migration job and wait
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "Fetching container app environment..."
           ENVIRONMENT_ID="$(az containerapp show \
@@ -75,44 +79,48 @@ jobs:
             --query properties.managedEnvironmentId \
             -o tsv)"
 
-          echo "Extracting environment variables..."
-          ENV_JSON="$(az containerapp show \
-            --name "$CONTAINERAPP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query properties.template.containers[0].env \
-            -o json)"
+          # Create job once if missing; otherwise update it.
+          if az containerapp job show --name "$MIGRATION_JOB_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+            echo "Migration job exists. Updating image + config..."
 
-          ENV_VARS_ARRAY=$(echo "$ENV_JSON" | jq -r '
-            .[] |
-            if has("value") then
-              "\(.name)=\(.value)"
-            else
-              "\(.name)=secretref:\(.secretRef)"
-            end
-          ')
+            # Ensure secret exists/updated on the JOB (jobs have their own secret store)
+            az containerapp job secret set \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --secrets "database-url=$DATABASE_URL" >/dev/null
 
-          echo "Deleting existing migration job (if any)..."
-          az containerapp job delete \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --yes || true
+            az containerapp job update \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$FULL_IMAGE" \
+              --cpu 0.5 \
+              --memory 1.0Gi \
+              --command "alembic upgrade head" \
+              --set-env-vars \
+                ENV=staging \
+                DATABASE_URL=secretref:database-url >/dev/null
+          else
+            echo "Migration job missing. Creating..."
 
-          echo "Creating migration job..."
-          az containerapp job create \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --environment "$ENVIRONMENT_ID" \
-            --trigger-type Manual \
-            --replica-timeout 1800 \
-            --replica-retry-limit 0 \
-            --replica-completion-count 1 \
-            --parallelism 1 \
-            --image "$FULL_IMAGE" \
-            --registry-server "$ACR_LOGIN_SERVER" \
-            --cpu 0.5 \
-            --memory 1.0Gi \
-            --command alembic upgrade head \
-            --env-vars $ENV_VARS_ARRAY
+            az containerapp job create \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --environment "$ENVIRONMENT_ID" \
+              --trigger-type Manual \
+              --replica-timeout 1800 \
+              --replica-retry-limit 0 \
+              --replica-completion-count 1 \
+              --parallelism 1 \
+              --image "$FULL_IMAGE" \
+              --registry-server "$ACR_LOGIN_SERVER" \
+              --cpu 0.5 \
+              --memory 1.0Gi \
+              --command "alembic upgrade head" \
+              --secrets "database-url=$DATABASE_URL" \
+              --env-vars \
+                ENV=staging \
+                DATABASE_URL=secretref:database-url >/dev/null
+          fi
 
           echo "Starting migration execution..."
           JOB_EXECUTION_NAME="$(az containerapp job start \
@@ -138,7 +146,12 @@ jobs:
             fi
 
             if [ "$STATUS" = "Failed" ]; then
-              echo "Migration failed. Check Azure Portal → Container Apps → Jobs → Executions."
+              echo "Migration failed. Dumping logs..."
+              az containerapp job execution logs show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --job-execution-name "$JOB_EXECUTION_NAME" \
+                --tail 200 || true
               exit 1
             fi
 
