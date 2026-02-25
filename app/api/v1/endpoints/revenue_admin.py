@@ -1,7 +1,11 @@
 """
-Revenue ERA admin endpoints – read-only inbox, exception view, detail, reprocess, and export.
-All routes require billing:read (or billing:write for reprocess) and are org-scoped.
+Revenue ERA admin endpoints – read-only inbox, exception view, detail,
+reprocess, and export.
+
+All routes require billing:read (or billing:write for reprocess)
+and are organization-scoped.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,14 +29,13 @@ from app.db.models.revenue_era import (
 from app.db.session import get_db
 from app.services.revenue_era import STATUS_ERROR, STATUS_UPLOADED, log_attempt
 
-router = APIRouter(tags=["Revenue Admin"])
+router = APIRouter(prefix="/revenue/admin", tags=["Revenue Admin"])
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Response models
+# Response Models
 # ---------------------------------------------------------------------------
-
 
 class AdminEraFileSummary(BaseModel):
     id: str
@@ -117,11 +120,15 @@ class AdminDetailResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _era_file_or_404(db: Session, *, era_file_id: str, organization_id: str) -> RevenueEraFile:
+def _era_file_or_404(
+    db: Session, *, era_file_id: str, organization_id: str
+) -> RevenueEraFile:
     row = db.get(RevenueEraFile, era_file_id)
     if not row or row.organization_id != organization_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="era_file_not_found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="era_file_not_found",
+        )
     return row
 
 
@@ -129,8 +136,7 @@ def _era_file_or_404(db: Session, *, era_file_id: str, organization_id: str) -> 
 # Endpoints
 # ---------------------------------------------------------------------------
 
-
-@router.get("/revenue/admin/inbox", response_model=AdminInboxResponse)
+@router.get("/inbox", response_model=AdminInboxResponse)
 def admin_inbox(
     file_status: str | None = None,
     limit: int = 50,
@@ -139,11 +145,16 @@ def admin_inbox(
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:read")),
 ) -> AdminInboxResponse:
+
     org_id = membership.organization_id
 
-    q = select(RevenueEraFile).where(RevenueEraFile.organization_id == org_id)
+    q = select(RevenueEraFile).where(
+        RevenueEraFile.organization_id == org_id
+    )
+
     if file_status:
         q = q.where(RevenueEraFile.status == file_status)
+
     q = q.order_by(RevenueEraFile.created_at.desc()).limit(limit).offset(offset)
     items = db.execute(q).scalars().all()
 
@@ -152,19 +163,32 @@ def admin_inbox(
         .where(RevenueEraFile.organization_id == org_id)
         .group_by(RevenueEraFile.status)
     ).all()
+
     status_counts = {row.status: row.cnt for row in counts_rows}
 
-    log_attempt(db, organization_id=org_id, actor=membership.user.email, era_file_id="*", action="admin_inbox_view")
-    return AdminInboxResponse(items=list(items), status_counts=status_counts)
+    log_attempt(
+        db,
+        organization_id=org_id,
+        actor=membership.user.email,
+        era_file_id="*",
+        action="admin_inbox_view",
+    )
+
+    return AdminInboxResponse(
+        items=list(items),
+        status_counts=status_counts,
+    )
 
 
-@router.get("/revenue/admin/exceptions", response_model=list[AdminEraFileSummary])
+@router.get("/exceptions", response_model=list[AdminEraFileSummary])
 def admin_exceptions(
     db: Session = Depends(get_db),
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:read")),
 ) -> list[AdminEraFileSummary]:
+
     org_id = membership.organization_id
+
     rows = (
         db.execute(
             select(RevenueEraFile)
@@ -177,19 +201,30 @@ def admin_exceptions(
         .scalars()
         .all()
     )
-    log_attempt(db, organization_id=org_id, actor=membership.user.email, era_file_id="*", action="admin_exceptions_view")
+
+    log_attempt(
+        db,
+        organization_id=org_id,
+        actor=membership.user.email,
+        era_file_id="*",
+        action="admin_exceptions_view",
+    )
+
     return list(rows)
 
 
-@router.get("/revenue/admin/era/{era_file_id}/detail", response_model=AdminDetailResponse)
+@router.get("/era/{era_file_id}/detail", response_model=AdminDetailResponse)
 def admin_era_detail(
     era_file_id: str,
     db: Session = Depends(get_db),
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:read")),
 ) -> AdminDetailResponse:
+
     org_id = membership.organization_id
-    era_file = _era_file_or_404(db, era_file_id=era_file_id, organization_id=org_id)
+    era_file = _era_file_or_404(
+        db, era_file_id=era_file_id, organization_id=org_id
+    )
 
     claim_lines = (
         db.execute(
@@ -236,25 +271,46 @@ def admin_era_detail(
         .all()
     )
 
-    log_attempt(db, organization_id=org_id, actor=membership.user.email, era_file_id=era_file_id, action="admin_era_detail_view")
+    log_attempt(
+        db,
+        organization_id=org_id,
+        actor=membership.user.email,
+        era_file_id=era_file_id,
+        action="admin_era_detail_view",
+    )
+
     return AdminDetailResponse(
         era_file=AdminEraFileSummary.model_validate(era_file),
-        claim_lines=[AdminClaimLineResponse.model_validate(r) for r in claim_lines],
-        work_items=[AdminWorkItemResponse.model_validate(r) for r in work_items],
-        latest_validation_report=AdminValidationReportResponse.model_validate(latest_report) if latest_report else None,
-        recent_processing_logs=[AdminProcessingLogResponse.model_validate(r) for r in recent_logs],
+        claim_lines=[
+            AdminClaimLineResponse.model_validate(r) for r in claim_lines
+        ],
+        work_items=[
+            AdminWorkItemResponse.model_validate(r) for r in work_items
+        ],
+        latest_validation_report=(
+            AdminValidationReportResponse.model_validate(latest_report)
+            if latest_report
+            else None
+        ),
+        recent_processing_logs=[
+            AdminProcessingLogResponse.model_validate(r)
+            for r in recent_logs
+        ],
     )
 
 
-@router.post("/revenue/admin/era/{era_file_id}/reprocess", response_model=AdminEraFileSummary)
+@router.post("/era/{era_file_id}/reprocess", response_model=AdminEraFileSummary)
 def admin_reprocess_era(
     era_file_id: str,
     db: Session = Depends(get_db),
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:write")),
 ) -> AdminEraFileSummary:
+
     org_id = membership.organization_id
-    era_file = _era_file_or_404(db, era_file_id=era_file_id, organization_id=org_id)
+    era_file = _era_file_or_404(
+        db, era_file_id=era_file_id, organization_id=org_id
+    )
 
     if era_file.status != STATUS_ERROR:
         raise HTTPException(
@@ -268,22 +324,33 @@ def admin_reprocess_era(
     era_file.stage_completed_at = None
     era_file.last_error_stage = None
     era_file.error_detail = None
+
     db.commit()
     db.refresh(era_file)
 
-    log_attempt(db, organization_id=org_id, actor=membership.user.email, era_file_id=era_file_id, action="admin_era_reprocess")
+    log_attempt(
+        db,
+        organization_id=org_id,
+        actor=membership.user.email,
+        era_file_id=era_file_id,
+        action="admin_era_reprocess",
+    )
+
     return AdminEraFileSummary.model_validate(era_file)
 
 
-@router.get("/revenue/admin/era/{era_file_id}/export")
+@router.get("/era/{era_file_id}/export")
 def admin_era_export(
     era_file_id: str,
     db: Session = Depends(get_db),
     membership: OrganizationMembership = Depends(get_current_membership),
     _: None = Depends(require_permission("billing:read")),
 ) -> Any:
+
     org_id = membership.organization_id
-    era_file = _era_file_or_404(db, era_file_id=era_file_id, organization_id=org_id)
+    era_file = _era_file_or_404(
+        db, era_file_id=era_file_id, organization_id=org_id
+    )
 
     claim_lines = (
         db.execute(
@@ -328,80 +395,18 @@ def admin_era_export(
         .all()
     )
 
-    log_attempt(db, organization_id=org_id, actor=membership.user.email, era_file_id=era_file_id, action="admin_era_export")
-
-    def _file_dict(f: RevenueEraFile) -> dict:
-        return {
-            "id": f.id,
-            "organization_id": f.organization_id,
-            "file_name": f.file_name,
-            "sha256": f.sha256,
-            "status": f.status,
-            "current_stage": f.current_stage,
-            "created_at": f.created_at.isoformat() if f.created_at else None,
-            "updated_at": f.updated_at.isoformat() if f.updated_at else None,
-        }
-
-    def _claim_line_dict(r: RevenueEraClaimLine) -> dict:
-        return {
-            "id": r.id,
-            "era_file_id": r.era_file_id,
-            "line_index": r.line_index,
-            "claim_ref": r.claim_ref,
-            "service_date": r.service_date.isoformat() if r.service_date else None,
-            "proc_code": r.proc_code,
-            "charge_cents": r.charge_cents,
-            "allowed_cents": r.allowed_cents,
-            "paid_cents": r.paid_cents,
-            "match_status": r.match_status,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-
-    def _work_item_dict(r: RevenueEraWorkItem) -> dict:
-        return {
-            "id": r.id,
-            "organization_id": r.organization_id,
-            "era_file_id": r.era_file_id,
-            "type": r.type,
-            "payer_name": r.payer_name,
-            "claim_ref": r.claim_ref,
-            "dollars_cents": r.dollars_cents,
-            "status": r.status,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-
-    def _report_dict(r: RevenueEraValidationReport) -> dict:
-        return {
-            "id": r.id,
-            "era_file_id": r.era_file_id,
-            "claim_count": r.claim_count,
-            "line_count": r.line_count,
-            "work_item_count": r.work_item_count,
-            "total_paid_cents": r.total_paid_cents,
-            "total_adjustment_cents": r.total_adjustment_cents,
-            "total_patient_resp_cents": r.total_patient_resp_cents,
-            "net_cents": r.net_cents,
-            "reconciled": r.reconciled,
-            "declared_total_missing": r.declared_total_missing,
-            "phi_scan_passed": r.phi_scan_passed,
-            "phi_hit_count": r.phi_hit_count,
-            "finalized": r.finalized,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-
-    def _log_dict(r: RevenueEraProcessingLog) -> dict:
-        return {
-            "id": r.id,
-            "era_file_id": r.era_file_id,
-            "stage": r.stage,
-            "message": r.message,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
+    log_attempt(
+        db,
+        organization_id=org_id,
+        actor=membership.user.email,
+        era_file_id=era_file_id,
+        action="admin_era_export",
+    )
 
     return {
-        "era_file": _file_dict(era_file),
-        "claim_lines": [_claim_line_dict(r) for r in claim_lines],
-        "work_items": [_work_item_dict(r) for r in work_items],
-        "validation_reports": [_report_dict(r) for r in validation_reports],
-        "processing_logs": [_log_dict(r) for r in processing_logs],
+        "era_file": era_file,
+        "claim_lines": claim_lines,
+        "work_items": work_items,
+        "validation_reports": validation_reports,
+        "processing_logs": processing_logs,
     }
