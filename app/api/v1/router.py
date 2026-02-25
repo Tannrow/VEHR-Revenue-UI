@@ -38,6 +38,7 @@ from app.api.v1.endpoints import (
     tasks,
     uploads,
     webhooks,
+    revenue_admin,
     revenue_command,
     revenue_command_snapshot,
     revenue_era,
@@ -81,6 +82,7 @@ api_router.include_router(uploads.router)
 api_router.include_router(scribe.router)
 api_router.include_router(tanner_ai.router)
 api_router.include_router(nexus_codex.router)
+api_router.include_router(revenue_admin.router)
 api_router.include_router(revenue_command.router)
 api_router.include_router(revenue_command_snapshot.router)
 api_router.include_router(revenue_era.router)
