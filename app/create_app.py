@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
-import json
 import re
 from contextlib import asynccontextmanager
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
@@ -14,8 +14,9 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.env import truthy_env
 
-logger = logging.getLogger("app.main")
+logger = logging.getLogger(__name__)
 
+# Safe baseline defaults. Anything else is configured via env.
 _DEFAULT_CORS_ORIGINS = [
     "https://360-encompass.com",
     "https://www.360-encompass.com",
@@ -25,20 +26,34 @@ _DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-_LOCALHOST_CORS_ORIGINS = [
+
+_LOCALHOST_ONLY = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
+# Your code already checks these keys in order.
 _CORS_ENV_KEYS: tuple[str, ...] = (
     "CORS_ALLOWED_ORIGINS",
     "CORS_ORIGINS",
 )
 
+# Optional regex env key (new)
+_CORS_REGEX_ENV_KEYS: tuple[str, ...] = (
+    "CORS_ALLOWED_ORIGIN_REGEX",
+    "CORS_ORIGIN_REGEX",
+)
+
+# Default regex that covers your new UI hostnames on ACA.
+# This prevents “new UI app FQDN” from breaking CORS every time you recreate the app.
+_DEFAULT_CORS_ORIGIN_REGEX = r"^https:\/\/[a-z0-9-]+(\-\-[a-z0-9-]+)?\.[a-z0-9-]+\.azurecontainerapps\.io$"
+
 
 def _safe_package_version(package_name: str) -> str:
     try:
-        return version(package_name)
+        return pkg_version(package_name)
     except PackageNotFoundError:
         return "not-installed"
     except Exception:
@@ -46,7 +61,6 @@ def _safe_package_version(package_name: str) -> str:
 
 
 def _log_auth_dependency_versions() -> None:
-    # Startup visibility only; this should never block API boot.
     try:
         logger.info(
             "Auth dependency versions: passlib=%s bcrypt=%s",
@@ -57,84 +71,32 @@ def _log_auth_dependency_versions() -> None:
         logger.exception("Unable to log auth dependency versions")
 
 
-def get_cors_origins() -> list[str]:
-    if truthy_env("LOCAL_DEV"):
-        raw = ""
-        source_key: str | None = None
-        for key in _CORS_ENV_KEYS:
-            value = os.getenv(key, "").strip()
-            if value:
-                raw = value
-                source_key = key
-                break
-
-        base_origins = sorted(set(_LOCALHOST_CORS_ORIGINS))
-        if not raw:
-            return base_origins
-        if raw == "*":
-            logger.warning(
-                "%s='*' is unsafe with allow_credentials; using localhost origins in LOCAL_DEV.",
-                source_key or "CORS_ALLOWED_ORIGINS",
-            )
-            return base_origins
-
-        configured: list[str] = []
-        for token in raw.split(","):
-            origin = token.strip().rstrip("/")
-            if not origin:
-                continue
-            parsed = urlparse(origin)
-            if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"}:
-                continue
-            configured.append(origin)
-        return sorted(set(base_origins + configured))
-
-    raw = ""
-    source_key: str | None = None
-    for key in _CORS_ENV_KEYS:
-        value = os.getenv(key, "").strip()
-        if value:
-            raw = value
-            source_key = key
-            break
-
-    default_origins = sorted(set(_DEFAULT_CORS_ORIGINS))
+def _parse_origin_tokens(raw: str) -> list[str]:
+    """
+    Accepts:
+      - CSV: "https://a,https://b"
+      - Whitespace/semicolon separated
+      - JSON list: ["https://a","https://b"]
+    """
+    raw = (raw or "").strip()
     if not raw:
-        return default_origins
-    if raw == "*":
-        # Credentials-based auth (cookies) must not use wildcard origins.
-        logger.warning("%s='*' is unsafe with allow_credentials; using defaults instead.", source_key or "CORS_ORIGINS")
-        return default_origins
+        return []
 
-    configured: list[str] = []
-    candidate_tokens: list[str] = []
-
-    parsed_json: object | None = None
+    # Try JSON array first
     try:
-        parsed_json = json.loads(raw)
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x).strip() for x in parsed if isinstance(x, str) and str(x).strip()]
     except Exception:
-        parsed_json = None
+        pass
 
-    if isinstance(parsed_json, list):
-        for item in parsed_json:
-            if isinstance(item, str):
-                candidate_tokens.append(item)
-    else:
-        candidate_tokens.extend(token for token in re.split(r"[\s,;]+", raw) if token)
+    # Fallback: split on commas/whitespace/semicolons
+    return [t for t in re.split(r"[\s,;]+", raw) if t]
 
-    for token in candidate_tokens:
-        origin = token.strip().strip('"\'').rstrip("/")
-        if not origin or origin == "*":
-            continue
-        configured.append(origin)
 
-    configured = sorted(set(configured))
-    if not configured:
-        logger.warning("%s was set but empty; using defaults instead.", source_key or "CORS_ORIGINS")
-        return default_origins
-
-    # Keep a safe baseline even when env is explicitly configured to avoid accidental lockout.
-    return sorted(set(default_origins + configured))
+def _normalize_origin(origin: str) -> str:
+    origin = (origin or "").strip().strip('"\'').rstrip("/")
+    return origin
 
 
 def _cors_origin_hosts(origins: list[str]) -> list[str]:
@@ -151,6 +113,111 @@ def _cors_origin_hosts(origins: list[str]) -> list[str]:
     return sorted(hosts)
 
 
+def get_cors_settings() -> tuple[list[str], str | None, bool]:
+    """
+    Returns: (allow_origins, allow_origin_regex, allow_credentials)
+    """
+    allow_credentials = True
+    # Optional override if you ever want to turn off credentials explicitly.
+    if os.getenv("CORS_ALLOW_CREDENTIALS", "").strip().lower() in {"0", "false", "no"}:
+        allow_credentials = False
+
+    # LOCAL_DEV hard locks to localhost-only, regardless of other env.
+    if truthy_env("LOCAL_DEV"):
+        raw = ""
+        source_key: str | None = None
+        for key in _CORS_ENV_KEYS:
+            value = os.getenv(key, "").strip()
+            if value:
+                raw = value
+                source_key = key
+                break
+
+        base = sorted(set(_LOCALHOST_ONLY))
+        if not raw:
+            return (base, None, allow_credentials)
+
+        if raw == "*":
+            logger.warning(
+                "%s='*' is unsafe with LOCAL_DEV; using localhost-only.",
+                source_key or "CORS_ORIGINS",
+            )
+            return (base, None, allow_credentials)
+
+        configured: list[str] = []
+        for token in _parse_origin_tokens(raw):
+            origin = _normalize_origin(token)
+            if not origin or origin == "*":
+                continue
+            parsed = urlparse(origin)
+            if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"}:
+                continue
+            configured.append(origin)
+
+        return (sorted(set(base + configured)), None, allow_credentials)
+
+    # Non-local: normal behavior
+    raw = ""
+    source_key: str | None = None
+    for key in _CORS_ENV_KEYS:
+        value = os.getenv(key, "").strip()
+        if value:
+            raw = value
+            source_key = key
+            break
+
+    # Optional regex config
+    raw_regex = ""
+    regex_key: str | None = None
+    for key in _CORS_REGEX_ENV_KEYS:
+        value = os.getenv(key, "").strip()
+        if value:
+            raw_regex = value
+            regex_key = key
+            break
+
+    default_origins = sorted(set(_DEFAULT_CORS_ORIGINS))
+    configured: list[str] = []
+
+    if raw:
+        if raw == "*":
+            # With credentials true, wildcard is unsafe. We refuse it.
+            if allow_credentials:
+                logger.warning(
+                    "%s='*' is unsafe with allow_credentials=True; using defaults + regex instead.",
+                    source_key or "CORS_ORIGINS",
+                )
+            else:
+                # If credentials are false, wildcard is acceptable.
+                return (["*"], None, allow_credentials)
+        else:
+            for token in _parse_origin_tokens(raw):
+                origin = _normalize_origin(token)
+                if not origin or origin == "*":
+                    continue
+                configured.append(origin)
+
+    allow_origins = sorted(set(default_origins + configured))
+
+    # Regex handling:
+    # - If explicitly configured, trust it.
+    # - Otherwise, use default regex to allow ACA UI origins.
+    allow_origin_regex: str | None = None
+    if raw_regex:
+        allow_origin_regex = raw_regex
+        logger.info("CORS origin regex configured via %s", regex_key or "CORS_ORIGIN_REGEX")
+    else:
+        # Default is ON unless explicitly disabled
+        if os.getenv("CORS_DISABLE_DEFAULT_REGEX", "").strip().lower() not in {"1", "true", "yes"}:
+            allow_origin_regex = _DEFAULT_CORS_ORIGIN_REGEX
+
+    # Final safety: if allow_credentials true, do not allow "*" in allow_origins.
+    if allow_credentials and "*" in allow_origins:
+        allow_origins = [o for o in allow_origins if o != "*"]
+
+    return (allow_origins, allow_origin_regex, allow_credentials)
+
+
 def _skip_startup_checks() -> list[str]:
     reasons: list[str] = []
     if truthy_env("SKIP_STARTUP_CHECKS"):
@@ -165,24 +232,31 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
     if app_version in {"not-installed", "unknown"}:
         app_version = ""
 
+    # Compute CORS settings ONCE and reuse them everywhere.
+    cors_origins, cors_origin_regex, cors_allow_credentials = get_cors_settings()
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if include_router:
             import app.db.models  # register models
 
         _log_auth_dependency_versions()
+
         if truthy_env("LOCAL_DEV"):
-            logger.warning("Running Revenue OS in LOCAL DEV MODE")
-        cors_origins = get_cors_origins()
+            logger.warning("Running in LOCAL_DEV mode")
+
+        logger.info("CORS allow_credentials=%s", cors_allow_credentials)
         logger.info("CORS origins configured: %s", len(cors_origins))
         logger.info("CORS origins: %s", ",".join(cors_origins))
         logger.info("CORS origin hosts: %s", ",".join(_cors_origin_hosts(cors_origins)))
+        logger.info("CORS origin regex: %s", cors_origin_regex or "(none)")
 
         skip_reasons = _skip_startup_checks()
         if enable_startup_validation and skip_reasons:
             logger.info("Skipping startup validation (%s)", ", ".join(skip_reasons))
         else:
             if enable_startup_validation and include_router:
+                # RingCentral checks are optional based on your existing env.
                 if truthy_env("RINGCENTRAL_REALTIME_ENABLED"):
                     from app.services.ringcentral_realtime import (
                         RingCentralRealtimeError,
@@ -219,7 +293,6 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
             from app.db.session import engine
 
             if should_validate_s3_on_startup():
-                # Optional production guard: fail boot if bucket/credentials are invalid.
                 validate_s3_connection()
 
             auto_create = os.getenv("AUTO_CREATE_TABLES", "").strip().lower() in {"1", "true", "yes"}
@@ -230,12 +303,15 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
 
     app = FastAPI(title="VEHR API", version=app_version or "unknown", lifespan=lifespan)
 
+    # CORS MUST be applied early.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=get_cors_origins(),
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_origin_regex=cors_origin_regex,
+        allow_credentials=cors_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
+        max_age=600,
     )
 
     @app.middleware("http")
@@ -254,27 +330,29 @@ def create_app(*, enable_startup_validation: bool = True, include_router: bool =
             and "origin" in request.headers
             and "access-control-request-method" in request.headers
         )
+
         response: Response = await call_next(request)
+
         if not is_preflight:
             return response
 
         origin = request.headers.get("origin", "")
         path = request.url.path
-        has_allow_origin = "access-control-allow-origin" in response.headers
-        if response.status_code < 400 and has_allow_origin:
-            logger.info(
-                "cors_preflight_success path=%s origin=%s status=%s",
-                path,
-                origin,
-                response.status_code,
-            )
+        allow_origin = response.headers.get("access-control-allow-origin")
+        status_code = response.status_code
+
+        # Starlette CORSMiddleware returns 400 for disallowed origin/method/headers.
+        if status_code < 400 and allow_origin:
+            logger.info("cors_preflight_success path=%s origin=%s status=%s", path, origin, status_code)
         else:
             logger.warning(
-                "cors_preflight_failure path=%s origin=%s status=%s allow_origin_header=%s",
+                "cors_preflight_failure path=%s origin=%s status=%s allow_origin=%s cors_origins_count=%s cors_regex=%s",
                 path,
                 origin,
-                response.status_code,
-                response.headers.get("access-control-allow-origin"),
+                status_code,
+                allow_origin,
+                len(cors_origins),
+                cors_origin_regex,
             )
         return response
 
