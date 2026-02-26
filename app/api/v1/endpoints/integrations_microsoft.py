@@ -806,15 +806,13 @@ def _split_scopes(raw_scopes: str) -> list[str]:
 
 
 def _expires_at_from_response(token_response: dict[str, Any]) -> datetime | None:
-    raw = token_response.get("expires_in")
-    if raw is None:
-        return None
+    raw = token_response.get("expires_in", 3600)
     try:
         seconds = int(raw)
     except Exception:
-        return None
+        seconds = 3600
     if seconds <= 0:
-        return None
+        seconds = 3600
     return datetime.now(timezone.utc) + timedelta(seconds=seconds)
 
 

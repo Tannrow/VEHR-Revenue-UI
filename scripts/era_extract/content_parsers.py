@@ -14,7 +14,7 @@ _DATE_RANGE_RX = re.compile(
     re.IGNORECASE,
 )
 _MONEY_RX = re.compile(
-    r"\(?\$?\s*(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?\)?"
+    r"\(?\s*(?:\$\s*(?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)(?:\.[0-9]{1,2})?|(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+\.[0-9]{1,2}))\s*\)?"
 )
 _ADJ_CODE_RX = re.compile(r"^(?:CO|PR|OA|PI)-[A-Z0-9]+$", re.IGNORECASE)
 _CLAIM_BLOCK_ANCHOR_RX = re.compile(r"(?i)\b(Patient\s+Name|NAME)\s*:\s*")
@@ -79,7 +79,7 @@ def _extract_date_range(text: str) -> tuple[date | None, date | None]:
 
 def _extract_account_id(block: str) -> str | None:
     explicit = re.search(
-        r"(?im)(?:Patient\s*Ctrl\s*Nmbr|ACNT|ACCT)\s*:\s*([^\n]+)",
+        r"(?im)(?:Patient\s*Ctrl\s*Nmbr|ACNT|ACCT|Account(?:\s*(?:ID|Number))?)\s*:\s*([^\n]+)",
         block or "",
     )
     if not explicit:
@@ -179,7 +179,7 @@ def _normalize_name(name: str | None) -> str | None:
 def _extract_proc_code(text: str) -> str | None:
     if not text:
         return None
-    hc = re.search(r"(?i)\bHC\s*:\s*(\d{5})\b", text)
+    hc = re.search(r"(?i)\bHC\s*:\s*([A-Z]?\d{4,5}[A-Z]?)\b", text)
     if hc:
         return hc.group(1).upper()
     cpt = re.search(r"\b([A-Z]?\d{4,5}[A-Z]?)\b", text)
@@ -192,6 +192,7 @@ def _extract_units(text: str) -> Decimal | None:
     if not text:
         return None
     for rx in (
+        r"(?i)\bHC\s*:\s*[A-Z]?\d{4,5}[A-Z]?\s*/\s*[A-Z]{1,4}\s*/\s*([0-9]+(?:\.[0-9]+)?)\b",
         r"(?i)\bunits?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\b",
         r"/\s*([0-9]+(?:\.[0-9]+)?)\s*$",
         r"(?i)\bqty\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\b",
@@ -245,6 +246,8 @@ def _line_id_near_start(line: str) -> str | None:
 def _looks_like_line_ctrl(token: str) -> bool:
     if not token:
         return False
+    if "/" in token or ":" in token:
+        return False
     cleaned = re.sub(r"[^\w]", "", token)
     if len(cleaned) < 8:
         return False
@@ -274,6 +277,8 @@ def _is_junk_line(line: str) -> bool:
     if "line ctrl nmbr" in lowered or "dates of service" in lowered:
         return True
     if "adj amount" in lowered or "adj code" in lowered:
+        return True
+    if lowered in {"charge", "payment", "line details"}:
         return True
     return False
 
@@ -553,13 +558,15 @@ def _parse_era_table_layout(
         has_hc = bool(re.search(r"(?i)\bHC\s*:\s*\d{5}\b", line))
         line_proc = _extract_proc_code(line)
         new_row = False
-        if line_start_id:
+        if line_start_id and buffer:
             new_row = True
-        elif line_signals["has_date"] and any(buffer_signals.values()):
+        elif (not buffer_signals["has_line_ctrl"]) and line_signals["has_date"] and buffer_signals["has_date"]:
             new_row = True
-        elif has_hc and (buffer_signals["has_date"] or buffer_signals["has_amount"] or buffer_signals["has_proc"]):
+        elif (not buffer_signals["has_line_ctrl"]) and has_hc and (
+            buffer_signals["has_date"] or buffer_signals["has_amount"] or buffer_signals["has_proc"]
+        ):
             new_row = True
-        elif line_proc and buffer_signals["has_proc"]:
+        elif (not buffer_signals["has_line_ctrl"]) and line_proc and buffer_signals["has_proc"]:
             new_row = True
 
         if new_row and buffer:
@@ -965,7 +972,7 @@ def _parse_billed_window(window_text: str, *, fallback_dates: tuple[date | None,
     }
 
 
-def parse_billed_content(content: str, billed_track: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def parse_billed_content(content: str, billed_track: str = "Billing") -> tuple[list[dict[str, Any]], dict[str, int]]:
     counters = {
         "blocks_found": 0,
         "line_rows_extracted": 0,

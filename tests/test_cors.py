@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from app.main import app
+import app.main as app_main
+from app.main import app, get_cors_origins
 
 
 ALLOWED_ORIGIN = "http://localhost:3000"
@@ -68,4 +70,74 @@ def test_cors_preflight_for_protected_endpoints_asyncclient() -> None:
                 _assert_preflight_headers(response)
 
     asyncio.run(_run())
+
+
+def test_wildcard_cors_allowed_origins_falls_back_to_localhost_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("LOCAL_DEV", raising=False)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "*")
+    origins = get_cors_origins()
+    assert "http://localhost:3000" in origins
+    assert "http://127.0.0.1:3000" in origins
+    assert "*" not in origins
+
+
+def _reload_main_with_env(monkeypatch, *, cors_allowed_origins: str | None, cors_origin_regex: str | None):
+    if cors_allowed_origins is None:
+        monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+    else:
+        monkeypatch.setenv("CORS_ALLOWED_ORIGINS", cors_allowed_origins)
+
+    if cors_origin_regex is None:
+        monkeypatch.delenv("CORS_ORIGIN_REGEX", raising=False)
+    else:
+        monkeypatch.setenv("CORS_ORIGIN_REGEX", cors_origin_regex)
+
+    monkeypatch.delenv("LOCAL_DEV", raising=False)
+    return importlib.reload(app_main)
+
+
+def test_cors_preflight_disallowed_random_aca_fqdn_returns_400(monkeypatch) -> None:
+    main_module = _reload_main_with_env(
+        monkeypatch,
+        cors_allowed_origins="http://localhost:3000",
+        cors_origin_regex=None,
+    )
+    with TestClient(main_module.app) as client:
+        response = client.options(
+            "/api/v1/auth/me",
+            headers=_preflight_headers(origin="https://tenant-12345.aca.example.com"),
+        )
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") is None
+
+
+def test_cors_preflight_allowed_regex_matched_aca_fqdn_returns_204(monkeypatch) -> None:
+    main_module = _reload_main_with_env(
+        monkeypatch,
+        cors_allowed_origins="http://localhost:3000",
+        cors_origin_regex=r"^https://[a-z0-9-]+\.aca\.example\.com$",
+    )
+    with TestClient(main_module.app) as client:
+        origin = "https://tenant-12345.aca.example.com"
+        response = client.options(
+            "/api/v1/auth/me",
+            headers=_preflight_headers(origin=origin),
+        )
+    assert response.status_code in (200, 204)
+    assert response.headers.get("access-control-allow-origin") == origin
+
+
+def test_cors_preflight_malformed_regex_never_allows_origin(monkeypatch) -> None:
+    main_module = _reload_main_with_env(
+        monkeypatch,
+        cors_allowed_origins="http://localhost:3000",
+        cors_origin_regex=r"([invalid",
+    )
+    with TestClient(main_module.app) as client:
+        response = client.options(
+            "/api/v1/auth/me",
+            headers=_preflight_headers(origin="https://tenant-12345.aca.example.com"),
+        )
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") is None
 
