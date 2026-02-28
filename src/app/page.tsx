@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-black text-white p-12">
@@ -11,7 +13,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-          <a
+          <Link
             href="/dashboard"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
@@ -21,9 +23,9 @@ export default function Home() {
             <p className="text-zinc-400">
               Exposure, 30-day recovery forecast, payer aggression tiers.
             </p>
-          </a>
+          </Link>
 
-          <a
+          <Link
             href="/era"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
@@ -33,9 +35,9 @@ export default function Home() {
             <p className="text-zinc-400">
               Upload and process remittance files. Structured validation and ledger sync.
             </p>
-          </a>
+          </Link>
 
-          <a
+          <Link
             href="/claims"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
@@ -45,7 +47,7 @@ export default function Home() {
             <p className="text-zinc-400">
               Track OPEN, PARTIAL, DENIED, and PAID claims with ledger status.
             </p>
-          </a>
+          </Link>
 
         </div>
 
