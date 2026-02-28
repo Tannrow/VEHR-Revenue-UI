@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VEHR Revenue UI
 
-## Getting Started
+VEHR Revenue UI is the **Revenue Operating System front end** for the VEHR platform. It is built with Next.js App Router and is designed to connect to the FastAPI backend using environment-configured endpoints.
 
-First, run the development server:
+## Environment variables
+
+Create `.env.local` (or configure Azure Container App environment variables):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_BACKEND_URL=https://api.360-encompass.com
+# Optional: internal/private backend URL used by server-side rendering.
+BACKEND_INTERNAL_URL=http://vehr-api.internal
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `NEXT_PUBLIC_BACKEND_URL` is safe to expose to the browser and should point to the public API origin.
+- `BACKEND_INTERNAL_URL` is optional and intended for server-side runtime calls from Next.js to a private/internal API endpoint.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+## Build
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run build
+npm run start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Backend connectivity
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `/dashboard` now runs a server-side health probe against the configured backend URL.
+- `/dashboard` now runs in dynamic server-render mode, so health checks happen at request time (not at build time).
+- The probe checks common health paths (`/health`, `/api/health`, `/api/v1/health`, `/healthz`) and reports status in the UI.
+- Authentication flow is unchanged; this only validates transport-level reachability.
 
-## Deploy on Vercel
+## Bringing `360-encompass.com` live
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+To make the site operational in Azure Container Apps:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Deploy this frontend container with `NEXT_PUBLIC_BACKEND_URL` set to the VEHR API domain.
+2. Ensure API ingress is reachable from the frontend container (public or internal via `BACKEND_INTERNAL_URL`).
+3. Bind custom domain `360-encompass.com` (and `www`/`app` as needed) to the frontend Container App.
+4. Validate DNS records point to Container Apps managed ingress.
+5. Provision and verify TLS cert binding for each hostname.
+6. Confirm backend CORS allows the frontend origin(s) and JWT issuer/audience settings are correct.
+
+If deployment is failing before startup, check build logs for external fetch failures and runtime logs for missing environment variables.
