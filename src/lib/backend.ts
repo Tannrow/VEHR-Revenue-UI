@@ -24,6 +24,19 @@ export function getBackendBaseUrl(): string | null {
   return buildBaseUrl();
 }
 
+/**
+ * Returns the public-facing backend URL (NEXT_PUBLIC_BACKEND_URL only).
+ * Use this for display purposes to avoid leaking BACKEND_INTERNAL_URL.
+ */
+export function getPublicBackendUrl(): string | null {
+  if (!PUBLIC_BACKEND_URL) {
+    return null;
+  }
+  return PUBLIC_BACKEND_URL.endsWith("/")
+    ? PUBLIC_BACKEND_URL.slice(0, -1)
+    : PUBLIC_BACKEND_URL;
+}
+
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -42,6 +55,12 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
+type HealthProbeResult = {
+  endpoint: string;
+  status: number | null;
+  ok: boolean;
+};
+
 export async function probeBackendHealth(): Promise<BackendHealth> {
   const baseUrl = buildBaseUrl();
 
@@ -54,35 +73,42 @@ export async function probeBackendHealth(): Promise<BackendHealth> {
     };
   }
 
-  let lastStatus: number | null = null;
-
-  for (const path of HEALTH_PATHS) {
-    const endpoint = `${baseUrl}${path}`;
-
-    try {
-      const response = await fetchWithTimeout(endpoint);
-      lastStatus = response.status;
-
-      if (response.ok) {
-        return {
-          connected: true,
-          endpointTried: endpoint,
-          details: `Health check succeeded with status ${response.status}.`,
-        };
+  const healthChecks: Promise<HealthProbeResult>[] = HEALTH_PATHS.map(
+    async (path) => {
+      const endpoint = `${baseUrl}${path}`;
+      try {
+        const response = await fetchWithTimeout(endpoint);
+        return { endpoint, status: response.status, ok: response.ok };
+      } catch {
+        return { endpoint, status: null, ok: false };
       }
-    } catch {
-      // Continue trying known health paths.
-    }
+    },
+  );
+
+  const results = await Promise.all(healthChecks);
+
+  const successful = results.find((r) => r.ok);
+  if (successful) {
+    return {
+      connected: true,
+      endpointTried: successful.endpoint,
+      details: `Health check succeeded with status ${successful.status}.`,
+    };
   }
 
-  const statusDetails = lastStatus
-    ? ` Last non-success HTTP status: ${lastStatus}.`
-    : " No successful HTTP response was received.";
+  const lastWithStatus = results.findLast((r) => r.status !== null);
+  const lastStatus = lastWithStatus?.status ?? null;
+  const lastEndpoint =
+    lastWithStatus?.endpoint ?? results[results.length - 1]?.endpoint ?? null;
+
+  const statusDetails =
+    lastStatus !== null
+      ? ` Last non-success HTTP status: ${lastStatus}.`
+      : " No successful HTTP response was received.";
 
   return {
     connected: false,
-    endpointTried: `${baseUrl}${HEALTH_PATHS[0]}`,
-    details:
-      `Unable to reach backend health endpoints.${statusDetails} Verify Container App ingress, DNS, and environment variables.`,
+    endpointTried: lastEndpoint,
+    details: `Unable to reach backend health endpoints.${statusDetails} Verify Container App ingress, DNS, and environment variables.`,
   };
 }

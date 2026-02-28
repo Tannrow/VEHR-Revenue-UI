@@ -1,10 +1,21 @@
-import { getBackendBaseUrl, probeBackendHealth } from "@/lib/backend";
+import { getPublicBackendUrl, probeBackendHealth } from "@/lib/backend";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const backendUrl = getBackendBaseUrl();
+  const publicUrl = getPublicBackendUrl();
   const health = await probeBackendHealth();
+
+  // Show only the path component of the tested endpoint to avoid leaking
+  // internal hostnames (e.g. from BACKEND_INTERNAL_URL).
+  let endpointDisplay: string | null = null;
+  if (health.endpointTried) {
+    try {
+      endpointDisplay = new URL(health.endpointTried).pathname;
+    } catch {
+      endpointDisplay = health.endpointTried;
+    }
+  }
 
   return (
     <main className="min-h-screen bg-black text-white p-12">
@@ -21,7 +32,7 @@ export default async function DashboardPage() {
           <dl className="space-y-2 text-sm">
             <div>
               <dt className="text-zinc-400">Configured backend URL</dt>
-              <dd className="font-mono break-all">{backendUrl ?? "Not configured"}</dd>
+              <dd className="font-mono break-all">{publicUrl ?? "Not configured"}</dd>
             </div>
             <div>
               <dt className="text-zinc-400">Runtime mode</dt>
@@ -35,7 +46,7 @@ export default async function DashboardPage() {
             </div>
             <div>
               <dt className="text-zinc-400">Endpoint tested</dt>
-              <dd className="font-mono break-all">{health.endpointTried ?? "None"}</dd>
+              <dd className="font-mono break-all">{endpointDisplay ?? "None"}</dd>
             </div>
             <div>
               <dt className="text-zinc-400">Details</dt>
