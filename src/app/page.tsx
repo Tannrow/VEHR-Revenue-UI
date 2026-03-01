@@ -14,7 +14,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
           <Link
-            href="/dashboard"
+            href="/dashboard/"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
             <h2 className="text-xl font-semibold mb-2">
@@ -26,7 +26,7 @@ export default function Home() {
           </Link>
 
           <Link
-            href="/era"
+            href="/era/"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
             <h2 className="text-xl font-semibold mb-2">
@@ -38,7 +38,7 @@ export default function Home() {
           </Link>
 
           <Link
-            href="/claims"
+            href="/claims/"
             className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-white transition"
           >
             <h2 className="text-xl font-semibold mb-2">
