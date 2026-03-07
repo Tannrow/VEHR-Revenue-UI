@@ -27,11 +27,11 @@ async function fetchWithTimeout(
     return await fetch(url, {
       method: "GET",
       cache: "no-store",
+      ...init,
       headers: {
         Accept: "application/json",
         ...(init.headers ?? {}),
       },
-      ...init,
       signal: controller.signal,
     });
   } finally {
@@ -76,7 +76,7 @@ export async function probeBackendHealth(): Promise<BackendHealth> {
     const endpoint = `${baseUrl}${path}`;
 
     try {
-      const response = await fetchBackend(path);
+      const response = await fetchWithTimeout(endpoint);
       lastStatus = response.status;
 
       if (response.ok) {
