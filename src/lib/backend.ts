@@ -1,5 +1,4 @@
-const PUBLIC_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
-const INTERNAL_BACKEND_URL = process.env.BACKEND_INTERNAL_URL;
+import { getBackendRuntimeConfig, type BackendConfigSource } from "@/lib/env";
 
 const HEALTH_PATHS = ["/health", "/api/health", "/api/v1/health", "/healthz"] as const;
 const REQUEST_TIMEOUT_MS = 4000;
@@ -8,32 +7,30 @@ export type BackendHealth = {
   connected: boolean;
   endpointTried: string | null;
   details: string;
+  configuredBaseUrl: string | null;
+  source: BackendConfigSource;
 };
 
-function buildBaseUrl(): string | null {
-  const rawBaseUrl = INTERNAL_BACKEND_URL ?? PUBLIC_BACKEND_URL;
-
-  if (!rawBaseUrl) {
-    return null;
-  }
-
-  return rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
-}
-
 export function getBackendBaseUrl(): string | null {
-  return buildBaseUrl();
+  return getBackendRuntimeConfig().baseUrl;
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(url, {
       method: "GET",
       cache: "no-store",
+      ...init,
       headers: {
         Accept: "application/json",
+        ...(init.headers ?? {}),
       },
       signal: controller.signal,
     });
@@ -42,15 +39,34 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
+export async function fetchBackend(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const { baseUrl, validationMessage } = getBackendRuntimeConfig();
+
+  if (!baseUrl) {
+    throw new Error(validationMessage ?? "Backend URL is not configured.");
+  }
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  return fetchWithTimeout(`${baseUrl}${normalizedPath}`, init, timeoutMs);
+}
+
 export async function probeBackendHealth(): Promise<BackendHealth> {
-  const baseUrl = buildBaseUrl();
+  const { baseUrl, source, validationMessage } = getBackendRuntimeConfig();
 
   if (!baseUrl) {
     return {
       connected: false,
       endpointTried: null,
       details:
+        validationMessage ??
         "Backend URL is not configured. Set NEXT_PUBLIC_BACKEND_URL (and optionally BACKEND_INTERNAL_URL).",
+      configuredBaseUrl: null,
+      source,
     };
   }
 
@@ -68,6 +84,8 @@ export async function probeBackendHealth(): Promise<BackendHealth> {
           connected: true,
           endpointTried: endpoint,
           details: `Health check succeeded with status ${response.status}.`,
+          configuredBaseUrl: baseUrl,
+          source,
         };
       }
     } catch {
@@ -84,5 +102,7 @@ export async function probeBackendHealth(): Promise<BackendHealth> {
     endpointTried: `${baseUrl}${HEALTH_PATHS[0]}`,
     details:
       `Unable to reach backend health endpoints.${statusDetails} Verify Container App ingress, DNS, and environment variables.`,
+    configuredBaseUrl: baseUrl,
+    source,
   };
 }

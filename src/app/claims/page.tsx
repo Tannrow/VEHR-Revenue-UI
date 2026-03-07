@@ -1,12 +1,18 @@
+import { PageShell, SectionCard } from "@/components/page-shell";
+
 export default function ClaimsPage() {
   return (
-    <main className="min-h-screen bg-black text-white p-12">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-2">Claims</h1>
-        <p className="text-zinc-400">
-          Claims workspace shell is online. Integrate this route with org-scoped claim status and ledger timelines.
-        </p>
-      </div>
-    </main>
+    <PageShell
+      title="Claims"
+      description="Claims workspace shell is online. Integrate this route with org-scoped claim status and ledger timelines."
+    >
+      <SectionCard title="Framework readiness">
+        <ul className="space-y-2 text-sm text-zinc-300">
+          <li>Shared page shell keeps the route layout consistent across product surfaces.</li>
+          <li>Route-level loading, error, and not-found experiences are now defined at the app level.</li>
+          <li>Use the typed backend helpers in <span className="font-mono">src/lib/backend.ts</span> for future claims integrations.</li>
+        </ul>
+      </SectionCard>
+    </PageShell>
   );
 }

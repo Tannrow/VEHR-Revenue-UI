@@ -1,12 +1,18 @@
+import { PageShell, SectionCard } from "@/components/page-shell";
+
 export default function EraPage() {
   return (
-    <main className="min-h-screen bg-black text-white p-12">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-2">ERA Intake</h1>
-        <p className="text-zinc-400">
-          ERA intake UI shell is online. Connect this route to the authenticated upload and processing workflow.
-        </p>
-      </div>
-    </main>
+    <PageShell
+      title="ERA Intake"
+      description="ERA intake UI shell is online. Connect this route to the authenticated upload and processing workflow."
+    >
+      <SectionCard title="Framework readiness">
+        <ul className="space-y-2 text-sm text-zinc-300">
+          <li>Environment validation now fails fast when backend URLs are malformed.</li>
+          <li>The app exposes a first-party health endpoint at <span className="font-mono">/api/health</span> for monitoring and internal checks.</li>
+          <li>CI can now validate linting, type safety, and production builds before deployment.</li>
+        </ul>
+      </SectionCard>
+    </PageShell>
   );
 }

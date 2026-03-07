@@ -25,6 +25,8 @@ npm run dev
 ## Build
 
 ```bash
+npm run typecheck
+npm run lint
 npm run build
 npm run start
 ```
@@ -32,9 +34,21 @@ npm run start
 ## Backend connectivity
 
 - `/dashboard` now runs a server-side health probe against the configured backend URL.
+- `/api/health` exposes the same health status as JSON for CI, monitoring, and app-level checks.
 - `/dashboard` now runs in dynamic server-render mode, so health checks happen at request time (not at build time).
 - The probe checks common health paths (`/health`, `/api/health`, `/api/v1/health`, `/healthz`) and reports status in the UI.
+- Backend URL configuration is validated before requests are made, and malformed URLs fail fast with a readable error state.
 - Authentication flow is unchanged; this only validates transport-level reachability.
+
+## Framework conventions
+
+- Shared page layout primitives live in `src/components/page-shell.tsx`.
+- Route-level resilience lives in the App Router special files: `src/app/loading.tsx`, `src/app/error.tsx`, and `src/app/not-found.tsx`.
+- Backend requests should go through `src/lib/backend.ts`, which now includes a reusable typed fetch helper.
+
+## CI
+
+- GitHub Actions workflow `.github/workflows/ci.yml` runs lint, type-check, and build validation on pushes to `main` and on pull requests.
 
 ## Bringing `360-encompass.com` live
 
