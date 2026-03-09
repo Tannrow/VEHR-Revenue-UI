@@ -67,9 +67,10 @@ export async function POST(request: Request) {
     );
   }
 
+  const payloadRecord = payload as Record<string, unknown>;
   const credentials = normalizeLoginCredentials({
-    username: (payload as Record<string, unknown>).username,
-    password: (payload as Record<string, unknown>).password,
+    username: payloadRecord.username,
+    password: payloadRecord.password,
   });
 
   if (!credentials) {

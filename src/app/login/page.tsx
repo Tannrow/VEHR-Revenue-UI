@@ -37,7 +37,13 @@ function getValidationDetailMessage(detail: unknown): string | null {
     (item): item is JsonRecord => isRecord(item) && typeof item.msg === "string" && item.msg.trim().length > 0,
   )?.msg;
 
-  return typeof message === "string" ? message.trim() : null;
+  if (typeof message !== "string") {
+    return null;
+  }
+
+  const trimmedMessage = message.trim();
+
+  return trimmedMessage ? trimmedMessage : null;
 }
 
 function getErrorMessage(status: number, payload: unknown, text: string): string {
