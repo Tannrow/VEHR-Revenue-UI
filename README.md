@@ -35,7 +35,7 @@ npm run start
 
 - The App Router lives under `src/app`.
 - `/dashboard`, `/era`, and `/claims` fetch real backend data through same-origin App Router API routes.
-- `/api/health`, `/api/dashboard`, `/api/claims`, and `/api/era` proxy requests to the configured backend origin.
+- `/api/health`, `/api/dashboard`, `/api/claims`, `/api/era`, and `/api/auth/*` proxy requests to the configured backend origin.
 
 ## Framework conventions
 
