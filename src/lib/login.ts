@@ -1,4 +1,5 @@
 export const LOGIN_REQUEST_CONTENT_TYPE = "application/json";
+export const INVALID_LOGIN_REQUEST_ERROR = "Login request body must include username and password.";
 
 export type LoginCredentials = {
   username: string;

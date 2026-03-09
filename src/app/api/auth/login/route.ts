@@ -8,13 +8,13 @@ import {
 } from "@/lib/auth";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import {
+  INVALID_LOGIN_REQUEST_ERROR,
   LOGIN_REQUEST_CONTENT_TYPE,
   normalizeLoginCredentials,
   serializeLoginRequestBody,
 } from "@/lib/login";
 
 export const dynamic = "force-dynamic";
-const INVALID_LOGIN_REQUEST_ERROR = "Login request body must include username and password.";
 
 function getProxyErrorResponse(error: BackendFetchError): Response {
   return new Response(error.responseText, {
