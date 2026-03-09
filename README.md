@@ -47,6 +47,7 @@ npm run start
 
 - GitHub Actions workflow `.github/workflows/ci.yml` runs lint, type-check, and build validation on pushes to `main` and on pull requests.
 - GitHub Actions workflow `.github/workflows/build-and-push-ui.yml` builds the Docker image on pushes to `main` and on manual dispatch, then authenticates to Azure with OIDC and pushes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>` when the required Azure secrets are configured.
+- GitHub Actions workflow `.github/workflows/deploy-staging.yml` builds the app, publishes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>`, updates the staging Azure Container App, and fails if the post-deploy health check is not HTTP 200.
 
 ## Bringing `360-encompass.com` live
 
