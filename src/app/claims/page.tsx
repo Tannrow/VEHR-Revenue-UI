@@ -1,18 +1,24 @@
+import Link from "next/link";
+
 import { PageShell, SectionCard } from "@/components/page-shell";
 
 export default function ClaimsPage() {
   return (
     <PageShell
       title="Claims"
-      description="Claims workspace shell is online. Integrate this route with org-scoped claim status and ledger timelines."
-      footer="Staging UI · This route stays available without claim data from the backend."
+      description="Staging claims UI is available without requiring live claim status data."
+      footer="Staging UI · This page is safe to load while backend claims APIs are unavailable."
     >
-      <SectionCard title="Framework readiness">
-        <ul className="space-y-2 text-sm text-zinc-300">
-          <li>Shared page shell keeps the route layout consistent across product surfaces.</li>
-          <li>Route-level loading, error, and not-found experiences are now defined at the app level.</li>
-          <li>Use the typed backend helpers in <span className="font-mono">src/lib/backend.ts</span> for future claims integrations.</li>
-        </ul>
+      <SectionCard title="Claims workspace">
+        <div className="space-y-4 text-sm text-zinc-300">
+          <p>Use this route to verify the claims workspace shell before claim tracking and ledger integrations are enabled.</p>
+          <Link
+            href="/"
+            className="inline-flex rounded-md border border-zinc-700 px-4 py-2 text-white transition hover:border-white"
+          >
+            Back to home
+          </Link>
+        </div>
       </SectionCard>
     </PageShell>
   );

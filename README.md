@@ -31,14 +31,12 @@ npm run build
 npm run start
 ```
 
-## Backend connectivity
+## Route availability
 
-- `/dashboard` now runs a server-side health probe against the configured backend URL.
-- `/api/health` exposes the same health status as JSON for CI, monitoring, and app-level checks.
-- `/dashboard` now runs in dynamic server-render mode, so health checks happen at request time (not at build time).
-- The probe checks common health paths (`/health`, `/api/health`, `/api/v1/health`, `/healthz`) and reports status in the UI.
-- Backend URL configuration is validated before requests are made, and malformed URLs fail fast with a readable error state.
-- Authentication flow is unchanged; this only validates transport-level reachability.
+- The App Router lives under `src/app`.
+- `/dashboard`, `/era`, and `/claims` render staging-safe UI shells with links back to `/`.
+- These routes do not require API data to render, so the frontend remains available during backend downtime.
+- `/api/health` remains available as a first-party JSON health endpoint for monitoring and internal checks.
 
 ## Framework conventions
 
@@ -49,6 +47,7 @@ npm run start
 ## CI
 
 - GitHub Actions workflow `.github/workflows/ci.yml` runs lint, type-check, and build validation on pushes to `main` and on pull requests.
+- GitHub Actions workflow `.github/workflows/build-and-push-ui.yml` builds and pushes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>` on pushes to `main` and on manual dispatch.
 
 ## Bringing `360-encompass.com` live
 

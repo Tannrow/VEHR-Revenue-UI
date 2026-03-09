@@ -1,0 +1,78 @@
+name: Build and Push UI Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  ACR_NAME: vehrrevostagingacr
+  ACR_LOGIN_SERVER: vehrrevostagingacr.azurecr.io
+  IMAGE_NAME: vehr-revenue-ui
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Azure login with OIDC
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure login with service principal secret
+        if: ${{ !(secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '') }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Compute image reference
+        id: image
+        run: |
+          tag="${GITHUB_SHA::7}"
+          image_ref="$ACR_LOGIN_SERVER/$IMAGE_NAME:$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        run: docker build --tag "${{ steps.image.outputs.image_ref }}" .
+
+      - name: Push Docker image
+        run: docker push "${{ steps.image.outputs.image_ref }}"
+
+      - name: Publish image reference
+        run: |
+          echo "Built image: ${{ steps.image.outputs.image_ref }}"
+          {
+            echo "## UI image published"
+            echo
+            echo "- Workflow: Build and Push UI Image"
+            echo "- Image tag format: short git SHA (7 characters)"
+            echo "- Image: \`${{ steps.image.outputs.image_ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
