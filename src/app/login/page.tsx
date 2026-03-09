@@ -33,17 +33,19 @@ function getValidationDetailMessage(detail: unknown): string | null {
     return typeof detail === "string" && detail.trim() ? detail.trim() : null;
   }
 
-  const message = detail.find(
-    (item): item is JsonRecord => isRecord(item) && typeof item.msg === "string" && item.msg.trim().length > 0,
-  )?.msg;
+  for (const item of detail) {
+    if (!isRecord(item) || typeof item.msg !== "string") {
+      continue;
+    }
 
-  if (typeof message !== "string") {
-    return null;
+    const trimmedMessage = item.msg.trim();
+
+    if (trimmedMessage) {
+      return trimmedMessage;
+    }
   }
 
-  const trimmedMessage = message.trim();
-
-  return trimmedMessage ? trimmedMessage : null;
+  return null;
 }
 
 function getErrorMessage(status: number, payload: unknown, text: string): string {

@@ -20,7 +20,7 @@ function normalizePassword(value: unknown): string | null {
     return null;
   }
 
-  return value ? value : null;
+  return value.length > 0 ? value : null;
 }
 
 export function normalizeLoginCredentials(input: {
