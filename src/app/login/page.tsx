@@ -74,7 +74,7 @@ export default function LoginPage() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
-          "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         },
         body: new URLSearchParams({
           username,
