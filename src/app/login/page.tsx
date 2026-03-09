@@ -153,7 +153,7 @@ export default function LoginPage() {
                 type="text"
                 autoComplete="username"
                 required
-                className="block w-full rounded-md border border-zinc-700 bg-black/50 px-3 py-2 text-zinc-200"
+                className="block w-full rounded-md border border-zinc-700 bg-black/50 px-3 py-2 text-base text-zinc-200 md:text-sm"
               />
             </div>
 
@@ -167,7 +167,7 @@ export default function LoginPage() {
                 type="password"
                 autoComplete="current-password"
                 required
-                className="block w-full rounded-md border border-zinc-700 bg-black/50 px-3 py-2 text-zinc-200"
+                className="block w-full rounded-md border border-zinc-700 bg-black/50 px-3 py-2 text-base text-zinc-200 md:text-sm"
               />
             </div>
 
