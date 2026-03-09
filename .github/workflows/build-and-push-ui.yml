@@ -35,40 +35,6 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Determine Azure authentication mode
-        id: azure-auth
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-        run: |
-          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_SUBSCRIPTION_ID" ]; then
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          elif [ -n "$AZURE_CREDENTIALS" ]; then
-            echo "mode=service-principal" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=skip" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Azure login with OIDC
-        if: ${{ steps.azure-auth.outputs.mode == 'oidc' }}
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Azure login with service principal secret
-        if: ${{ steps.azure-auth.outputs.mode == 'service-principal' }}
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Log in to Azure Container Registry
-        if: ${{ steps.azure-auth.outputs.mode != 'skip' }}
-        run: az acr login --name "$ACR_NAME"
-
       - name: Compute image reference
         id: image
         run: |
@@ -77,31 +43,43 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
 
+      - name: Azure login with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Obtain ACR access token
+        id: acr-token
+        run: |
+          access_token="$(az acr login --name "$ACR_NAME" --expose-token --output tsv --query accessToken)"
+          if [ -z "$access_token" ]; then
+            echo "Failed to obtain an Azure Container Registry access token." >&2
+            exit 1
+          fi
+          echo "::add-mask::$access_token"
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Azure Container Registry with token
+        run: |
+          echo "${{ steps.acr-token.outputs.access_token }}" | docker login "$ACR_LOGIN_SERVER" \
+            --username 00000000-0000-0000-0000-000000000000 \
+            --password-stdin
+
       - name: Build Docker image
         run: docker build --tag "${{ steps.image.outputs.image_ref }}" .
 
       - name: Push Docker image
-        if: ${{ steps.azure-auth.outputs.mode != 'skip' }}
         run: docker push "${{ steps.image.outputs.image_ref }}"
 
-      - name: Publish image reference
+      - name: Publish pushed image reference
         run: |
-          echo "Built image: ${{ steps.image.outputs.image_ref }}"
-          if [ "${{ steps.azure-auth.outputs.mode }}" = "skip" ]; then
-            {
-              echo "## UI image build completed"
-              echo
-              echo "- Workflow: Build and Push UI Image"
-              echo "- Image tag format: short git SHA (7 characters)"
-              echo "- Built image: \`${{ steps.image.outputs.image_ref }}\`"
-              echo "- Push skipped: configure Azure OIDC secrets or \`AZURE_CREDENTIALS\` to publish to ACR."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "## UI image published"
-              echo
-              echo "- Workflow: Build and Push UI Image"
-              echo "- Image tag format: short git SHA (7 characters)"
-              echo "- Image: \`${{ steps.image.outputs.image_ref }}\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "Pushed image: ${{ steps.image.outputs.image_ref }}"
+          {
+            echo "## UI image published"
+            echo
+            echo "- Workflow: Build and Push UI Image"
+            echo "- Image tag format: short git SHA (7 characters)"
+            echo "- Pushed image: \`${{ steps.image.outputs.image_ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
