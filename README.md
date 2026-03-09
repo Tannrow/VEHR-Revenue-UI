@@ -7,13 +7,13 @@ VEHR Revenue UI is the **Revenue Operating System front end** for the VEHR platf
 Create `.env.local` (or configure Azure Container App environment variables):
 
 ```bash
-NEXT_PUBLIC_BACKEND_URL=https://api.360-encompass.com
-# Optional: internal/private backend URL used by server-side rendering.
-BACKEND_INTERNAL_URL=http://vehr-api.internal
+NEXT_PUBLIC_API_URL=https://api-staging.360-encompass.com
+# Optional fallback if NEXT_PUBLIC_API_URL is not set.
+NEXT_PUBLIC_API_BASE_URL=https://api-staging.360-encompass.com
 ```
 
-- `NEXT_PUBLIC_BACKEND_URL` is safe to expose to the browser and should point to the public API origin.
-- `BACKEND_INTERNAL_URL` is optional and intended for server-side runtime calls from Next.js to a private/internal API endpoint.
+- `NEXT_PUBLIC_API_URL` is used by the server-side proxy routes to reach the backend.
+- `NEXT_PUBLIC_API_BASE_URL` is an optional fallback for the same backend origin.
 
 ## Local development
 
@@ -34,15 +34,14 @@ npm run start
 ## Route availability
 
 - The App Router lives under `src/app`.
-- `/dashboard`, `/era`, and `/claims` render staging-safe UI shells with links back to `/`.
-- These routes do not require API data to render, so the frontend remains available during backend downtime.
-- `/api/health` remains available as a first-party JSON health endpoint for monitoring and internal checks.
+- `/dashboard`, `/era`, and `/claims` fetch real backend data through same-origin App Router API routes.
+- `/api/health`, `/api/dashboard`, `/api/claims`, and `/api/era` proxy requests to the configured backend origin.
 
 ## Framework conventions
 
 - Shared page layout primitives live in `src/components/page-shell.tsx`.
 - Route-level resilience lives in the App Router special files: `src/app/loading.tsx`, `src/app/error.tsx`, and `src/app/not-found.tsx`.
-- Backend requests should go through `src/lib/backend.ts`, which now includes a reusable typed fetch helper.
+- Backend proxy requests should go through `src/lib/backend.ts`, which includes the shared backend fetch/discovery helpers.
 
 ## CI
 
@@ -53,8 +52,8 @@ npm run start
 
 To make the site operational in Azure Container Apps:
 
-1. Deploy this frontend container with `NEXT_PUBLIC_BACKEND_URL` set to the VEHR API domain.
-2. Ensure API ingress is reachable from the frontend container (public or internal via `BACKEND_INTERNAL_URL`).
+1. Deploy this frontend container with `NEXT_PUBLIC_API_URL` set to the VEHR API domain.
+2. Optionally provide `NEXT_PUBLIC_API_BASE_URL` as a fallback backend origin.
 3. Bind custom domain `360-encompass.com` (and `www`/`app` as needed) to the frontend Container App.
 4. Validate DNS records point to Container Apps managed ingress.
 5. Provision and verify TLS cert binding for each hostname.
