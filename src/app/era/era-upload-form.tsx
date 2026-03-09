@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { isFetchFailedMessage } from "@/lib/error-messages";
+
 type UploadState = {
   status: "idle" | "submitting" | "success" | "error";
   message: string | null;
@@ -61,7 +63,10 @@ export function EraUploadForm() {
     } catch (error) {
       setState({
         status: "error",
-        message: error instanceof Error ? error.message : "Unable to submit ERA upload.",
+        message:
+          error instanceof Error && !isFetchFailedMessage(error.message)
+            ? error.message
+            : "Unable to submit the ERA upload right now.",
         payload: null,
       });
     }

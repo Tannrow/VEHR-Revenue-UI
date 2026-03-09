@@ -43,7 +43,7 @@ export async function fetchInternal(path: string): Promise<InternalApiResponse> 
     try {
       data = JSON.parse(text) as unknown;
     } catch {
-      data = null;
+      data = text;
     }
   }
 

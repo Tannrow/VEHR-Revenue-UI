@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
+import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ function safeJson(value: unknown): string {
 
 function formatErrorMessage(status: number, payload: unknown, text: string): string {
   if (typeof payload === "string" && payload.trim()) {
-    return payload.trim();
+    return isFetchFailedMessage(payload) ? "Unable to reach the VEHR claims endpoint right now." : payload.trim();
   }
 
   if (isRecord(payload)) {
@@ -31,12 +32,12 @@ function formatErrorMessage(status: number, payload: unknown, text: string): str
     const message = typeof errorMessage === "string" ? errorMessage : detailMessage;
 
     if (typeof message === "string" && message.trim()) {
-      return message.trim();
+      return isFetchFailedMessage(message) ? "Unable to reach the VEHR claims endpoint right now." : message.trim();
     }
   }
 
   if (text.trim()) {
-    return text.trim();
+    return isFetchFailedMessage(text) ? "Unable to reach the VEHR claims endpoint right now." : text.trim();
   }
 
   if (status === 401 || status === 403) {
@@ -64,7 +65,10 @@ async function getClaimsState(): Promise<{ payload: unknown; error: string | nul
   } catch (error) {
     return {
       payload: null,
-      error: error instanceof Error ? error.message : "Unable to load claims.",
+      error:
+        error instanceof Error && !isFetchFailedMessage(error.message)
+          ? error.message
+          : "Unable to load claims right now.",
     };
   }
 }
@@ -73,7 +77,11 @@ function getColumns(records: JsonRecord[]): string[] {
   return Array.from(new Set(records.flatMap((record) => Object.keys(record))));
 }
 
-function renderCellValue(value: JsonValue | undefined): string {
+function renderCellValue(value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+
   if (Array.isArray(value) || isRecord(value)) {
     return safeJson(value);
   }

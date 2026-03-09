@@ -1,4 +1,5 @@
 const DEFAULT_ACCEPT_HEADER = "application/json";
+const ERROR_TEXT_LIMIT = 500;
 
 function normalizeBaseUrl(value: string | undefined): string | null {
   const trimmedValue = value?.trim();
@@ -30,6 +31,16 @@ function getBackendUrl(path: string): string {
 
 function createProxyHeaders(contentType: string | null): HeadersInit | undefined {
   return contentType ? { "content-type": contentType } : undefined;
+}
+
+function trimResponseText(value: string): string {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue.length <= ERROR_TEXT_LIMIT) {
+    return trimmedValue;
+  }
+
+  return `${trimmedValue.slice(0, ERROR_TEXT_LIMIT)}…`;
 }
 
 export class BackendFetchError extends Error {
@@ -65,7 +76,7 @@ export async function backendFetch(path: string, init: RequestInit = {}): Promis
 
   throw new BackendFetchError(
     response.status,
-    (await response.text()).trim(),
+    trimResponseText(await response.text()),
     response.headers.get("content-type"),
   );
 }

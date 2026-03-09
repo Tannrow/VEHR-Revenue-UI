@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
+import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +37,7 @@ function safeJson(value: unknown): string {
 
 function formatErrorMessage(status: number, payload: unknown, text: string): string {
   if (typeof payload === "string" && payload.trim()) {
-    return payload.trim();
+    return isFetchFailedMessage(payload) ? "Unable to reach the VEHR dashboard right now." : payload.trim();
   }
 
   if (isRecord(payload)) {
@@ -44,12 +46,12 @@ function formatErrorMessage(status: number, payload: unknown, text: string): str
     const message = typeof errorMessage === "string" ? errorMessage : detailMessage;
 
     if (typeof message === "string" && message.trim()) {
-      return message.trim();
+      return isFetchFailedMessage(message) ? "Unable to reach the VEHR dashboard right now." : message.trim();
     }
   }
 
   if (text.trim()) {
-    return text.trim();
+    return isFetchFailedMessage(text) ? "Unable to reach the VEHR dashboard right now." : text.trim();
   }
 
   if (status === 401 || status === 403) {
@@ -77,12 +79,15 @@ async function getDashboardState(): Promise<{ payload: JsonRecord | null; error:
   } catch (error) {
     return {
       payload: null,
-      error: error instanceof Error ? error.message : "Unable to load dashboard data.",
+      error:
+        error instanceof Error && !isFetchFailedMessage(error.message)
+          ? error.message
+          : "Unable to load dashboard data right now.",
     };
   }
 }
 
-function renderFieldValue(value: JsonValue) {
+function renderFieldValue(value: JsonValue): ReactNode {
   if (Array.isArray(value) || isRecord(value)) {
     return (
       <pre className="mt-2 overflow-x-auto rounded-md bg-black/40 p-3 text-xs text-zinc-200">
