@@ -6,6 +6,11 @@ import { useState } from "react";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
 import { isFetchFailedMessage } from "@/lib/error-messages";
+import {
+  LOGIN_REQUEST_CONTENT_TYPE,
+  normalizeLoginCredentials,
+  serializeLoginRequestBody,
+} from "@/lib/login";
 
 type LoginState = {
   status: "idle" | "submitting" | "error";
@@ -23,10 +28,30 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function getValidationDetailMessage(detail: unknown): string | null {
+  if (!Array.isArray(detail)) {
+    return typeof detail === "string" && detail.trim() ? detail.trim() : null;
+  }
+
+  for (const item of detail) {
+    if (!isRecord(item) || typeof item.msg !== "string") {
+      continue;
+    }
+
+    const trimmedMessage = item.msg.trim();
+
+    if (trimmedMessage) {
+      return trimmedMessage;
+    }
+  }
+
+  return null;
+}
+
 function getErrorMessage(status: number, payload: unknown, text: string): string {
   if (isRecord(payload)) {
     const errorMessage = payload.error;
-    const detailMessage = payload.detail;
+    const detailMessage = getValidationDetailMessage(payload.detail);
     const message = typeof errorMessage === "string" ? errorMessage : detailMessage;
 
     if (typeof message === "string" && message.trim()) {
@@ -54,10 +79,12 @@ export default function LoginPage() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
-    const username = String(formData.get("username") ?? "").trim();
-    const password = String(formData.get("password") ?? "");
+    const credentials = normalizeLoginCredentials({
+      username: formData.get("username"),
+      password: formData.get("password"),
+    });
 
-    if (!username || !password) {
+    if (!credentials) {
       setState({
         status: "error",
         error: "Enter both your username and password.",
@@ -74,12 +101,9 @@ export default function LoginPage() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "Content-Type": LOGIN_REQUEST_CONTENT_TYPE,
         },
-        body: new URLSearchParams({
-          username,
-          password,
-        }),
+        body: serializeLoginRequestBody(credentials),
       });
       const contentType = response.headers.get("content-type") ?? "";
       const text = await response.text();
