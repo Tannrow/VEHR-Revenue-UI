@@ -34,7 +34,8 @@ npm run start
 ## Route availability
 
 - The App Router lives under `src/app`.
-- `/dashboard`, `/era`, and `/claims` fetch real backend data through same-origin App Router API routes.
+- `/login` renders the sign-in form and posts to `/api/auth/login`.
+- `/dashboard`, `/era`, and `/claims` fetch real backend data through same-origin App Router API routes and show a sign-in-required state when auth is missing.
 - `/api/health`, `/api/dashboard`, `/api/claims`, `/api/era`, and `/api/auth/*` proxy requests to the configured backend origin.
 
 ## Framework conventions

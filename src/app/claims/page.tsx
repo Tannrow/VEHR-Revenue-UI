@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
+import { SignInRequiredCard } from "@/components/sign-in-required-card";
+import { getAccessToken } from "@/lib/auth";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
 
@@ -90,6 +92,20 @@ function renderCellValue(value: unknown): string {
 }
 
 export default async function ClaimsPage() {
+  const accessToken = await getAccessToken();
+
+  if (!accessToken) {
+    return (
+      <PageShell
+        title="Claims"
+        description="Claims data is loaded through the UI's same-origin proxy route."
+        footer="Claims data is served from /api/claims via the UI origin."
+      >
+        <SignInRequiredCard resource="claims" />
+      </PageShell>
+    );
+  }
+
   const { payload, error } = await getClaimsState();
   const arrayPayload = Array.isArray(payload) ? payload : [];
   const isArrayPayload = Array.isArray(payload);

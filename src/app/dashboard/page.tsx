@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
+import { SignInRequiredCard } from "@/components/sign-in-required-card";
+import { getAccessToken } from "@/lib/auth";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
 
@@ -100,6 +102,20 @@ function renderFieldValue(value: JsonValue): ReactNode {
 }
 
 export default async function DashboardPage() {
+  const accessToken = await getAccessToken();
+
+  if (!accessToken) {
+    return (
+      <PageShell
+        title="Dashboard"
+        description="Live revenue snapshot data is loaded through the UI's same-origin proxy route."
+        footer="Dashboard data is served from /api/dashboard via the UI origin."
+      >
+        <SignInRequiredCard resource="the dashboard" />
+      </PageShell>
+    );
+  }
+
   const { payload, error } = await getDashboardState();
   const fields = payload
     ? DASHBOARD_FIELDS.filter((field) => field in payload).map((field) => [field, payload[field]] as const)

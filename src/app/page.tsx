@@ -9,6 +9,15 @@ export default function Home() {
       description="Command center for financial exposure, recovery, payer aggression, and claim execution."
       footer="Staging Environment · Azure Container Apps · PostgreSQL 15 · Deterministic Pipeline"
     >
+      <div>
+        <Link
+          href="/login"
+          className="inline-flex rounded-md border border-white px-4 py-2 font-medium text-white transition hover:bg-white hover:text-black"
+        >
+          Sign in
+        </Link>
+      </div>
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <Link
           href="/dashboard/"

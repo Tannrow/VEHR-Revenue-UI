@@ -1,12 +1,28 @@
 import Link from "next/link";
 
 import { PageShell, SectionCard } from "@/components/page-shell";
+import { SignInRequiredCard } from "@/components/sign-in-required-card";
+import { getAccessToken } from "@/lib/auth";
 
 import { EraUploadForm } from "./era-upload-form";
 
 export const dynamic = "force-dynamic";
 
-export default function EraPage() {
+export default async function EraPage() {
+  const accessToken = await getAccessToken();
+
+  if (!accessToken) {
+    return (
+      <PageShell
+        title="ERA Upload"
+        description="Upload ERA PDFs through the UI's same-origin proxy route."
+        footer="ERA uploads post to /api/era via the UI origin."
+      >
+        <SignInRequiredCard resource="ERA uploads" />
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell
       title="ERA Upload"
