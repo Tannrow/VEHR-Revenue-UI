@@ -22,8 +22,9 @@ export function EraUploadForm() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const file = formData.get("file");
 
-    if (!formData.get("file")) {
+    if (!(file instanceof File) || !file.name) {
       setState({
         status: "error",
         message: "Select an ERA file before submitting.",

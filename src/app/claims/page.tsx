@@ -53,9 +53,7 @@ function renderCellValue(value: JsonValue): string {
 export default async function ClaimsPage() {
   const { payload, error } = await getClaimsData();
   const claims = payload ? getClaims(payload) : [];
-  const columns = Array.from(
-    new Set(claims.flatMap((claim) => Object.keys(claim)).slice(0, 8)),
-  ).slice(0, 5);
+  const columns = Array.from(new Set(claims.flatMap((claim) => Object.keys(claim)))).slice(0, 5);
 
   return (
     <PageShell
@@ -85,7 +83,7 @@ export default async function ClaimsPage() {
                 </thead>
                 <tbody className="divide-y divide-zinc-800 bg-zinc-950/40">
                   {claims.slice(0, 10).map((claim, index) => (
-                    <tr key={`${index}-${columns.map((column) => renderCellValue(claim[column])).join("-")}`}>
+                    <tr key={String(claim.claim_id ?? claim.id ?? index)}>
                       {columns.map((column) => (
                         <td key={column} className="px-4 py-3 align-top text-zinc-200">
                           {renderCellValue(claim[column])}

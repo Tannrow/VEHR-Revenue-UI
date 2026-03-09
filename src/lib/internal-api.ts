@@ -28,9 +28,12 @@ export async function fetchInternalJson<T>(path: string): Promise<T> {
   });
 
   const contentType = response.headers.get("content-type") ?? "";
-  const payload = contentType.includes("application/json")
-    ? ((await response.json()) as T)
-    : (({ text: await response.text() } satisfies Record<string, unknown>) as T);
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(`Request to ${path} did not return JSON.`);
+  }
+
+  const payload = (await response.json()) as T;
 
   if (!response.ok) {
     const message =

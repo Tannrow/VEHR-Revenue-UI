@@ -23,6 +23,7 @@ export async function GET() {
   }
 
   try {
+    // Some deployments expose Swagger docs but not a dedicated /health endpoint.
     const docsResponse = await proxyBackendGet("/docs");
 
     return NextResponse.json(

@@ -1,6 +1,9 @@
 const DEFAULT_TIMEOUT_MS = 10_000;
 const ERROR_TEXT_LIMIT = 400;
+const ELLIPSIS = "…";
 const OPENAPI_PATH = "/openapi.json";
+const OPENAPI_CACHE_TTL_MS = 5 * 60 * 1000;
+const PATH_PARAMETER_PATTERN = /\{[^}]+\}/;
 
 type BackendFetchOptions = {
   method?: string;
@@ -78,7 +81,7 @@ function truncateText(value: string): string {
     return value;
   }
 
-  return `${value.slice(0, ERROR_TEXT_LIMIT)}…`;
+  return `${value.slice(0, ERROR_TEXT_LIMIT)}${ELLIPSIS}`;
 }
 
 async function requestBackend(
@@ -125,21 +128,31 @@ export function getBackendBaseUrl(): string | null {
   return getConfiguredBackendBaseUrl();
 }
 
-let openApiDocumentPromise: Promise<OpenApiDocument | null> | null = null;
+let cachedOpenApiDocument: { expiresAt: number; value: OpenApiDocument | null } | null = null;
 
 async function getOpenApiDocument(): Promise<OpenApiDocument | null> {
-  if (!openApiDocumentPromise) {
-    openApiDocumentPromise = (async () => {
-      try {
-        const response = await backendFetch(OPENAPI_PATH, { cache: "force-cache" });
-        return (await response.json()) as OpenApiDocument;
-      } catch {
-        return null;
-      }
-    })();
+  if (cachedOpenApiDocument && cachedOpenApiDocument.expiresAt > Date.now()) {
+    return cachedOpenApiDocument.value;
   }
 
-  return openApiDocumentPromise;
+  try {
+    const response = await backendFetch(OPENAPI_PATH, { cache: "no-store" });
+    const value = (await response.json()) as OpenApiDocument;
+
+    cachedOpenApiDocument = {
+      expiresAt: Date.now() + OPENAPI_CACHE_TTL_MS,
+      value,
+    };
+
+    return value;
+  } catch {
+    cachedOpenApiDocument = {
+      expiresAt: Date.now() + OPENAPI_CACHE_TTL_MS,
+      value: null,
+    };
+
+    return null;
+  }
 }
 
 function getOperationText(path: string, operation: OpenApiOperation | undefined): string {
@@ -160,7 +173,7 @@ function scoreOperation(
   operation: OpenApiOperation | undefined,
   keywords: readonly string[],
 ): number {
-  if (!operation || path.includes("{")) {
+  if (!operation || PATH_PARAMETER_PATTERN.test(path)) {
     return -1;
   }
 
@@ -171,7 +184,15 @@ function scoreOperation(
       return score;
     }
 
-    return score + (path === `/${keyword}` ? 5 : path.includes(keyword) ? 3 : 1);
+    if (path === `/${keyword}`) {
+      return score + 5;
+    }
+
+    if (path.includes(keyword)) {
+      return score + 3;
+    }
+
+    return score + 1;
   }, 0);
 }
 
