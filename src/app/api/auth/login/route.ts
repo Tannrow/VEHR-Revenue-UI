@@ -7,6 +7,11 @@ import {
   getAccessTokenCookieOptions,
 } from "@/lib/auth";
 import { isFetchFailedMessage } from "@/lib/error-messages";
+import {
+  LOGIN_REQUEST_CONTENT_TYPE,
+  normalizeLoginCredentials,
+  serializeLoginRequestBody,
+} from "@/lib/login";
 
 export const dynamic = "force-dynamic";
 
@@ -39,14 +44,47 @@ function tryParseJson(value: string): { parsed: boolean; payload: unknown } {
 }
 
 export async function POST(request: Request) {
-  const contentType = request.headers.get("content-type");
-  const body = await request.arrayBuffer();
+  let payload: unknown;
+
+  try {
+    payload = (await request.json()) as unknown;
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Login request body must be valid JSON.",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return NextResponse.json(
+      {
+        error: "Login request body must include username and password.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const credentials = normalizeLoginCredentials({
+    username: (payload as Record<string, unknown>).username,
+    password: (payload as Record<string, unknown>).password,
+  });
+
+  if (!credentials) {
+    return NextResponse.json(
+      {
+        error: "Login request body must include username and password.",
+      },
+      { status: 400 },
+    );
+  }
 
   try {
     const response = await backendFetch("/api/v1/auth/login", {
       method: "POST",
-      body: body.byteLength > 0 ? body : undefined,
-      headers: contentType ? { "content-type": contentType } : undefined,
+      body: serializeLoginRequestBody(credentials),
+      headers: { "content-type": LOGIN_REQUEST_CONTENT_TYPE },
     });
     const responseText = await response.text();
     const parsedResponse = tryParseJson(responseText);
