@@ -5,6 +5,7 @@ export default function ClaimsPage() {
     <PageShell
       title="Claims"
       description="Claims workspace shell is online. Integrate this route with org-scoped claim status and ledger timelines."
+      footer="Staging UI · This route stays available without claim data from the backend."
     >
       <SectionCard title="Framework readiness">
         <ul className="space-y-2 text-sm text-zinc-300">

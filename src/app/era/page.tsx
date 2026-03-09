@@ -5,6 +5,7 @@ export default function EraPage() {
     <PageShell
       title="ERA Intake"
       description="ERA intake UI shell is online. Connect this route to the authenticated upload and processing workflow."
+      footer="Staging UI · This route stays available while API-backed ERA processing is offline."
     >
       <SectionCard title="Framework readiness">
         <ul className="space-y-2 text-sm text-zinc-300">
