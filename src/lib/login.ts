@@ -41,8 +41,5 @@ export function normalizeLoginCredentials(input: {
 }
 
 export function serializeLoginRequestBody(credentials: LoginCredentials): string {
-  return JSON.stringify({
-    username: credentials.username,
-    password: credentials.password,
-  });
+  return JSON.stringify(credentials);
 }

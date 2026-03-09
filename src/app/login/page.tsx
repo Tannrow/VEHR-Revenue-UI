@@ -50,10 +50,7 @@ function getErrorMessage(status: number, payload: unknown, text: string): string
   if (isRecord(payload)) {
     const errorMessage = payload.error;
     const detailMessage = getValidationDetailMessage(payload.detail);
-    const message =
-      typeof errorMessage === "string"
-        ? errorMessage
-        : detailMessage;
+    const message = typeof errorMessage === "string" ? errorMessage : detailMessage;
 
     if (typeof message === "string" && message.trim()) {
       return message.trim();
