@@ -43,7 +43,22 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
 
+      - name: Determine Azure authentication mode
+        id: azure-auth
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_SUBSCRIPTION_ID" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "Azure OIDC secrets are not fully configured. Skipping registry login and image push."
+          fi
+
       - name: Azure login with OIDC
+        if: steps.azure-auth.outputs.mode == 'oidc'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -52,6 +67,7 @@ jobs:
 
       - name: Obtain ACR access token
         id: acr-token
+        if: steps.azure-auth.outputs.mode == 'oidc'
         run: |
           access_token="$(az acr login --name "$ACR_NAME" --expose-token --output tsv --query accessToken)"
           if [ -z "$access_token" ]; then
@@ -62,6 +78,7 @@ jobs:
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Azure Container Registry with token
+        if: steps.azure-auth.outputs.mode == 'oidc'
         run: |
           echo "${{ steps.acr-token.outputs.access_token }}" | docker login "$ACR_LOGIN_SERVER" \
             --username 00000000-0000-0000-0000-000000000000 \
@@ -71,9 +88,11 @@ jobs:
         run: docker build --tag "${{ steps.image.outputs.image_ref }}" .
 
       - name: Push Docker image
+        if: steps.azure-auth.outputs.mode == 'oidc'
         run: docker push "${{ steps.image.outputs.image_ref }}"
 
       - name: Publish pushed image reference
+        if: steps.azure-auth.outputs.mode == 'oidc'
         run: |
           echo "Pushed image: ${{ steps.image.outputs.image_ref }}"
           {
@@ -82,4 +101,16 @@ jobs:
             echo "- Workflow: Build and Push UI Image"
             echo "- Image tag format: short git SHA (7 characters)"
             echo "- Pushed image: \`${{ steps.image.outputs.image_ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish skipped push summary
+        if: steps.azure-auth.outputs.mode != 'oidc'
+        run: |
+          {
+            echo "## UI image build completed without push"
+            echo
+            echo "- Workflow: Build and Push UI Image"
+            echo "- Image tag format: short git SHA (7 characters)"
+            echo "- Built image: \`${{ steps.image.outputs.image_ref }}\`"
+            echo "- Push skipped because Azure OIDC secrets are not fully configured."
           } >> "$GITHUB_STEP_SUMMARY"

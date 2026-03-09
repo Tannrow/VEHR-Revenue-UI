@@ -47,7 +47,7 @@ npm run start
 ## CI
 
 - GitHub Actions workflow `.github/workflows/ci.yml` runs lint, type-check, and build validation on pushes to `main` and on pull requests.
-- GitHub Actions workflow `.github/workflows/build-and-push-ui.yml` authenticates to Azure with OIDC, obtains an ACR token, and pushes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>` on pushes to `main` and on manual dispatch.
+- GitHub Actions workflow `.github/workflows/build-and-push-ui.yml` builds the Docker image on pushes to `main` and on manual dispatch, then authenticates to Azure with OIDC and pushes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>` when the required Azure secrets are configured.
 
 ## Bringing `360-encompass.com` live
 
