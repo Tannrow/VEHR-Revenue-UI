@@ -14,6 +14,7 @@ import {
 } from "@/lib/login";
 
 export const dynamic = "force-dynamic";
+const INVALID_LOGIN_REQUEST_ERROR = "Login request body must include username and password.";
 
 function getProxyErrorResponse(error: BackendFetchError): Response {
   return new Response(error.responseText, {
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return NextResponse.json(
       {
-        error: "Login request body must include username and password.",
+        error: INVALID_LOGIN_REQUEST_ERROR,
       },
       { status: 400 },
     );
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
   if (!credentials) {
     return NextResponse.json(
       {
-        error: "Login request body must include username and password.",
+        error: INVALID_LOGIN_REQUEST_ERROR,
       },
       { status: 400 },
     );

@@ -28,21 +28,26 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function getValidationDetailMessage(detail: unknown): string | null {
+  if (!Array.isArray(detail)) {
+    return typeof detail === "string" && detail.trim() ? detail.trim() : null;
+  }
+
+  const message = detail.find(
+    (item): item is JsonRecord => isRecord(item) && typeof item.msg === "string" && item.msg.trim().length > 0,
+  )?.msg;
+
+  return typeof message === "string" ? message.trim() : null;
+}
+
 function getErrorMessage(status: number, payload: unknown, text: string): string {
   if (isRecord(payload)) {
     const errorMessage = payload.error;
-    const detailMessage = payload.detail;
-    const validationMessages = Array.isArray(detailMessage)
-      ? detailMessage
-          .map((detail) => (isRecord(detail) && typeof detail.msg === "string" ? detail.msg.trim() : null))
-          .filter((message): message is string => Boolean(message))
-      : [];
+    const detailMessage = getValidationDetailMessage(payload.detail);
     const message =
       typeof errorMessage === "string"
         ? errorMessage
-        : typeof detailMessage === "string"
-          ? detailMessage
-          : validationMessages[0];
+        : detailMessage;
 
     if (typeof message === "string" && message.trim()) {
       return message.trim();
