@@ -35,8 +35,24 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Determine Azure authentication mode
+        id: azure-auth
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_SUBSCRIPTION_ID" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "$AZURE_CREDENTIALS" ]; then
+            echo "mode=service-principal" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Azure login with OIDC
-        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' }}
+        if: ${{ steps.azure-auth.outputs.mode == 'oidc' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -44,12 +60,13 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login with service principal secret
-        if: ${{ !(secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '') }}
+        if: ${{ steps.azure-auth.outputs.mode == 'service-principal' }}
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Log in to Azure Container Registry
+        if: ${{ steps.azure-auth.outputs.mode != 'skip' }}
         run: az acr login --name "$ACR_NAME"
 
       - name: Compute image reference
@@ -64,15 +81,27 @@ jobs:
         run: docker build --tag "${{ steps.image.outputs.image_ref }}" .
 
       - name: Push Docker image
+        if: ${{ steps.azure-auth.outputs.mode != 'skip' }}
         run: docker push "${{ steps.image.outputs.image_ref }}"
 
       - name: Publish image reference
         run: |
           echo "Built image: ${{ steps.image.outputs.image_ref }}"
-          {
-            echo "## UI image published"
-            echo
-            echo "- Workflow: Build and Push UI Image"
-            echo "- Image tag format: short git SHA (7 characters)"
-            echo "- Image: \`${{ steps.image.outputs.image_ref }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.azure-auth.outputs.mode }}" = "skip" ]; then
+            {
+              echo "## UI image build completed"
+              echo
+              echo "- Workflow: Build and Push UI Image"
+              echo "- Image tag format: short git SHA (7 characters)"
+              echo "- Built image: \`${{ steps.image.outputs.image_ref }}\`"
+              echo "- Push skipped: configure Azure OIDC secrets or \`AZURE_CREDENTIALS\` to publish to ACR."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## UI image published"
+              echo
+              echo "- Workflow: Build and Push UI Image"
+              echo "- Image tag format: short git SHA (7 characters)"
+              echo "- Image: \`${{ steps.image.outputs.image_ref }}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
