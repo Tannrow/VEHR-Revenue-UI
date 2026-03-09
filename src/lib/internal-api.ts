@@ -22,6 +22,18 @@ async function getSameOriginUrl(path: string): Promise<string> {
   return `${protocol}://${host}${normalizedPath}`;
 }
 
+async function getForwardedRequestHeaders(): Promise<HeadersInit | undefined> {
+  const cookieHeader = (await headers()).get("cookie");
+
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  return {
+    cookie: cookieHeader,
+  };
+}
+
 export type InternalApiResponse = {
   ok: boolean;
   status: number;
@@ -33,6 +45,7 @@ export type InternalApiResponse = {
 export async function fetchInternal(path: string): Promise<InternalApiResponse> {
   const response = await fetch(await getSameOriginUrl(path), {
     cache: "no-store",
+    headers: await getForwardedRequestHeaders(),
   });
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();
