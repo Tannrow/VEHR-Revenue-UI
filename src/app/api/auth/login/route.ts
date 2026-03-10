@@ -15,6 +15,7 @@ import {
 } from "@/lib/login";
 
 export const dynamic = "force-dynamic";
+const VEHR_AUTH_LOGIN_URL = "https://api-staging.360-encompass.com/api/v1/auth/login";
 
 function getProxyErrorResponse(error: BackendFetchError): Response {
   return new Response(error.responseText, {
@@ -69,8 +70,9 @@ export async function POST(request: Request) {
 
   const payloadRecord = payload as Record<string, unknown>;
   const credentials = normalizeLoginCredentials({
-    username: payloadRecord.username,
+    email: payloadRecord.email,
     password: payloadRecord.password,
+    organization_id: payloadRecord.organization_id,
   });
 
   if (!credentials) {
@@ -83,7 +85,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = await backendFetch("/api/v1/auth/login", {
+    const response = await backendFetch(VEHR_AUTH_LOGIN_URL, {
       method: "POST",
       body: serializeLoginRequestBody(credentials),
       headers: { "content-type": LOGIN_REQUEST_CONTENT_TYPE },

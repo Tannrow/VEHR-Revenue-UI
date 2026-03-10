@@ -24,6 +24,10 @@ export function getBackendBaseUrl(): string {
 }
 
 function getBackendUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
   return `${getBackendBaseUrl()}${normalizedPath}`;

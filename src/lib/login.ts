@@ -1,19 +1,20 @@
 export const LOGIN_REQUEST_CONTENT_TYPE = "application/json";
-export const INVALID_LOGIN_REQUEST_ERROR = "Login request body must include username and password.";
+export const INVALID_LOGIN_REQUEST_ERROR = "Login request body must include email and password.";
 
 export type LoginCredentials = {
-  username: string;
+  email: string;
   password: string;
+  organization_id?: string;
 };
 
-function normalizeUsername(value: unknown): string | null {
+function normalizeEmail(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
 
-  const username = value.trim();
+  const email = value.trim();
 
-  return username ? username : null;
+  return email ? email : null;
 }
 
 function normalizePassword(value: unknown): string | null {
@@ -24,20 +25,33 @@ function normalizePassword(value: unknown): string | null {
   return value.length > 0 ? value : null;
 }
 
-export function normalizeLoginCredentials(input: {
-  username: unknown;
-  password: unknown;
-}): LoginCredentials | null {
-  const username = normalizeUsername(input.username);
-  const password = normalizePassword(input.password);
+function normalizeOrganizationId(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
 
-  if (!username || !password) {
+  const organizationId = value.trim();
+
+  return organizationId ? organizationId : undefined;
+}
+
+export function normalizeLoginCredentials(input: {
+  email: unknown;
+  password: unknown;
+  organization_id?: unknown;
+}): LoginCredentials | null {
+  const email = normalizeEmail(input.email);
+  const password = normalizePassword(input.password);
+  const organizationId = normalizeOrganizationId(input.organization_id);
+
+  if (!email || !password) {
     return null;
   }
 
   return {
-    username,
+    email,
     password,
+    ...(organizationId ? { organization_id: organizationId } : {}),
   };
 }
 
