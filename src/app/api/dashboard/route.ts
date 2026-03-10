@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { LATEST_REVENUE_SNAPSHOT_BACKEND_PATH } from "@/lib/api/revenue";
 import { proxyBackendResponse } from "@/lib/backend";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import { getAccessToken, withAccessToken } from "@/lib/auth";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    return await proxyBackendResponse("/api/v1/revenue/snapshots/latest", {
+    return await proxyBackendResponse(LATEST_REVENUE_SNAPSHOT_BACKEND_PATH, {
       headers: withAccessToken(undefined, await getAccessToken()),
     });
   } catch (error) {
