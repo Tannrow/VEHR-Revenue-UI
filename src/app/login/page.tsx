@@ -64,7 +64,7 @@ function getErrorMessage(status: number, payload: unknown, text: string): string
   }
 
   if (status === 401 || status === 403) {
-    return "Sign in failed. Check your username and password and try again.";
+    return "Sign in failed. Check your email and password and try again.";
   }
 
   return "Unable to sign in right now.";
@@ -80,14 +80,14 @@ export default function LoginPage() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const credentials = normalizeLoginCredentials({
-      username: formData.get("username"),
+      email: formData.get("email"),
       password: formData.get("password"),
     });
 
     if (!credentials) {
       setState({
         status: "error",
-        error: "Enter both your username and password.",
+        error: "Enter both your email and password.",
       });
       return;
     }
@@ -144,14 +144,14 @@ export default function LoginPage() {
         <div className="space-y-6 text-sm text-zinc-300">
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <label htmlFor="username" className="block text-sm font-medium text-zinc-200">
-                Username
+              <label htmlFor="email" className="block text-sm font-medium text-zinc-200">
+                Email
               </label>
               <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
                 required
                 className="block w-full rounded-md border border-zinc-700 bg-black/50 px-3 py-2 text-base text-zinc-200 md:text-sm"
               />
