@@ -9,6 +9,13 @@ export type RevenueSnapshotResponse =
 export type RevenueSnapshotMissing = components["schemas"]["RevenueSnapshotMissing"];
 export type ApiErrorResponse = components["schemas"]["ApiErrorResponse"];
 
+type ExactKeySet<Actual extends string, Expected extends string> = [Exclude<Actual, Expected>, Exclude<Expected, Actual>] extends [
+  never,
+  never,
+]
+  ? true
+  : never;
+
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(z.string(), jsonValueSchema)]),
 );
@@ -25,6 +32,13 @@ const revenueSnapshotResponseFields = {
   top_revenue_loss_drivers: z.array(jsonValueSchema),
   top_worklist: z.array(jsonValueSchema),
 } satisfies Record<keyof RevenueSnapshotResponse, z.ZodType>;
+
+const _assertExactRevenueSnapshotResponseFields: ExactKeySet<
+  keyof typeof revenueSnapshotResponseFields & string,
+  keyof RevenueSnapshotResponse & string
+> = true;
+
+void _assertExactRevenueSnapshotResponseFields;
 
 export const revenueSnapshotResponseSchema: z.ZodType<RevenueSnapshotResponse> = z
   .object(revenueSnapshotResponseFields)

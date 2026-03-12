@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "generate-api-types": "tsc --pretty false --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM --skipLibCheck --outDir /tmp/vehr-generate-api-types scripts/generate-api-types.ts && NODE_PATH=\"$PWD/node_modules\" node /tmp/vehr-generate-api-types/generate-api-types.js",
+    "generate-api-types": "tsc --pretty false --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM --skipLibCheck --outDir .tmp/generate-api-types scripts/generate-api-types.ts && node .tmp/generate-api-types/generate-api-types.js",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit"
   },
