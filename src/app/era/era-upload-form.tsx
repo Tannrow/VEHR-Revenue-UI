@@ -24,7 +24,7 @@ export function EraUploadForm() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
-    const file = formData.get("file");
+    const file = formData.get("files");
 
     if (!(file instanceof File) || !file.name) {
       setState({
@@ -81,7 +81,7 @@ export function EraUploadForm() {
           </label>
           <input
             id="era-file"
-            name="file"
+            name="files"
             type="file"
             accept="application/pdf,.pdf"
             required
