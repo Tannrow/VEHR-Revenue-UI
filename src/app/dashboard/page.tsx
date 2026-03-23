@@ -14,7 +14,7 @@ export default async function DashboardPage() {
       <PageShell
         title="Dashboard"
         description="Live revenue snapshot data is loaded through the UI's same-origin proxy route."
-        footer="Dashboard data is served from /api/dashboard via the UI origin."
+        footer={<span>Dashboard data is served from /api/dashboard via the UI origin. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
       >
         <SignInRequiredCard resource="the dashboard" />
       </PageShell>
@@ -25,7 +25,7 @@ export default async function DashboardPage() {
     <PageShell
       title="Dashboard"
       description="Live revenue snapshot data is loaded through the UI's same-origin proxy route."
-      footer="Dashboard data is served from /api/dashboard via the UI origin."
+      footer={<span>Dashboard data is served from /api/dashboard via the UI origin. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
     >
       <DashboardContent />
     </PageShell>
