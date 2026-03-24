@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -19,9 +19,36 @@ const secondaryNav = [
   { href: "/dashboard?panel=policy", label: "Policy Engine" },
 ];
 
+function SecondaryNavItems({
+  pathname,
+  activePanel,
+}: {
+  pathname: string;
+  activePanel: string | null;
+}) {
+  return secondaryNav.map((item) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-sm ${
+        pathname === "/dashboard" && activePanel && item.href.includes(activePanel)
+          ? "border-white/8 bg-white/[0.06] text-white"
+          : "border-transparent text-slate-400 hover:-translate-y-[1px] hover:border-white/6 hover:bg-white/[0.04] hover:text-white"
+      }`}
+    >
+      <span>{item.label}</span>
+    </Link>
+  ));
+}
+
+function SecondaryNav({ pathname }: { pathname: string }) {
+  const searchParams = useSearchParams();
+
+  return <SecondaryNavItems pathname={pathname} activePanel={searchParams.get("panel")} />;
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
@@ -312,19 +339,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
               <div className="space-y-2">
                 <p className="px-3 text-[11px] uppercase tracking-[0.28em] text-slate-500">Control</p>
-                {secondaryNav.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-sm ${
-                      pathname === "/dashboard" && searchParams.get("panel") && item.href.includes(searchParams.get("panel") ?? "")
-                        ? "border-white/8 bg-white/[0.06] text-white"
-                        : "border-transparent text-slate-400 hover:-translate-y-[1px] hover:border-white/6 hover:bg-white/[0.04] hover:text-white"
-                    }`}
-                  >
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
+                <Suspense fallback={<SecondaryNavItems pathname={pathname} activePanel={null} />}>
+                  <SecondaryNav pathname={pathname} />
+                </Suspense>
               </div>
             </nav>
 
