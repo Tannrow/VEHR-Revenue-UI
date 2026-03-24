@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "VEHR Revenue OS",
-  description: "Revenue operating system UI for the VEHR platform",
+  description: "Workflow-first revenue operating system for denials, claims, remits, and AI-guided recovery actions.",
 };
 
 export default function RootLayout({

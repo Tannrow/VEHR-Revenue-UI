@@ -5,22 +5,21 @@ import { SignInRequiredCard } from "@/components/sign-in-required-card";
 import { getAccessToken } from "@/lib/auth";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
+import { revenueQueue } from "@/lib/mock/revenue-os";
 
 export const dynamic = "force-dynamic";
 
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-type JsonRecord = { [key: string]: JsonValue };
+type ClaimRecord = {
+  id?: string;
+  external_claim_id?: string | null;
+  patient_name?: string | null;
+  payer_name?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
 
-function isRecord(value: unknown): value is JsonRecord {
+function isClaimRecord(value: unknown): value is ClaimRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 function formatErrorMessage(status: number, payload: unknown, text: string): string {
@@ -28,45 +27,43 @@ function formatErrorMessage(status: number, payload: unknown, text: string): str
     return isFetchFailedMessage(payload) ? "Unable to reach the VEHR claims endpoint right now." : payload.trim();
   }
 
-  if (isRecord(payload)) {
-    const errorMessage = payload.error;
-    const detailMessage = payload.detail;
-    const message = typeof errorMessage === "string" ? errorMessage : detailMessage;
-
-    if (typeof message === "string" && message.trim()) {
-      return isFetchFailedMessage(message) ? "Unable to reach the VEHR claims endpoint right now." : message.trim();
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const detail = "detail" in payload ? payload.detail : null;
+    const error = "error" in payload ? payload.error : null;
+    if (typeof error === "string" && error.trim()) {
+      return error.trim();
+    }
+    if (typeof detail === "string" && detail.trim()) {
+      return detail.trim();
     }
   }
 
   if (text.trim()) {
-    return isFetchFailedMessage(text) ? "Unable to reach the VEHR claims endpoint right now." : text.trim();
-  }
-
-  if (status === 401 || status === 403) {
-    return `Backend authorization failed with status ${status}.`;
+    return text.trim();
   }
 
   return `Unable to load claims (status ${status}).`;
 }
 
-async function getClaimsState(): Promise<{ payload: unknown; error: string | null }> {
+async function getClaimsState(): Promise<{ claims: ClaimRecord[]; error: string | null }> {
   try {
     const response = await fetchInternal("/api/claims");
 
     if (!response.ok) {
       return {
-        payload: null,
+        claims: [],
         error: formatErrorMessage(response.status, response.data, response.text),
       };
     }
 
+    const payload = Array.isArray(response.data) ? response.data.filter(isClaimRecord) : [];
     return {
-      payload: response.data ?? response.text,
+      claims: payload,
       error: null,
     };
   } catch (error) {
     return {
-      payload: null,
+      claims: [],
       error:
         error instanceof Error && !isFetchFailedMessage(error.message)
           ? error.message
@@ -75,30 +72,15 @@ async function getClaimsState(): Promise<{ payload: unknown; error: string | nul
   }
 }
 
-function getColumns(records: JsonRecord[]): string[] {
-  return Array.from(new Set(records.flatMap((record) => Object.keys(record))));
-}
-
-function renderCellValue(value: unknown): string {
-  if (value === undefined) {
-    return "";
-  }
-
-  if (Array.isArray(value) || isRecord(value)) {
-    return safeJson(value);
-  }
-
-  return value === null || value === undefined ? "" : String(value);
-}
-
 export default async function ClaimsPage() {
   const accessToken = await getAccessToken();
 
   if (!accessToken) {
     return (
       <PageShell
+        eyebrow="Object-first revenue model"
         title="Claims"
-        description="Claims data is loaded through the UI's same-origin proxy route."
+        description="Claim, denial, encounter, patient, payer, authorization, documents, and timeline all stay connected so operators can act without navigating away."
         footer="Claims data is served from /api/claims via the UI origin."
       >
         <SignInRequiredCard resource="claims" />
@@ -106,94 +88,118 @@ export default async function ClaimsPage() {
     );
   }
 
-  const { payload, error } = await getClaimsState();
-  const arrayPayload = Array.isArray(payload) ? payload : [];
-  const isArrayPayload = Array.isArray(payload);
-  const canRenderRecordTable = isArrayPayload && arrayPayload.every(isRecord);
-  const rows = canRenderRecordTable ? arrayPayload : [];
-  const columns = rows.length > 0 ? getColumns(rows) : [];
+  const { claims, error } = await getClaimsState();
+  const exampleObjects = revenueQueue.slice(0, 3);
 
   return (
     <PageShell
+      eyebrow="Object-first revenue model"
       title="Claims"
-      description="Claims data is loaded through the UI's same-origin proxy route."
+      description="This surface is designed like an operational object explorer: inspect the live claim inventory, keep context around related denials and documents, and move directly into action."
       footer="Claims data is served from /api/claims via the UI origin."
     >
-      <SectionCard title="Claims data">
-        <div className="space-y-6 text-sm text-zinc-300">
-          {error ? (
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
-              {error}
-            </div>
-          ) : null}
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <SectionCard title="Live claim inventory" subtitle="Real backend claims stay visible here; the surrounding UX mirrors the object workflow model used across Revenue OS.">
+          <div className="space-y-4">
+            {error ? (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {error}
+              </div>
+            ) : null}
 
-          {!error && canRenderRecordTable && columns.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border border-zinc-800">
-              <table className="min-w-full divide-y divide-zinc-800 text-left">
-                <thead className="bg-black/40 text-xs uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    {columns.map((column) => (
-                      <th key={column} className="px-4 py-3 font-medium">
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800 bg-zinc-950/40">
-                  {rows.map((row, index) => (
-                    <tr key={String(row.claim_id ?? row.id ?? index)}>
-                      {columns.map((column) => (
-                        <td key={column} className="px-4 py-3 align-top text-zinc-200">
-                          {renderCellValue(row[column])}
+            {!error && claims.length === 0 ? (
+              <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4 text-sm text-slate-300">
+                No live claims were returned, so the workflow examples on this page show the intended claim object architecture.
+              </div>
+            ) : null}
+
+            {claims.length > 0 ? (
+              <div className="overflow-hidden rounded-[22px] border border-white/8">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-white/[0.03] text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Claim</th>
+                      <th className="px-4 py-3">Patient</th>
+                      <th className="px-4 py-3">Payer</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/6 bg-black/20">
+                    {claims.map((claim, index) => (
+                      <tr key={claim.id ?? claim.external_claim_id ?? `claim-row-${index}`} className="hover:bg-white/[0.03]">
+                        <td className="px-4 py-4 text-white">{claim.external_claim_id ?? claim.id ?? "Unknown claim"}</td>
+                        <td className="px-4 py-4 text-slate-300">{claim.patient_name ?? "Unknown patient"}</td>
+                        <td className="px-4 py-4 text-slate-300">{claim.payer_name ?? "Unknown payer"}</td>
+                        <td className="px-4 py-4 text-slate-300">{claim.status ?? "Unknown"}</td>
+                        <td className="px-4 py-4 text-slate-400">
+                          {claim.created_at ? new Date(claim.created_at).toLocaleString() : "Unavailable"}
                         </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
 
-          {!error && isArrayPayload && arrayPayload.length === 0 ? (
-            <div className="rounded-md border border-zinc-800 bg-black/40 px-4 py-3 text-zinc-300">
-              No claims were returned.
-            </div>
-          ) : null}
+        <SectionCard title="Object model" subtitle="Every workflow in Revenue OS revolves around a connected revenue object graph.">
+          <div className="space-y-3">
+            {[
+              "Claim",
+              "Denial",
+              "Encounter",
+              "Patient",
+              "Payer",
+              "Authorization",
+              "Documents",
+              "Timeline",
+            ].map((node) => (
+              <div key={node} className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white">
+                {node}
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
 
-          {!error && isArrayPayload && arrayPayload.length > 0 && !canRenderRecordTable ? (
-            <div className="overflow-x-auto rounded-lg border border-zinc-800">
-              <table className="min-w-full divide-y divide-zinc-800 text-left">
-                <thead className="bg-black/40 text-xs uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Value</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800 bg-zinc-950/40">
-                  {arrayPayload.map((value, index) => (
-                    <tr key={index}>
-                      <td className="px-4 py-3 align-top text-zinc-200">{safeJson(value)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <SectionCard title="Example drill-downs" subtitle="Mock objects show the intended drawer-driven workflow even when live data is sparse.">
+        <div className="grid gap-4 xl:grid-cols-3">
+          {exampleObjects.map((item) => (
+            <div key={item.id} className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">{item.claimId}</p>
+                  <h3 className="mt-1 text-lg font-semibold text-white">{item.patient}</h3>
+                </div>
+                <span className="rounded-full bg-white/6 px-3 py-1 text-xs text-slate-300">{item.denialCode}</span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-300">{item.denialReason}</p>
+              <div className="mt-4 grid gap-2 text-sm text-slate-400">
+                <p>Payer: <span className="text-slate-200">{item.payer}</span></p>
+                <p>Authorization: <span className="text-slate-200">{item.authorizationId}</span></p>
+                <p>Next step: <span className="text-slate-200">{item.nextAction}</span></p>
+              </div>
             </div>
-          ) : null}
-
-          {!error && !isArrayPayload ? (
-            <div className="rounded-md border border-zinc-800 bg-black/40 p-4">
-              <p className="mb-3 text-zinc-300">Claims response</p>
-              <pre className="overflow-x-auto text-xs text-zinc-400">{safeJson(payload ?? null)}</pre>
-            </div>
-          ) : null}
-
-          <Link
-            href="/"
-            className="inline-flex rounded-md border border-zinc-700 px-4 py-2 text-white transition hover:border-white"
-          >
-            Back to home
-          </Link>
+          ))}
         </div>
       </SectionCard>
+
+      <div className="flex gap-3">
+        <Link
+          href="/dashboard"
+          className="inline-flex rounded-full border border-white/10 bg-white/6 px-4 py-2 text-sm font-medium text-white transition hover:border-white/20 hover:bg-white/10"
+        >
+          Back to queue
+        </Link>
+        <Link
+          href="/era"
+          className="inline-flex rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-white/20 hover:text-white"
+        >
+          Open ERA pipeline
+        </Link>
+      </div>
     </PageShell>
   );
 }

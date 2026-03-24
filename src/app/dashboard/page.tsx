@@ -12,9 +12,10 @@ export default async function DashboardPage() {
   if (!accessToken) {
     return (
       <PageShell
-        title="Dashboard"
-        description="Live revenue snapshot data is loaded through the UI's same-origin proxy route."
-        footer={<span>Dashboard data is served from /api/dashboard via the UI origin. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
+        eyebrow="Workflow-first command center"
+        title="Work Queue"
+        description="Start from a live work queue, not a passive dashboard. Every item is designed to answer what the user should do next."
+        footer={<span>Queue-driven operating model with sidecar AI, object drill-down, and command-first actions. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
       >
         <SignInRequiredCard resource="the dashboard" />
       </PageShell>
@@ -23,9 +24,10 @@ export default async function DashboardPage() {
 
   return (
     <PageShell
-      title="Dashboard"
-      description="Live revenue snapshot data is loaded through the UI's same-origin proxy route."
-      footer={<span>Dashboard data is served from /api/dashboard via the UI origin. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
+      eyebrow="Workflow-first command center"
+      title="Work Queue"
+      description="Triage denials, inspect the claim object model in-place, and use the AI sidecar to explain, recommend, and draft evidence-backed next steps."
+      footer={<span>Queue-driven operating model with sidecar AI, object drill-down, and command-first actions. <a href="/diagnostics" className="underline hover:text-white">Open diagnostics</a>.</span>}
     >
       <DashboardContent />
     </PageShell>
