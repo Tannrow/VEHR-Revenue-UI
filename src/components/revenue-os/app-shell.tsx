@@ -5,8 +5,6 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { revenueQueue } from "@/lib/mock/revenue-os";
-
 const primaryNav = [
   { href: "/dashboard", label: "Work Queue", badge: "Today" },
   { href: "/claims", label: "Claims", badge: "Objects" },
@@ -94,33 +92,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         kind: "Navigation",
       },
       {
-        id: "view-auth-salvage",
-        label: "Show Authorization Salvage",
-        detail: "Filter the queue to retro-auth recovery work.",
-        href: "/dashboard?queue=Authorization+salvage",
+        id: "view-critical-priority",
+        label: "Show Critical Priority",
+        detail: "Filter the live queue to the most urgent claims.",
+        href: "/dashboard?priority=critical",
         kind: "View",
       },
       {
-        id: "view-underpayments",
-        label: "Show Underpayment Recovery",
-        detail: "Review underpaid claims that need reconsideration.",
-        href: "/dashboard?queue=Underpayment+recovery",
+        id: "view-denied-claims",
+        label: "Show Denied Claims",
+        detail: "Filter the live queue to denied backend claims.",
+        href: "/dashboard?queue=Denied+claims&status=blocked",
         kind: "View",
       },
       {
-        id: "view-appeals",
-        label: "Show Appeals Ready",
-        detail: "Filter the queue to claims already in appeal motion.",
-        href: "/dashboard?status=appeal",
+        id: "view-open-balances",
+        label: "Show Open Balances",
+        detail: "Review open and partial balances surfaced by the snapshot.",
+        href: "/dashboard?queue=Open+balances",
         kind: "View",
       },
-      ...revenueQueue.map((item) => ({
-        id: item.id,
-        label: `Open ${item.claimId}`,
-        detail: `${item.denialCode} · ${item.payer} · ${item.denialReason}`,
-        href: `/dashboard?selected=${item.id}`,
-        kind: "Claim",
-      })),
     ],
     [],
   );
@@ -348,8 +339,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="mt-auto space-y-3">
               <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Pinned workflow</p>
-                <p className="mt-3 text-sm font-medium text-white">Appeal-ready Blue Cross denials</p>
-                <p className="mt-1 text-sm text-slate-400">13 items with evidence complete and SLA under 24 hours.</p>
+                <p className="mt-3 text-sm font-medium text-white">Live queue views</p>
+                <p className="mt-1 text-sm text-slate-400">Use filters or the command palette to jump into critical claims, denied work, and open balances.</p>
               </div>
 
               <div className="rounded-[22px] border border-white/8 bg-black/20 p-4 backdrop-blur-sm">
@@ -398,7 +389,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     setCommandQuery(event.target.value);
                     setActiveIndex(0);
                   }}
-                  placeholder="Search claims, denials, payers, or actions like draft appeal"
+                  placeholder="Search views, queues, statuses, or actions"
                   className="w-full bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-500"
                 />
               </div>

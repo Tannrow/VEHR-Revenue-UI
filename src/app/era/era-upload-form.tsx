@@ -57,6 +57,7 @@ type UploadState = {
   uploadedFile: EraFileResponse | null;
   processedFile: EraFileResponse | null;
   report: EraReportResponse | null;
+  reportMessage: string | null;
   processError: string | null;
   payload: EraFileResponse | EraFileResponse[] | ProcessErrorResponse | EraReportResponse | null;
 };
@@ -67,6 +68,7 @@ const INITIAL_STATE: UploadState = {
   uploadedFile: null,
   processedFile: null,
   report: null,
+  reportMessage: null,
   processError: null,
   payload: null,
 };
@@ -293,6 +295,7 @@ export function EraUploadForm() {
         uploadedFile: null,
         processedFile: null,
         report: null,
+        reportMessage: null,
         processError: null,
         payload: null,
       });
@@ -305,6 +308,7 @@ export function EraUploadForm() {
       uploadedFile: null,
       processedFile: null,
       report: null,
+      reportMessage: null,
       processError: null,
       payload: null,
     });
@@ -323,6 +327,7 @@ export function EraUploadForm() {
           uploadedFile: null,
           processedFile: null,
           report: null,
+          reportMessage: null,
           processError: null,
           payload: uploadPayload,
         });
@@ -337,6 +342,7 @@ export function EraUploadForm() {
           uploadedFile: null,
           processedFile: null,
           report: null,
+          reportMessage: null,
           processError: null,
           payload: uploadPayload,
         });
@@ -348,24 +354,34 @@ export function EraUploadForm() {
       });
       const processPayload = (await processResponse.json()) as EraFileResponse | ProcessErrorResponse;
       let report: EraReportResponse | null = null;
+      let reportMessage: string | null = null;
+      let reportPayload: EraReportResponse | ProcessErrorResponse | null = null;
 
       if (processResponse.ok) {
         const reportResponse = await fetch(`/api/era/${uploadedFile.id}/report`);
+        reportPayload = (await reportResponse.json()) as EraReportResponse | ProcessErrorResponse;
         if (reportResponse.ok) {
-          report = (await reportResponse.json()) as EraReportResponse;
+          report = reportPayload as EraReportResponse;
+        } else if (reportResponse.status === 404) {
+          reportMessage = "Processing completed, but the results report is still being prepared. Try again in a few seconds.";
+        } else {
+          reportMessage = `Processing completed, but the results report could not be loaded (status ${reportResponse.status}).`;
         }
       }
 
       setState({
         status: processResponse.ok ? "success" : "error",
         message: processResponse.ok
-          ? "Upload and processing completed."
+          ? report
+            ? "Upload and processing completed. Results are ready below."
+            : "Upload and processing completed."
           : "Upload completed, but processing needs attention.",
         uploadedFile,
         processedFile: processResponse.ok ? (processPayload as EraFileResponse) : null,
         report,
+        reportMessage,
         processError: processResponse.ok ? null : formatProcessError(processPayload as ProcessErrorResponse, processResponse.status),
-        payload: report ?? processPayload,
+        payload: report ?? reportPayload ?? processPayload,
       });
 
       form.reset();
@@ -379,6 +395,7 @@ export function EraUploadForm() {
         uploadedFile: null,
         processedFile: null,
         report: null,
+        reportMessage: null,
         processError: null,
         payload: null,
       });
@@ -428,6 +445,12 @@ export function EraUploadForm() {
       {state.processedFile ? <ResultCard label="Processing result" file={state.processedFile} /> : null}
 
       {state.report ? <ReviewCard report={state.report} /> : null}
+
+      {state.reportMessage ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
+          {state.reportMessage}
+        </div>
+      ) : null}
 
       {state.processError ? (
         <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-rose-200">

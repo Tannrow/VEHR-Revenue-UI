@@ -4,18 +4,18 @@ import { startTransition, useCallback, useEffect, useMemo, useState } from "reac
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
-  insightMetrics,
-  pipelineStages,
-  policyRules,
-  revenueQueue,
-  savedViews,
+  type InsightMetric,
+  type PipelineStage,
+  type PolicyRule,
   type QueueItem,
+  type QueuePriority,
   type QueueStatus,
-} from "@/lib/mock/revenue-os";
+} from "@/lib/revenue-os";
 
 const ALL_QUEUES = "All queues";
-const ALL_OWNERS = "All owners";
+const ALL_PRIORITIES = "All priorities";
 const ALL_STATUSES = "All statuses";
+const SAVED_VIEWS = ["Critical priority", "Denied claims", "Open balances", "Resolved claims"] as const;
 
 type PanelName = "insights" | "policy" | "pipeline" | null;
 
@@ -23,7 +23,17 @@ function formatMoney(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-function getPriorityClasses(priority: QueueItem["priority"]): string {
+function formatTimestampLabel(value: string): string {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.valueOf())) {
+    return value;
+  }
+
+  return parsed.toLocaleString();
+}
+
+function getPriorityClasses(priority: QueuePriority): string {
   switch (priority) {
     case "critical":
       return "border-rose-400/30 bg-rose-400/10 text-rose-200";
@@ -36,7 +46,7 @@ function getPriorityClasses(priority: QueueItem["priority"]): string {
   }
 }
 
-function getStatusClasses(status: QueueItem["status"]): string {
+function getStatusClasses(status: QueueStatus): string {
   switch (status) {
     case "blocked":
       return "bg-rose-400/10 text-rose-200";
@@ -52,33 +62,42 @@ function getStatusClasses(status: QueueItem["status"]): string {
   }
 }
 
-function getMetricAction(metricLabel: string): { queue?: string; status?: string; search?: string; panel: PanelName } {
+function getMetricAction(metricLabel: string): {
+  queue?: string;
+  priority?: string;
+  status?: string;
+  search?: string;
+  panel: PanelName;
+} {
   switch (metricLabel) {
-    case "Denial dollars at risk":
+    case "Total exposure":
+      return { panel: "insights" };
+    case "30-day recovery":
+      return { queue: "Open balances", panel: "insights" };
+    case "High-risk claims":
       return { status: "blocked", panel: "insights" };
-    case "Appeals ready today":
-      return { status: "appeal", panel: "insights" };
-    case "AI-suggested recoveries":
-      return { status: "ready", panel: "insights" };
-    case "SLA breaches in 24h":
-      return { queue: "Authorization salvage", status: "blocked", panel: "insights" };
+    case "Critical pre-submission":
+      return { priority: "critical", panel: "insights" };
     default:
       return { panel: "insights" };
   }
 }
 
-function getSavedViewState(view: string): { queue?: string; owner?: string; status?: string; search?: string } {
+function getSavedViewState(view: string): {
+  queue?: string;
+  priority?: string;
+  status?: string;
+  search?: string;
+} {
   switch (view) {
-    case "My critical work":
-      return { owner: "Anika" };
-    case "Appeals ready to submit":
-      return { status: "appeal" };
-    case "New payer anomalies":
-      return { status: "new" };
-    case "Authorization salvage":
-      return { queue: "Authorization salvage" };
-    case "Documentation chase":
-      return { queue: "Documentation chase" };
+    case "Critical priority":
+      return { priority: "critical" };
+    case "Denied claims":
+      return { queue: "Denied claims", status: "blocked" };
+    case "Open balances":
+      return { queue: "Open balances" };
+    case "Resolved claims":
+      return { status: "resolved" };
     default:
       return {};
   }
@@ -86,16 +105,17 @@ function getSavedViewState(view: string): { queue?: string; owner?: string; stat
 
 function getActiveViewLabel(state: {
   queueFilter: string;
-  ownerFilter: string;
+  priorityFilter: string;
   statusFilter: string;
   searchText: string;
 }) {
   return (
-    savedViews.find((view) => {
+    SAVED_VIEWS.find((view) => {
       const saved = getSavedViewState(view);
+
       return (
         (saved.queue ?? ALL_QUEUES) === state.queueFilter &&
-        (saved.owner ?? ALL_OWNERS) === state.ownerFilter &&
+        (saved.priority ?? ALL_PRIORITIES) === state.priorityFilter &&
         (saved.status ?? ALL_STATUSES) === state.statusFilter &&
         (saved.search ?? "") === state.searchText
       );
@@ -105,9 +125,11 @@ function getActiveViewLabel(state: {
 
 function InsightStrip({
   active,
+  metrics,
   onMetricAction,
 }: {
   active: boolean;
+  metrics: InsightMetric[];
   onMetricAction: (metricLabel: string) => void;
 }) {
   return (
@@ -116,7 +138,7 @@ function InsightStrip({
         active ? "rounded-[28px] border border-sky-400/20 bg-sky-400/[0.03] p-3" : ""
       }`}
     >
-      {insightMetrics.map((metric) => (
+      {metrics.map((metric) => (
         <button
           key={metric.label}
           type="button"
@@ -142,24 +164,26 @@ function InsightStrip({
 
 function FilterBar(props: {
   queueFilter: string;
-  ownerFilter: string;
+  priorityFilter: string;
   statusFilter: string;
   searchText: string;
+  queueOptions: string[];
   activeView: string | null;
   onQueueChange: (value: string) => void;
-  onOwnerChange: (value: string) => void;
+  onPriorityChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   onApplySavedView: (view: string) => void;
 }) {
   const {
     queueFilter,
-    ownerFilter,
+    priorityFilter,
     statusFilter,
     searchText,
+    queueOptions,
     activeView,
     onQueueChange,
-    onOwnerChange,
+    onPriorityChange,
     onStatusChange,
     onSearchChange,
     onApplySavedView,
@@ -169,7 +193,7 @@ function FilterBar(props: {
     <div className="space-y-3 rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          {savedViews.map((view) => {
+          {SAVED_VIEWS.map((view) => {
             const active = activeView === view;
             return (
               <button
@@ -196,7 +220,7 @@ function FilterBar(props: {
           <input
             value={searchText}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Claim, denial code, payer, patient, or next action"
+            placeholder="Claim, payer, patient, status, or next action"
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-500"
           />
         </label>
@@ -209,25 +233,26 @@ function FilterBar(props: {
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
           >
             <option value={ALL_QUEUES}>All queues</option>
-            <option value="Authorization salvage">Authorization salvage</option>
-            <option value="Underpayment recovery">Underpayment recovery</option>
-            <option value="Documentation chase">Documentation chase</option>
-            <option value="Eligibility correction">Eligibility correction</option>
+            {queueOptions.map((queue) => (
+              <option key={queue} value={queue}>
+                {queue}
+              </option>
+            ))}
           </select>
         </label>
 
         <label className="rounded-[18px] border border-white/8 bg-[#12161f] px-4 py-3">
-          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Owner</span>
+          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Priority</span>
           <select
-            value={ownerFilter}
-            onChange={(event) => onOwnerChange(event.target.value)}
+            value={priorityFilter}
+            onChange={(event) => onPriorityChange(event.target.value)}
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
           >
-            <option value={ALL_OWNERS}>All owners</option>
-            <option value="Anika">Anika</option>
-            <option value="Jordan">Jordan</option>
-            <option value="Nina">Nina</option>
-            <option value="Tariq">Tariq</option>
+            <option value={ALL_PRIORITIES}>All priorities</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
           </select>
         </label>
 
@@ -273,7 +298,7 @@ function BulkActionBar(props: {
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        {["Generate appeals", "Route to owner", "Snooze 24h"].map((label) => (
+        {["Open claim records", "Route for review", "Recheck tomorrow"].map((label) => (
           <button
             key={label}
             type="button"
@@ -312,7 +337,7 @@ function WorkQueueTable(props: {
       <div className="flex flex-col gap-4 border-b border-white/8 px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Primary work queue</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Denials requiring operator action</h3>
+          <h3 className="mt-1 text-lg font-semibold text-white">Live backend claims requiring operator action</h3>
         </div>
         <div className="flex flex-wrap gap-2 text-sm">
           <button
@@ -322,11 +347,17 @@ function WorkQueueTable(props: {
           >
             {allVisibleSelected ? "Clear visible" : "Select visible"}
           </button>
-          <button type="button" className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white">
-            Bulk route
+          <button
+            type="button"
+            className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
+          >
+            Review balances
           </button>
-          <button type="button" className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white">
-            Generate appeals
+          <button
+            type="button"
+            className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
+          >
+            Export queue
           </button>
         </div>
       </div>
@@ -347,17 +378,27 @@ function WorkQueueTable(props: {
               </th>
               <th className="px-5 py-3">Work</th>
               <th className="px-4 py-3">Queue</th>
-              <th className="px-4 py-3">Owner</th>
+              <th className="px-4 py-3">Live status</th>
               <th className="px-4 py-3">Priority</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">SLA</th>
+              <th className="px-4 py-3">Value / hr</th>
+              <th className="px-4 py-3">Aging</th>
               <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/6">
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-400">
+                  No live queue items match the current filters.
+                </td>
+              </tr>
+            ) : null}
+
             {items.map((item) => {
               const rowSelected = item.id === selectedId;
               const checked = selectedIds.includes(item.id);
+              const identity = [item.patient, item.payer].filter(Boolean).join(" · ");
+
               return (
                 <tr
                   key={item.id}
@@ -383,25 +424,27 @@ function WorkQueueTable(props: {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-white">{item.claimId}</span>
                         <span className={`rounded-full px-2 py-1 text-xs ${getStatusClasses(item.status)}`}>{item.status}</span>
-                        <span className="rounded-full bg-white/6 px-2 py-1 text-xs text-slate-400">{item.denialCode}</span>
+                        {item.claimId !== item.sourceClaimId ? (
+                          <span className="rounded-full bg-white/6 px-2 py-1 text-xs text-slate-400">{item.sourceClaimId}</span>
+                        ) : null}
                       </div>
                       <div>
-                        <p className="text-slate-200">{item.denialReason}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {item.patient} · {item.payer}
-                        </p>
+                        <p className="text-slate-200">{item.nextAction}</p>
+                        <p className="mt-1 text-xs text-slate-500">{identity || item.payer}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-4 align-top text-slate-300">{item.queue}</td>
-                  <td className="px-4 py-4 align-top text-slate-300">{item.owner}</td>
+                  <td className="px-4 py-4 align-top text-slate-300">{item.claimStatus}</td>
                   <td className="px-4 py-4 align-top">
-                    <span className={`rounded-full border px-2 py-1 text-xs font-medium uppercase tracking-[0.18em] ${getPriorityClasses(item.priority)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-1 text-xs font-medium uppercase tracking-[0.18em] ${getPriorityClasses(item.priority)}`}
+                    >
                       {item.priority}
                     </span>
                   </td>
-                  <td className="px-4 py-4 align-top text-white">{formatMoney(item.amountCents)}</td>
-                  <td className="px-4 py-4 align-top text-slate-300">{item.slaHours}h</td>
+                  <td className="px-4 py-4 align-top text-white">{formatMoney(item.valuePerHourCents)}</td>
+                  <td className="px-4 py-4 align-top text-slate-300">{item.agingDays}d</td>
                   <td className="px-4 py-4 align-top">
                     <button
                       type="button"
@@ -438,28 +481,28 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Claim / Denial drawer</p>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Claim drawer</p>
             <h3 className="mt-1 text-xl font-semibold text-white">{item.claimId}</h3>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] ${getPriorityClasses(item.priority)}`}>
             {item.priority}
           </span>
         </div>
-        <p className="text-sm leading-6 text-slate-300">{item.aiSummary}</p>
+        <p className="text-sm leading-6 text-slate-300">{item.summary}</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
         {[
-          ["Denial", item.denialId],
-          ["Encounter", item.encounterId],
-          ["Patient", item.patientId],
-          ["Authorization", item.authorizationId],
+          ["Displayed claim ID", item.claimId],
+          ["Source claim ID", item.sourceClaimId],
+          ["Patient", item.patient ?? "Unavailable"],
           ["Payer", item.payer],
-          ["Documents", `${item.documents.length} attached`],
+          ["Live status", item.claimStatus],
+          ["Queue", item.queue],
         ].map(([label, value]) => (
           <div key={label} className="rounded-2xl border border-white/8 bg-black/20 p-3">
             <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{label}</p>
-            <p className="mt-2 text-sm text-white">{value}</p>
+            <p className="mt-2 break-words text-sm text-white">{value}</p>
           </div>
         ))}
       </div>
@@ -471,11 +514,17 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
             <p className="mt-2 text-base font-medium text-white">{item.nextAction}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-medium text-white hover:border-white/18 hover:bg-white/[0.09]">
+            <button
+              type="button"
+              className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-medium text-white hover:border-white/18 hover:bg-white/[0.09]"
+            >
               Take action
             </button>
-            <button type="button" className="rounded-full border border-white/8 px-4 py-2 text-sm text-slate-300 hover:border-white/18 hover:text-white">
-              Assign owner
+            <button
+              type="button"
+              className="rounded-full border border-white/8 px-4 py-2 text-sm text-slate-300 hover:border-white/18 hover:text-white"
+            >
+              Open claim API
             </button>
           </div>
         </div>
@@ -484,9 +533,7 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-white">Timeline</h4>
-          <button type="button" className="text-sm text-sky-200 transition hover:text-white">
-            Open full audit
-          </button>
+          <span className="text-sm text-slate-500">Live backend activity</span>
         </div>
         <div className="space-y-3">
           {item.timeline.map((entry) => (
@@ -504,11 +551,11 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
   );
 }
 
-function AiSidecar({ item }: { item: QueueItem | null }) {
+function DecisionSupportPanel({ item }: { item: QueueItem | null }) {
   if (!item) {
     return (
       <div className="rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] p-5 text-sm text-slate-400">
-        The AI sidecar wakes up when a claim is selected.
+        Decision support appears when a live claim is selected.
       </div>
     );
   }
@@ -518,18 +565,18 @@ function AiSidecar({ item }: { item: QueueItem | null }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">AI sidecar</p>
-            <h3 className="mt-1 text-xl font-semibold text-white">Evidence-backed recommendation</h3>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Decision support</p>
+            <h3 className="mt-1 text-xl font-semibold text-white">Recommended next step</h3>
           </div>
           <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-            {item.confidence}% confidence
+            {item.agingDays}d aging
           </span>
         </div>
-        <p className="text-sm leading-6 text-slate-300">{item.aiSummary}</p>
+        <p className="text-sm leading-6 text-slate-300">{item.summary}</p>
       </div>
 
       <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-white">Why this happened</h4>
+        <h4 className="text-sm font-semibold text-white">Why it is on the queue</h4>
         {item.evidence.map((entry) => (
           <div key={entry.label} className="rounded-2xl border border-white/8 bg-black/20 p-3">
             <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{entry.label}</p>
@@ -540,33 +587,32 @@ function AiSidecar({ item }: { item: QueueItem | null }) {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-white">Recommended actions</h4>
+          <h4 className="text-sm font-semibold text-white">Suggested actions</h4>
           <span className="rounded-full border border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-            Quiet assist
+            Live queue
           </span>
         </div>
-        <button type="button" className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm text-white hover:border-white/16 hover:bg-white/[0.08]">
-          <span>Generate appeal packet</span>
-          <span className="text-slate-500">Draft</span>
-        </button>
-        <button type="button" className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm text-white hover:border-white/16 hover:bg-white/[0.08]">
-          <span>Summarize for manager review</span>
-          <span className="text-slate-500">Explain</span>
-        </button>
-        <button type="button" className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm text-white hover:border-white/16 hover:bg-white/[0.08]">
-          <span>Route by policy engine</span>
-          <span className="text-slate-500">Recommend</span>
-        </button>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
+          {item.nextAction}
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
+          Review payer status before closing the claim.
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
+          Confirm the claim record stays aligned with the latest snapshot.
+        </div>
       </div>
     </div>
   );
 }
 
-function EraPipelinePanel({
+function QueueHealthPanel({
   active,
+  stages,
   onOpen,
 }: {
   active: boolean;
+  stages: PipelineStage[];
   onOpen: () => void;
 }) {
   return (
@@ -577,19 +623,19 @@ function EraPipelinePanel({
     >
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">ERA pipeline</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Visual workflow from remit to action</h3>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Queue health</p>
+          <h3 className="mt-1 text-lg font-semibold text-white">Live workflow stages from the current snapshot</h3>
         </div>
         <button
           type="button"
           onClick={onOpen}
           className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
         >
-          Focus pipeline
+          Focus queue health
         </button>
       </div>
       <div className="grid gap-3 xl:grid-cols-5">
-        {pipelineStages.map((stage) => (
+        {stages.map((stage) => (
           <div key={stage.label} className="relative rounded-2xl border border-white/8 bg-black/20 p-4">
             <div
               className={`absolute inset-x-4 top-0 h-1 rounded-b-full ${
@@ -612,9 +658,11 @@ function EraPipelinePanel({
 
 function PolicyPanel({
   active,
+  rules,
   onOpen,
 }: {
   active: boolean;
+  rules: PolicyRule[];
   onOpen: () => void;
 }) {
   return (
@@ -626,7 +674,7 @@ function PolicyPanel({
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Policy engine</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Routing rules that turn signals into work</h3>
+          <h3 className="mt-1 text-lg font-semibold text-white">Routing rules grounded in live queue conditions</h3>
         </div>
         <button
           type="button"
@@ -637,7 +685,7 @@ function PolicyPanel({
         </button>
       </div>
       <div className="space-y-3">
-        {policyRules.map((rule) => (
+        {rules.map((rule) => (
           <div key={rule.id} className="rounded-2xl border border-white/8 bg-black/20 p-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-2">
@@ -663,7 +711,21 @@ function PolicyPanel({
   );
 }
 
-export function RevenueWorkbench() {
+export function RevenueWorkbench({
+  items,
+  metrics,
+  pipelineStages,
+  policyRules,
+  snapshotGeneratedAt,
+  claimsNotice,
+}: {
+  items: QueueItem[];
+  metrics: InsightMetric[];
+  pipelineStages: PipelineStage[];
+  policyRules: PolicyRule[];
+  snapshotGeneratedAt: string;
+  claimsNotice?: string | null;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -671,54 +733,56 @@ export function RevenueWorkbench() {
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
 
   const queueFilter = searchParams.get("queue") ?? ALL_QUEUES;
-  const ownerFilter = searchParams.get("owner") ?? ALL_OWNERS;
+  const priorityFilter = searchParams.get("priority") ?? ALL_PRIORITIES;
   const statusFilter = searchParams.get("status") ?? ALL_STATUSES;
   const searchText = searchParams.get("search") ?? "";
   const selectedId = searchParams.get("selected");
   const panel = (searchParams.get("panel") as PanelName) ?? null;
 
+  const queueOptions = useMemo(() => Array.from(new Set(items.map((item) => item.queue))).sort(), [items]);
+
   const activeView = useMemo(
-    () => getActiveViewLabel({ queueFilter, ownerFilter, statusFilter, searchText }),
-    [ownerFilter, queueFilter, searchText, statusFilter],
+    () => getActiveViewLabel({ queueFilter, priorityFilter, statusFilter, searchText }),
+    [priorityFilter, queueFilter, searchText, statusFilter],
   );
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase();
 
-    return revenueQueue.filter((item) => {
+    return items.filter((item) => {
       const queueMatch = queueFilter === ALL_QUEUES || item.queue === queueFilter;
-      const ownerMatch = ownerFilter === ALL_OWNERS || item.owner === ownerFilter;
+      const priorityMatch = priorityFilter === ALL_PRIORITIES || item.priority === (priorityFilter as QueuePriority);
       const statusMatch = statusFilter === ALL_STATUSES || item.status === (statusFilter as QueueStatus);
       const searchMatch =
         normalizedSearch.length === 0 ||
         [
           item.claimId,
-          item.denialId,
-          item.denialCode,
-          item.denialReason,
-          item.patient,
+          item.sourceClaimId,
+          item.patient ?? "",
           item.payer,
           item.queue,
+          item.claimStatus,
           item.nextAction,
         ]
           .join(" ")
           .toLowerCase()
           .includes(normalizedSearch);
 
-      return queueMatch && ownerMatch && statusMatch && searchMatch;
+      return queueMatch && priorityMatch && statusMatch && searchMatch;
     });
-  }, [ownerFilter, queueFilter, searchText, statusFilter]);
+  }, [items, priorityFilter, queueFilter, searchText, statusFilter]);
 
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString());
+      params.delete("owner");
 
       Object.entries(updates).forEach(([key, value]) => {
         const shouldDelete =
           value === null ||
           value === "" ||
           value === ALL_QUEUES ||
-          value === ALL_OWNERS ||
+          value === ALL_PRIORITIES ||
           value === ALL_STATUSES;
 
         if (shouldDelete) {
@@ -729,6 +793,7 @@ export function RevenueWorkbench() {
       });
 
       const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+
       startTransition(() => {
         router.replace(nextUrl, { scroll: false });
       });
@@ -757,6 +822,7 @@ export function RevenueWorkbench() {
     }
 
     const timeout = window.setTimeout(() => setBulkNotice(null), 4000);
+
     return () => window.clearTimeout(timeout);
   }, [bulkNotice]);
 
@@ -782,7 +848,7 @@ export function RevenueWorkbench() {
     const nextState = getSavedViewState(view);
     updateQuery({
       queue: nextState.queue ?? null,
-      owner: nextState.owner ?? null,
+      priority: nextState.priority ?? null,
       status: nextState.status ?? null,
       search: nextState.search ?? null,
       panel: "insights",
@@ -793,6 +859,7 @@ export function RevenueWorkbench() {
     const action = getMetricAction(metricLabel);
     updateQuery({
       queue: action.queue ?? null,
+      priority: action.priority ?? null,
       status: action.status ?? null,
       search: action.search ?? null,
       panel: action.panel,
@@ -805,16 +872,30 @@ export function RevenueWorkbench() {
 
   return (
     <div className="space-y-6">
-      <InsightStrip active={panel === "insights"} onMetricAction={handleMetricAction} />
+      <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
+        <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Live snapshot</p>
+        <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <p className="text-sm text-slate-200">Latest revenue snapshot generated {formatTimestampLabel(snapshotGeneratedAt)}.</p>
+          <p className="text-sm text-slate-400">{items.length} live queue item{items.length === 1 ? "" : "s"} loaded.</p>
+        </div>
+        {claimsNotice ? (
+          <p className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-100">
+            Claim labels could not be loaded from the claims API, so the queue is using snapshot-only context. {claimsNotice}
+          </p>
+        ) : null}
+      </div>
+
+      <InsightStrip active={panel === "insights"} metrics={metrics} onMetricAction={handleMetricAction} />
 
       <FilterBar
         queueFilter={queueFilter}
-        ownerFilter={ownerFilter}
+        priorityFilter={priorityFilter}
         statusFilter={statusFilter}
         searchText={searchText}
+        queueOptions={queueOptions}
         activeView={activeView}
         onQueueChange={(value) => updateQuery({ queue: value })}
-        onOwnerChange={(value) => updateQuery({ owner: value })}
+        onPriorityChange={(value) => updateQuery({ priority: value })}
         onStatusChange={(value) => updateQuery({ status: value })}
         onSearchChange={(value) => updateQuery({ search: value })}
         onApplySavedView={applySavedView}
@@ -843,12 +924,12 @@ export function RevenueWorkbench() {
           onToggleSelectVisible={toggleSelectVisible}
         />
         <ClaimDrawer item={selectedItem} />
-        <AiSidecar item={selectedItem} />
+        <DecisionSupportPanel item={selectedItem} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <EraPipelinePanel active={panel === "pipeline"} onOpen={() => updateQuery({ panel: "pipeline" })} />
-        <PolicyPanel active={panel === "policy"} onOpen={() => updateQuery({ panel: "policy" })} />
+        <QueueHealthPanel active={panel === "pipeline"} stages={pipelineStages} onOpen={() => updateQuery({ panel: "pipeline" })} />
+        <PolicyPanel active={panel === "policy"} rules={policyRules} onOpen={() => updateQuery({ panel: "policy" })} />
       </div>
     </div>
   );

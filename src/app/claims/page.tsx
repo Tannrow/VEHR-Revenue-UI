@@ -3,47 +3,11 @@ import Link from "next/link";
 import { PageShell, SectionCard } from "@/components/page-shell";
 import { SignInRequiredCard } from "@/components/sign-in-required-card";
 import { getAccessToken } from "@/lib/auth";
+import { formatClaimsError, isClaimRecord, type ClaimRecord } from "@/lib/api/claims";
 import { isFetchFailedMessage } from "@/lib/error-messages";
 import { fetchInternal } from "@/lib/internal-api";
-import { revenueQueue } from "@/lib/mock/revenue-os";
 
 export const dynamic = "force-dynamic";
-
-type ClaimRecord = {
-  id?: string;
-  external_claim_id?: string | null;
-  patient_name?: string | null;
-  payer_name?: string | null;
-  status?: string | null;
-  created_at?: string | null;
-};
-
-function isClaimRecord(value: unknown): value is ClaimRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatErrorMessage(status: number, payload: unknown, text: string): string {
-  if (typeof payload === "string" && payload.trim()) {
-    return isFetchFailedMessage(payload) ? "Unable to reach the VEHR claims endpoint right now." : payload.trim();
-  }
-
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const detail = "detail" in payload ? payload.detail : null;
-    const error = "error" in payload ? payload.error : null;
-    if (typeof error === "string" && error.trim()) {
-      return error.trim();
-    }
-    if (typeof detail === "string" && detail.trim()) {
-      return detail.trim();
-    }
-  }
-
-  if (text.trim()) {
-    return text.trim();
-  }
-
-  return `Unable to load claims (status ${status}).`;
-}
 
 async function getClaimsState(): Promise<{ claims: ClaimRecord[]; error: string | null }> {
   try {
@@ -52,7 +16,7 @@ async function getClaimsState(): Promise<{ claims: ClaimRecord[]; error: string 
     if (!response.ok) {
       return {
         claims: [],
-        error: formatErrorMessage(response.status, response.data, response.text),
+        error: formatClaimsError(response.status, response.data, response.text),
       };
     }
 
@@ -89,7 +53,7 @@ export default async function ClaimsPage() {
   }
 
   const { claims, error } = await getClaimsState();
-  const exampleObjects = revenueQueue.slice(0, 3);
+  const recentClaims = claims.slice(0, 3);
 
   return (
     <PageShell
@@ -164,26 +128,46 @@ export default async function ClaimsPage() {
         </SectionCard>
       </div>
 
-      <SectionCard title="Example drill-downs" subtitle="Mock objects show the intended drawer-driven workflow even when live data is sparse.">
-        <div className="grid gap-4 xl:grid-cols-3">
-          {exampleObjects.map((item) => (
-            <div key={item.id} className="rounded-[22px] border border-white/8 bg-black/20 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">{item.claimId}</p>
-                  <h3 className="mt-1 text-lg font-semibold text-white">{item.patient}</h3>
+      <SectionCard title="Recent live claims" subtitle="This section now stays grounded in real claim records instead of mock examples.">
+        {recentClaims.length === 0 ? (
+          <div className="rounded-[22px] border border-white/8 bg-black/20 p-4 text-sm text-slate-300">
+            No recent live claims are available yet. Once claim records are present, this page will show real drill-down cards here.
+          </div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-3">
+            {recentClaims.map((claim, index) => (
+              <div
+                key={claim.id ?? claim.external_claim_id ?? `recent-claim-${index}`}
+                className="rounded-[22px] border border-white/8 bg-black/20 p-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                      {claim.external_claim_id ?? claim.id ?? "Unknown claim"}
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-white">
+                      {claim.patient_name ?? "Patient label unavailable"}
+                    </h3>
+                  </div>
+                  <span className="rounded-full bg-white/6 px-3 py-1 text-xs text-slate-300">
+                    {claim.status ?? "Unknown"}
+                  </span>
                 </div>
-                <span className="rounded-full bg-white/6 px-3 py-1 text-xs text-slate-300">{item.denialCode}</span>
+                <p className="mt-3 text-sm leading-6 text-slate-300">
+                  Live claim data is coming from the backend claims endpoint and stays aligned with the redesigned queue.
+                </p>
+                <div className="mt-4 grid gap-2 text-sm text-slate-400">
+                  <p>
+                    Payer: <span className="text-slate-200">{claim.payer_name ?? "Unavailable"}</span>
+                  </p>
+                  <p>
+                    Created: <span className="text-slate-200">{claim.created_at ? new Date(claim.created_at).toLocaleString() : "Unavailable"}</span>
+                  </p>
+                </div>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-300">{item.denialReason}</p>
-              <div className="mt-4 grid gap-2 text-sm text-slate-400">
-                <p>Payer: <span className="text-slate-200">{item.payer}</span></p>
-                <p>Authorization: <span className="text-slate-200">{item.authorizationId}</span></p>
-                <p>Next step: <span className="text-slate-200">{item.nextAction}</span></p>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </SectionCard>
 
       <div className="flex gap-3">
