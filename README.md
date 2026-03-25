@@ -38,8 +38,10 @@ npm run start
 
 - The App Router lives under `src/app`.
 - `/login` renders the sign-in form and posts to `/api/auth/login`.
-- `/dashboard`, `/era`, and `/claims` fetch real backend data through same-origin App Router API routes and show a sign-in-required state when auth is missing.
-- `/api/health`, `/api/dashboard`, `/api/claims`, `/api/era`, and `/api/auth/*` proxy requests to the configured backend origin.
+- `/dashboard`, `/era`, `/era/[eraFileId]`, and `/claims` fetch real backend data through same-origin App Router API routes and show a sign-in-required state when auth is missing.
+- `/era` handles upload/process and surfaces recent ERA files so operators can jump straight into the file lab.
+- `/era/[eraFileId]` is the file-specific replay lab for redacted extract previews, merged claim lines, work item previews, and replay controls.
+- `/api/health`, `/api/dashboard`, `/api/claims`, `/api/era`, `/api/era/[eraFileId]/lab`, `/api/era/[eraFileId]/replay`, `/api/mcp-health`, `/api/readyz/components`, and `/api/auth/*` proxy requests to the configured backend origin.
 
 ## Framework conventions
 
@@ -50,15 +52,13 @@ npm run start
 ## CI
 
 - GitHub Actions workflow `.github/workflows/ci.yml` runs lint, type-check, and build validation on pushes to `main` and on pull requests.
-- GitHub Actions workflow `.github/workflows/build-and-push-ui.yml` builds the Docker image on pushes to `main` and on manual dispatch, then authenticates to Azure with OIDC and pushes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>` when the required Azure secrets are configured.
-- GitHub Actions workflow `.github/workflows/deploy-staging.yml` builds the app, publishes `vehrrevostagingacr.azurecr.io/vehr-revenue-ui:<short-sha>`, updates the staging Azure Container App, and fails if the post-deploy health check is not HTTP 200.
+- Container deployment is now driven from Azure CLI or the VS Code terminal: build the image, push it to ACR, then update the frontend Container App directly.
 
 ## Control Tower
 
-- Frontend deploy path: GitHub Actions → `Deploy Staging` workflow (`.github/workflows/deploy-staging.yml`) on pushes to `main` or manual dispatch, using the `staging` environment.
-- Rollback path: GitHub Actions → `Rollback Staging` workflow (`.github/workflows/rollback-staging.yml`) with the target `image_tag`, using the same `staging` environment.
-- Required secrets: `AZURE_CREDENTIALS` in the GitHub `staging` environment.
-- No manual Azure portal drift: treat GitHub Actions workflows and repository configuration as the source of truth for staging deploys and rollbacks.
+- Frontend deploy path: Azure CLI / VS Code terminal → build image → push to ACR → update the staging frontend Container App.
+- Rollback path: update the frontend Container App back to a known-good image tag with Azure CLI.
+- Keep the repo and infrastructure parameter files as the source of truth for runtime env names, ports, and image contracts. Avoid manual Azure portal drift.
 
 ## Bringing `360-encompass.com` live
 

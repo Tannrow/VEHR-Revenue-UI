@@ -15,8 +15,8 @@ export default async function DiagnosticsPage() {
     return (
       <PageShell
         title="Environment Diagnostics"
-        description="Live MCP connector health for Azure, Postgres, and GitHub through the UI's same-origin proxy routes."
-        footer="Diagnostics use /api/health, /api/auth/me, and /api/mcp-health via the UI origin."
+        description="Live connector and ERA AI runtime health through the UI's same-origin proxy routes."
+        footer="Diagnostics use /api/health, /api/auth/me, /api/mcp-health, and /api/readyz/components via the UI origin."
       >
         <SignInRequiredCard resource="diagnostics" />
       </PageShell>
@@ -26,8 +26,8 @@ export default async function DiagnosticsPage() {
   return (
     <PageShell
       title="Environment Diagnostics"
-      description="Live MCP connector health for Azure, Postgres, and GitHub through the UI's same-origin proxy routes."
-      footer="Diagnostics use /api/health, /api/auth/me, and /api/mcp-health via the UI origin."
+      description="Live connector and ERA AI runtime health through the UI's same-origin proxy routes."
+      footer="Diagnostics use /api/health, /api/auth/me, /api/mcp-health, and /api/readyz/components via the UI origin."
     >
       <SectionCard title="Connector health">
         <DiagnosticsPanel />
@@ -59,6 +59,8 @@ export default async function DiagnosticsPage() {
                 <li>Postgres: valid `DATABASE_URL` and network reachability.</li>
                 <li>GitHub: `GITHUB_REPO` plus a credential that can read `360E/VEHR`.</li>
                 <li>Azure: `AZURE_SUBSCRIPTION_ID`, `AZURE_CLIENT_ID`, and Reader access on staging resources.</li>
+                <li>Document Intelligence: `AZURE_DOCINTEL_ENDPOINT` plus either key or managed identity auth.</li>
+                <li>Azure OpenAI: endpoint, deployment, API version, and either key or managed identity auth.</li>
               </ul>
             </div>
           </div>

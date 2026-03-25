@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { isFetchFailedMessage } from "@/lib/error-messages";
 
@@ -39,6 +40,14 @@ type EraReportResponse = {
   phi_scan_passed: boolean;
   phi_hit_count: number;
   finalized: boolean;
+  review_required: boolean;
+  conflict_count: number;
+  review_required_count: number;
+  low_confidence_count: number;
+  critical_missing_count: number;
+  deterministic_row_count: number;
+  llm_row_count: number;
+  merged_row_count: number;
   created_at: string;
   top_work_items: EraWorkItem[];
 };
@@ -243,6 +252,15 @@ function ReviewCard({ report }: { report: EraReportResponse }) {
         <span className="rounded-full border border-zinc-700 px-3 py-1">
           Declared totals: {report.declared_total_missing ? "missing" : "present"}
         </span>
+        <span className="rounded-full border border-zinc-700 px-3 py-1">
+          Review rows: {report.review_required_count}
+        </span>
+        <span className="rounded-full border border-zinc-700 px-3 py-1">
+          Conflicts: {report.conflict_count}
+        </span>
+        <span className="rounded-full border border-zinc-700 px-3 py-1">
+          Deterministic / LLM / merged: {report.deterministic_row_count} / {report.llm_row_count} / {report.merged_row_count}
+        </span>
       </div>
 
       {report.top_work_items.length > 0 ? (
@@ -274,12 +292,136 @@ function ReviewCard({ report }: { report: EraReportResponse }) {
           </div>
         </div>
       ) : null}
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link
+          href={`/era/${report.era_file_id}`}
+          className="inline-flex rounded-md border border-white px-4 py-2 text-sm font-medium text-white transition hover:bg-white hover:text-black"
+        >
+          Open ERA lab
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function RecentEraFilesCard({ files }: { files: EraFileResponse[] }) {
+  if (files.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-black/40 p-4 text-sm text-zinc-400">
+        No ERA files have been uploaded yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-black/40">
+      <table className="min-w-full divide-y divide-zinc-800 text-left text-sm">
+        <thead className="bg-black/40 text-xs uppercase tracking-wide text-zinc-500">
+          <tr>
+            <th className="px-4 py-3 font-medium">File</th>
+            <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Payer</th>
+            <th className="px-4 py-3 font-medium">Created</th>
+            <th className="px-4 py-3 font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-800 bg-zinc-950/40 text-zinc-200">
+          {files.map((file) => (
+            <tr key={file.id}>
+              <td className="px-4 py-3 align-top">
+                <div className="space-y-1">
+                  <p className="max-w-xl break-all font-medium text-white">{file.file_name}</p>
+                  <p className="text-xs text-zinc-500">{file.id}</p>
+                </div>
+              </td>
+              <td className="px-4 py-3 align-top">
+                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getStatusTone(file.status)}`}>
+                  {file.status.replaceAll("_", " ")}
+                </span>
+              </td>
+              <td className="px-4 py-3 align-top">{file.payer_name_raw ?? "Pending extraction"}</td>
+              <td className="px-4 py-3 align-top">{new Date(file.created_at).toLocaleString()}</td>
+              <td className="px-4 py-3 align-top">
+                <Link
+                  href={`/era/${file.id}`}
+                  className="inline-flex rounded-md border border-zinc-700 px-3 py-2 text-white transition hover:border-white"
+                >
+                  Open lab
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export function EraUploadForm() {
   const [state, setState] = useState<UploadState>(INITIAL_STATE);
+  const [recentFiles, setRecentFiles] = useState<EraFileResponse[]>([]);
+  const [recentFilesStatus, setRecentFilesStatus] = useState<"idle" | "loading" | "error">("loading");
+  const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
+
+  async function loadRecentFiles(showLoading = false) {
+    if (showLoading) {
+      setRecentFilesStatus("loading");
+      setRecentFilesError(null);
+    }
+
+    try {
+      const response = await fetch("/api/era", {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as EraFileResponse[] | ProcessErrorResponse;
+      if (!response.ok || !Array.isArray(payload)) {
+        setRecentFilesStatus("error");
+        setRecentFilesError(`Unable to load recent ERA files (status ${response.status}).`);
+        return;
+      }
+      setRecentFiles(payload.slice(0, 12));
+      setRecentFilesStatus("idle");
+    } catch {
+      setRecentFilesStatus("error");
+      setRecentFilesError("Unable to load recent ERA files right now.");
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialRecentFiles() {
+      try {
+        const response = await fetch("/api/era", {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as EraFileResponse[] | ProcessErrorResponse;
+        if (cancelled) {
+          return;
+        }
+        if (!response.ok || !Array.isArray(payload)) {
+          setRecentFilesStatus("error");
+          setRecentFilesError(`Unable to load recent ERA files (status ${response.status}).`);
+          return;
+        }
+        setRecentFiles(payload.slice(0, 12));
+        setRecentFilesStatus("idle");
+      } catch {
+        if (cancelled) {
+          return;
+        }
+        setRecentFilesStatus("error");
+        setRecentFilesError("Unable to load recent ERA files right now.");
+      }
+    }
+
+    void loadInitialRecentFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -384,6 +526,7 @@ export function EraUploadForm() {
         payload: report ?? reportPayload ?? processPayload,
       });
 
+      await loadRecentFiles(false);
       form.reset();
     } catch (error) {
       setState({
@@ -446,6 +589,17 @@ export function EraUploadForm() {
 
       {state.report ? <ReviewCard report={state.report} /> : null}
 
+      {state.processedFile ? (
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={`/era/${state.processedFile.id}`}
+            className="inline-flex rounded-md border border-white px-4 py-2 text-sm font-medium text-white transition hover:bg-white hover:text-black"
+          >
+            Open ERA lab
+          </Link>
+        </div>
+      ) : null}
+
       {state.reportMessage ? (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
           {state.reportMessage}
@@ -466,6 +620,38 @@ export function EraUploadForm() {
           </pre>
         </details>
       ) : null}
+
+      <div className="space-y-3 rounded-xl border border-zinc-800 bg-black/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Recent ERA files</p>
+            <p className="mt-2 text-sm text-zinc-400">
+              Jump straight into the file-level lab without uploading the same PDF again.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void loadRecentFiles(true);
+            }}
+            className="inline-flex rounded-md border border-zinc-700 px-3 py-2 text-white transition hover:border-white"
+          >
+            Refresh list
+          </button>
+        </div>
+
+        {recentFilesError ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
+            {recentFilesError}
+          </div>
+        ) : null}
+
+        {recentFilesStatus === "loading" && recentFiles.length === 0 ? (
+          <div className="h-24 animate-pulse rounded-xl border border-zinc-800 bg-zinc-950/40" />
+        ) : (
+          <RecentEraFilesCard files={recentFiles} />
+        )}
+      </div>
     </div>
   );
 }

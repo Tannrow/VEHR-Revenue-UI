@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && node -e \"const fs=require('fs');fs.mkdirSync('.next/types',{recursive:true});const file='.next/types/cache-life.d.ts';if(!fs.existsSync(file)){fs.writeFileSync(file,'');}\" && tsc --noEmit --incremental false"
   },
   "dependencies": {
     "next": "16.1.6",

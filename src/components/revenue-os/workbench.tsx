@@ -5,31 +5,40 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   type InsightMetric,
-  type PipelineStage,
-  type PolicyRule,
   type QueueItem,
   type QueuePriority,
   type QueueStatus,
 } from "@/lib/revenue-os";
 
-const ALL_QUEUES = "All queues";
+const ALL_TYPES = "All types";
 const ALL_PRIORITIES = "All priorities";
 const ALL_STATUSES = "All statuses";
-const SAVED_VIEWS = ["Critical priority", "Denied claims", "Open balances", "Resolved claims"] as const;
+const DEFAULT_SORT_BY = "priority";
+const DEFAULT_SORT_DIRECTION = "desc";
+const SAVED_VIEWS = ["Critical priority", "Needs review", "Denials", "Unassigned"] as const;
+const SORT_OPTIONS = [
+  { value: "priority", label: "Priority" },
+  { value: "updated_at", label: "Updated" },
+  { value: "created_at", label: "Created" },
+  { value: "aging", label: "Aging" },
+  { value: "amount_at_risk", label: "Amount at risk" },
+] as const;
 
-type PanelName = "insights" | "policy" | "pipeline" | null;
+type SortValue = (typeof SORT_OPTIONS)[number]["value"];
+type SortDirection = "asc" | "desc";
 
 function formatMoney(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-function formatTimestampLabel(value: string): string {
+function formatTimestampLabel(value: string | null | undefined): string {
+  if (!value) {
+    return "Unavailable";
+  }
   const parsed = new Date(value);
-
   if (Number.isNaN(parsed.valueOf())) {
     return value;
   }
-
   return parsed.toLocaleString();
 }
 
@@ -42,49 +51,27 @@ function getPriorityClasses(priority: QueuePriority): string {
     case "medium":
       return "border-sky-400/30 bg-sky-400/10 text-sky-200";
     case "low":
+    default:
       return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
   }
 }
 
 function getStatusClasses(status: QueueStatus): string {
   switch (status) {
-    case "blocked":
+    case "needs_review":
       return "bg-rose-400/10 text-rose-200";
-    case "appeal":
-      return "bg-violet-400/10 text-violet-200";
-    case "ready":
-      return "bg-emerald-400/10 text-emerald-200";
+    case "in_progress":
+      return "bg-sky-400/10 text-sky-200";
     case "resolved":
       return "bg-slate-400/10 text-slate-200";
-    case "new":
+    case "open":
     default:
       return "bg-amber-400/10 text-amber-200";
   }
 }
 
-function getMetricAction(metricLabel: string): {
-  queue?: string;
-  priority?: string;
-  status?: string;
-  search?: string;
-  panel: PanelName;
-} {
-  switch (metricLabel) {
-    case "Total exposure":
-      return { panel: "insights" };
-    case "30-day recovery":
-      return { queue: "Open balances", panel: "insights" };
-    case "High-risk claims":
-      return { status: "blocked", panel: "insights" };
-    case "Critical pre-submission":
-      return { priority: "critical", panel: "insights" };
-    default:
-      return { panel: "insights" };
-  }
-}
-
 function getSavedViewState(view: string): {
-  queue?: string;
+  type?: string;
   priority?: string;
   status?: string;
   search?: string;
@@ -92,19 +79,19 @@ function getSavedViewState(view: string): {
   switch (view) {
     case "Critical priority":
       return { priority: "critical" };
-    case "Denied claims":
-      return { queue: "Denied claims", status: "blocked" };
-    case "Open balances":
-      return { queue: "Open balances" };
-    case "Resolved claims":
-      return { status: "resolved" };
+    case "Needs review":
+      return { status: "needs_review" };
+    case "Denials":
+      return { type: "DENIAL" };
+    case "Unassigned":
+      return { search: "unassigned" };
     default:
       return {};
   }
 }
 
 function getActiveViewLabel(state: {
-  queueFilter: string;
+  typeFilter: string;
   priorityFilter: string;
   statusFilter: string;
   searchText: string;
@@ -112,9 +99,8 @@ function getActiveViewLabel(state: {
   return (
     SAVED_VIEWS.find((view) => {
       const saved = getSavedViewState(view);
-
       return (
-        (saved.queue ?? ALL_QUEUES) === state.queueFilter &&
+        (saved.type ?? ALL_TYPES) === state.typeFilter &&
         (saved.priority ?? ALL_PRIORITIES) === state.priorityFilter &&
         (saved.status ?? ALL_STATUSES) === state.statusFilter &&
         (saved.search ?? "") === state.searchText
@@ -123,27 +109,25 @@ function getActiveViewLabel(state: {
   );
 }
 
+function normalizeSortValue(value: string | null | undefined, fallback: SortValue): SortValue {
+  return SORT_OPTIONS.some((option) => option.value === value) ? (value as SortValue) : fallback;
+}
+
+function normalizeSortDirection(value: string | null | undefined, fallback: SortDirection): SortDirection {
+  return value === "asc" || value === "desc" ? value : fallback;
+}
+
 function InsightStrip({
-  active,
   metrics,
-  onMetricAction,
 }: {
-  active: boolean;
   metrics: InsightMetric[];
-  onMetricAction: (metricLabel: string) => void;
 }) {
   return (
-    <div
-      className={`grid gap-4 xl:grid-cols-4 ${
-        active ? "rounded-[28px] border border-sky-400/20 bg-sky-400/[0.03] p-3" : ""
-      }`}
-    >
+    <div className="grid gap-4 xl:grid-cols-4">
       {metrics.map((metric) => (
-        <button
+        <div
           key={metric.label}
-          type="button"
-          onClick={() => onMetricAction(metric.label)}
-          className="rounded-[22px] border border-white/8 bg-white/[0.035] p-4 text-left backdrop-blur-sm hover:-translate-y-[1px] hover:border-white/14 hover:bg-white/[0.05]"
+          className="rounded-[22px] border border-white/8 bg-white/[0.035] p-4 text-left backdrop-blur-sm"
         >
           <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">{metric.label}</p>
           <div className="mt-4 flex items-end justify-between gap-3">
@@ -155,37 +139,45 @@ function InsightStrip({
               {metric.change}
             </span>
           </div>
-          <p className="mt-4 text-sm text-sky-200/90">{metric.drillLabel} →</p>
-        </button>
+          <p className="mt-4 text-sm text-sky-200/90">{metric.drillLabel}</p>
+        </div>
       ))}
     </div>
   );
 }
 
 function FilterBar(props: {
-  queueFilter: string;
+  typeFilter: string;
   priorityFilter: string;
   statusFilter: string;
   searchText: string;
-  queueOptions: string[];
+  sortBy: SortValue;
+  sortDirection: SortDirection;
+  typeOptions: string[];
   activeView: string | null;
-  onQueueChange: (value: string) => void;
+  onTypeChange: (value: string) => void;
   onPriorityChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onSearchChange: (value: string) => void;
+  onSortByChange: (value: SortValue) => void;
+  onSortDirectionChange: (value: SortDirection) => void;
   onApplySavedView: (view: string) => void;
 }) {
   const {
-    queueFilter,
+    typeFilter,
     priorityFilter,
     statusFilter,
     searchText,
-    queueOptions,
+    sortBy,
+    sortDirection,
+    typeOptions,
     activeView,
-    onQueueChange,
+    onTypeChange,
     onPriorityChange,
     onStatusChange,
     onSearchChange,
+    onSortByChange,
+    onSortDirectionChange,
     onApplySavedView,
   } = props;
 
@@ -211,31 +203,31 @@ function FilterBar(props: {
             );
           })}
         </div>
-        <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Filters persist across navigation</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Server-generated workflow state</p>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(180px,0.7fr))]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_repeat(5,minmax(150px,0.7fr))]">
         <label className="rounded-[18px] border border-white/8 bg-[#12161f] px-4 py-3">
           <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Search</span>
           <input
             value={searchText}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Claim, payer, patient, status, or next action"
+            placeholder="Claim, payer, patient, type, reason, or assignee"
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-500"
           />
         </label>
 
         <label className="rounded-[18px] border border-white/8 bg-[#12161f] px-4 py-3">
-          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Queue</span>
+          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Type</span>
           <select
-            value={queueFilter}
-            onChange={(event) => onQueueChange(event.target.value)}
+            value={typeFilter}
+            onChange={(event) => onTypeChange(event.target.value)}
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
           >
-            <option value={ALL_QUEUES}>All queues</option>
-            {queueOptions.map((queue) => (
-              <option key={queue} value={queue}>
-                {queue}
+            <option value={ALL_TYPES}>All types</option>
+            {typeOptions.map((type) => (
+              <option key={type} value={type}>
+                {type}
               </option>
             ))}
           </select>
@@ -264,14 +256,45 @@ function FilterBar(props: {
             className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
           >
             <option value={ALL_STATUSES}>All statuses</option>
-            <option value="new">New</option>
-            <option value="blocked">Blocked</option>
-            <option value="ready">Ready</option>
-            <option value="appeal">Appeal</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="needs_review">Needs review</option>
             <option value="resolved">Resolved</option>
           </select>
         </label>
+
+        <label className="rounded-[18px] border border-white/8 bg-[#12161f] px-4 py-3">
+          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Sort</span>
+          <select
+            value={sortBy}
+            onChange={(event) => onSortByChange(event.target.value as SortValue)}
+            className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="rounded-[18px] border border-white/8 bg-[#12161f] px-4 py-3">
+          <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Direction</span>
+          <select
+            value={sortDirection}
+            onChange={(event) => onSortDirectionChange(event.target.value as SortDirection)}
+            className="mt-2 w-full bg-transparent text-sm text-slate-200 outline-none"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
       </div>
+
+      <p className="text-sm text-slate-400">
+        Status, priority, sorting, and pagination query the backend worklist API. Search and type narrow the loaded
+        page inside the operator console.
+      </p>
     </div>
   );
 }
@@ -279,10 +302,11 @@ function FilterBar(props: {
 function BulkActionBar(props: {
   selectedCount: number;
   hiddenSelectedCount: number;
-  onRunAction: (label: string) => void;
+  isSubmitting: boolean;
+  onMarkInProgress: () => void;
   onClearSelection: () => void;
 }) {
-  const { selectedCount, hiddenSelectedCount, onRunAction, onClearSelection } = props;
+  const { selectedCount, hiddenSelectedCount, isSubmitting, onMarkInProgress, onClearSelection } = props;
 
   if (selectedCount === 0) {
     return null;
@@ -291,29 +315,76 @@ function BulkActionBar(props: {
   return (
     <div className="flex flex-col gap-3 rounded-[22px] border border-sky-400/20 bg-sky-400/[0.05] px-4 py-4 backdrop-blur-sm xl:flex-row xl:items-center xl:justify-between">
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-white">{selectedCount} claims selected for bulk action</p>
+        <p className="text-sm font-semibold text-white">{selectedCount} work item{selectedCount === 1 ? "" : "s"} selected</p>
         <p className="text-sm text-slate-300">
-          Apply one action across the filtered cohort without leaving the queue.
+          Bulk actions are limited to backend-supported workflow actions.
           {hiddenSelectedCount > 0 ? ` ${hiddenSelectedCount} selected item(s) are hidden by the current filters.` : ""}
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        {["Open claim records", "Route for review", "Recheck tomorrow"].map((label) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onRunAction(label)}
-            className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white hover:-translate-y-[1px] hover:border-white/18 hover:bg-white/[0.09]"
-          >
-            {label}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={onMarkInProgress}
+          disabled={isSubmitting}
+          className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60 hover:-translate-y-[1px] hover:border-white/18 hover:bg-white/[0.09]"
+        >
+          {isSubmitting ? "Updating..." : "Mark in progress"}
+        </button>
         <button
           type="button"
           onClick={onClearSelection}
-          className="rounded-full border border-white/8 px-3 py-2 text-sm text-slate-300 hover:border-white/18 hover:text-white"
+          disabled={isSubmitting}
+          className="rounded-full border border-white/8 px-3 py-2 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-60 hover:border-white/18 hover:text-white"
         >
           Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaginationBar({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  visibleCount,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  visibleCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4 backdrop-blur-sm xl:flex-row xl:items-center xl:justify-between">
+      <div className="space-y-1 text-sm text-slate-300">
+        <p className="font-medium text-white">
+          Server page {currentPage} of {Math.max(totalPages, 1)}
+        </p>
+        <p>
+          {totalItems} canonical work item{totalItems === 1 ? "" : "s"} on the backend. Showing {visibleCount} row
+          {visibleCount === 1 ? "" : "s"} from a {pageSize}-item page.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1}
+          className="rounded-full border border-white/8 px-3 py-2 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-50 hover:border-white/18 hover:text-white"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+          className="rounded-full border border-white/8 px-3 py-2 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-50 hover:border-white/18 hover:text-white"
+        >
+          Next
         </button>
       </div>
     </div>
@@ -336,8 +407,8 @@ function WorkQueueTable(props: {
     <div className="overflow-hidden rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(18,22,30,0.96),rgba(14,17,24,0.98))] backdrop-blur-sm">
       <div className="flex flex-col gap-4 border-b border-white/8 px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Primary work queue</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Live backend claims requiring operator action</h3>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Canonical work queue</p>
+          <h3 className="mt-1 text-lg font-semibold text-white">Backend-owned revenue workflow items</h3>
         </div>
         <div className="flex flex-wrap gap-2 text-sm">
           <button
@@ -346,18 +417,6 @@ function WorkQueueTable(props: {
             className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
           >
             {allVisibleSelected ? "Clear visible" : "Select visible"}
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
-          >
-            Review balances
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-white/10 px-3 py-2 text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
-          >
-            Export queue
           </button>
         </div>
       </div>
@@ -377,19 +436,20 @@ function WorkQueueTable(props: {
                 </button>
               </th>
               <th className="px-5 py-3">Work</th>
-              <th className="px-4 py-3">Queue</th>
-              <th className="px-4 py-3">Live status</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Priority</th>
-              <th className="px-4 py-3">Value / hr</th>
+              <th className="px-4 py-3">SLA</th>
+              <th className="px-4 py-3">Amount at risk</th>
               <th className="px-4 py-3">Aging</th>
-              <th className="px-4 py-3">Action</th>
+              <th className="px-4 py-3">Assignee</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/6">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-400">
-                  No live queue items match the current filters.
+                <td colSpan={9} className="px-5 py-10 text-center text-sm text-slate-400">
+                  No backend work items match the current filters.
                 </td>
               </tr>
             ) : null}
@@ -398,6 +458,7 @@ function WorkQueueTable(props: {
               const rowSelected = item.id === selectedId;
               const checked = selectedIds.includes(item.id);
               const identity = [item.patient, item.payer].filter(Boolean).join(" · ");
+              const assigneeLabel = item.assignee.userName ?? item.assignee.teamLabel ?? "Unassigned";
 
               return (
                 <tr
@@ -424,18 +485,15 @@ function WorkQueueTable(props: {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-white">{item.claimId}</span>
                         <span className={`rounded-full px-2 py-1 text-xs ${getStatusClasses(item.status)}`}>{item.status}</span>
-                        {item.claimId !== item.sourceClaimId ? (
-                          <span className="rounded-full bg-white/6 px-2 py-1 text-xs text-slate-400">{item.sourceClaimId}</span>
-                        ) : null}
                       </div>
                       <div>
-                        <p className="text-slate-200">{item.nextAction}</p>
+                        <p className="text-slate-200">{item.recommendedAction.reason}</p>
                         <p className="mt-1 text-xs text-slate-500">{identity || item.payer}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 align-top text-slate-300">{item.queue}</td>
-                  <td className="px-4 py-4 align-top text-slate-300">{item.claimStatus}</td>
+                  <td className="px-4 py-4 align-top text-slate-300">{item.type}</td>
+                  <td className="px-4 py-4 align-top text-slate-300">{item.status}</td>
                   <td className="px-4 py-4 align-top">
                     <span
                       className={`rounded-full border px-2 py-1 text-xs font-medium uppercase tracking-[0.18em] ${getPriorityClasses(item.priority)}`}
@@ -443,20 +501,10 @@ function WorkQueueTable(props: {
                       {item.priority}
                     </span>
                   </td>
-                  <td className="px-4 py-4 align-top text-white">{formatMoney(item.valuePerHourCents)}</td>
+                  <td className="px-4 py-4 align-top text-slate-300">{item.slaState}</td>
+                  <td className="px-4 py-4 align-top text-white">{formatMoney(item.amountAtRiskCents)}</td>
                   <td className="px-4 py-4 align-top text-slate-300">{item.agingDays}d</td>
-                  <td className="px-4 py-4 align-top">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onSelect(item);
-                      }}
-                      className="rounded-full border border-white/8 bg-white/[0.035] px-3 py-2 text-xs font-medium text-slate-200 hover:border-white/14 hover:bg-white/[0.08]"
-                    >
-                      Open drawer
-                    </button>
-                  </td>
+                  <td className="px-4 py-4 align-top text-slate-300">{assigneeLabel}</td>
                 </tr>
               );
             })}
@@ -471,7 +519,7 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
   if (!item) {
     return (
       <div className="rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] p-5 text-sm text-slate-400">
-        No queue items match the current filters.
+        No work items match the current filters.
       </div>
     );
   }
@@ -481,24 +529,26 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Claim drawer</p>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Work item</p>
             <h3 className="mt-1 text-xl font-semibold text-white">{item.claimId}</h3>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] ${getPriorityClasses(item.priority)}`}>
             {item.priority}
           </span>
         </div>
-        <p className="text-sm leading-6 text-slate-300">{item.summary}</p>
+        <p className="text-sm leading-6 text-slate-300">{item.recommendedAction.reason}</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
         {[
-          ["Displayed claim ID", item.claimId],
-          ["Source claim ID", item.sourceClaimId],
+          ["Type", item.type],
+          ["Status", item.status],
+          ["SLA", item.slaState],
+          ["Escalation", item.escalationState],
           ["Patient", item.patient ?? "Unavailable"],
           ["Payer", item.payer],
-          ["Live status", item.claimStatus],
-          ["Queue", item.queue],
+          ["Facility", item.facility ?? "Unavailable"],
+          ["Assignee", item.assignee.userName ?? item.assignee.teamLabel ?? "Unassigned"],
         ].map(([label, value]) => (
           <div key={label} className="rounded-2xl border border-white/8 bg-black/20 p-3">
             <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{label}</p>
@@ -508,41 +558,101 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
       </div>
 
       <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Reason codes</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {item.reasonCodes.map((code) => (
+            <span key={code} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs text-slate-200">
+              {code}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionSupportPanel({
+  item,
+  isSubmitting,
+  onMarkInProgress,
+}: {
+  item: QueueItem | null;
+  isSubmitting: boolean;
+  onMarkInProgress: (itemIds: string[]) => Promise<void>;
+}) {
+  if (!item) {
+    return (
+      <div className="rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] p-5 text-sm text-slate-400">
+        Decision support appears when a backend work item is selected.
+      </div>
+    );
+  }
+
+  const canMarkInProgress = item.allowedActions.includes("mark_in_progress");
+
+  return (
+    <div className="space-y-5 rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,26,34,0.96),rgba(16,19,26,0.98))] p-5 backdrop-blur-sm">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Next operator move</p>
-            <p className="mt-2 text-base font-medium text-white">{item.nextAction}</p>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Decision support</p>
+            <h3 className="mt-1 text-xl font-semibold text-white">Backend recommended next step</h3>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-medium text-white hover:border-white/18 hover:bg-white/[0.09]"
-            >
-              Take action
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-white/8 px-4 py-2 text-sm text-slate-300 hover:border-white/18 hover:text-white"
-            >
-              Open claim API
-            </button>
-          </div>
+          <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
+            {item.agingBucket}
+          </span>
+        </div>
+        <p className="text-sm leading-6 text-slate-300">{item.recommendedAction.reason}</p>
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-white">Recommended action</h4>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
+          <p className="font-medium uppercase tracking-[0.16em] text-slate-400">{item.recommendedAction.type}</p>
+          <p className="mt-2">{item.recommendedAction.reason}</p>
+          <p className="mt-2 text-xs text-slate-400">Confidence: {item.recommendedAction.confidence}</p>
         </div>
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-white">Allowed actions</h4>
+          <span className="rounded-full border border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+            Server enforced
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {item.allowedActions.map((action) => (
+            <span key={action} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white">
+              {action}
+            </span>
+          ))}
+        </div>
+        {canMarkInProgress ? (
+          <button
+            type="button"
+            onClick={() => void onMarkInProgress([item.id])}
+            disabled={isSubmitting}
+            className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60 hover:border-white/18 hover:bg-white/[0.09]"
+          >
+            {isSubmitting ? "Updating..." : "Mark in progress"}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-white">Timeline</h4>
-          <span className="text-sm text-slate-500">Live backend activity</span>
+          <span className="text-sm text-slate-500">Projection trace</span>
         </div>
         <div className="space-y-3">
           {item.timeline.map((entry) => (
             <div key={`${entry.at}-${entry.event}`} className="rounded-2xl border border-white/8 bg-black/20 p-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-white">{entry.event}</p>
-                <span className="text-xs text-slate-500">{entry.at}</span>
+                <span className="text-xs text-slate-500">{formatTimestampLabel(entry.at)}</span>
               </div>
-              <p className="mt-1 text-sm text-slate-400">{entry.actor}</p>
+              <p className="mt-1 text-sm text-slate-400">{entry.detail}</p>
             </div>
           ))}
         </div>
@@ -551,240 +661,100 @@ function ClaimDrawer({ item }: { item: QueueItem | null }) {
   );
 }
 
-function DecisionSupportPanel({ item }: { item: QueueItem | null }) {
-  if (!item) {
-    return (
-      <div className="rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] p-5 text-sm text-slate-400">
-        Decision support appears when a live claim is selected.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5 rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(22,26,34,0.96),rgba(16,19,26,0.98))] p-5 backdrop-blur-sm">
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Decision support</p>
-            <h3 className="mt-1 text-xl font-semibold text-white">Recommended next step</h3>
-          </div>
-          <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
-            {item.agingDays}d aging
-          </span>
-        </div>
-        <p className="text-sm leading-6 text-slate-300">{item.summary}</p>
-      </div>
-
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-white">Why it is on the queue</h4>
-        {item.evidence.map((entry) => (
-          <div key={entry.label} className="rounded-2xl border border-white/8 bg-black/20 p-3">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{entry.label}</p>
-            <p className="mt-2 text-sm text-slate-200">{entry.detail}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-white">Suggested actions</h4>
-          <span className="rounded-full border border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-            Live queue
-          </span>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
-          {item.nextAction}
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
-          Review payer status before closing the claim.
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white">
-          Confirm the claim record stays aligned with the latest snapshot.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function QueueHealthPanel({
-  active,
-  stages,
-  onOpen,
-}: {
-  active: boolean;
-  stages: PipelineStage[];
-  onOpen: () => void;
-}) {
-  return (
-    <div
-      className={`rounded-[24px] border bg-[linear-gradient(180deg,rgba(20,24,33,0.96),rgba(15,18,25,0.98))] p-5 backdrop-blur-sm ${
-        active ? "border-sky-400/20 shadow-[0_0_0_1px_rgba(125,211,252,0.1)]" : "border-white/8"
-      }`}
-    >
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Queue health</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Live workflow stages from the current snapshot</h3>
-        </div>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
-        >
-          Focus queue health
-        </button>
-      </div>
-      <div className="grid gap-3 xl:grid-cols-5">
-        {stages.map((stage) => (
-          <div key={stage.label} className="relative rounded-2xl border border-white/8 bg-black/20 p-4">
-            <div
-              className={`absolute inset-x-4 top-0 h-1 rounded-b-full ${
-                stage.tone === "good"
-                  ? "bg-emerald-400/60"
-                  : stage.tone === "warning"
-                    ? "bg-amber-400/60"
-                    : "bg-sky-400/60"
-              }`}
-            />
-            <p className="mt-2 text-[11px] uppercase tracking-[0.24em] text-slate-500">{stage.label}</p>
-            <p className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">{stage.count}</p>
-            <p className="mt-3 text-sm text-slate-300">{stage.action}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PolicyPanel({
-  active,
-  rules,
-  onOpen,
-}: {
-  active: boolean;
-  rules: PolicyRule[];
-  onOpen: () => void;
-}) {
-  return (
-    <div
-      className={`rounded-[24px] border bg-[linear-gradient(180deg,rgba(20,24,33,0.96),rgba(15,18,25,0.98))] p-5 backdrop-blur-sm ${
-        active ? "border-sky-400/20 shadow-[0_0_0_1px_rgba(125,211,252,0.1)]" : "border-white/8"
-      }`}
-    >
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Policy engine</p>
-          <h3 className="mt-1 text-lg font-semibold text-white">Routing rules grounded in live queue conditions</h3>
-        </div>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 hover:-translate-y-[1px] hover:border-white/20 hover:text-white"
-        >
-          Focus policy
-        </button>
-      </div>
-      <div className="space-y-3">
-        {rules.map((rule) => (
-          <div key={rule.id} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-white/6 px-2 py-1 text-[11px] uppercase tracking-[0.22em] text-slate-500">{rule.id}</span>
-                  <h4 className="text-base font-semibold text-white">{rule.name}</h4>
-                </div>
-                <p className="text-sm text-slate-300">
-                  <span className="text-slate-500">If</span> {rule.condition}
-                </p>
-                <p className="text-sm text-slate-300">
-                  <span className="text-slate-500">Then</span> {rule.outcome}
-                </p>
-              </div>
-              <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-slate-300">
-                {rule.coverage}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function RevenueWorkbench({
   items,
   metrics,
-  pipelineStages,
-  policyRules,
+  totalItems,
+  currentPage,
+  pageSize,
+  totalPages,
+  sortBy,
+  sortDirection,
   snapshotGeneratedAt,
-  claimsNotice,
+  snapshotNotice,
+  onMarkInProgress,
 }: {
   items: QueueItem[];
   metrics: InsightMetric[];
-  pipelineStages: PipelineStage[];
-  policyRules: PolicyRule[];
-  snapshotGeneratedAt: string;
-  claimsNotice?: string | null;
+  totalItems: number;
+  currentPage: number;
+  pageSize: number;
+  totalPages: number;
+  sortBy: string;
+  sortDirection: string;
+  snapshotGeneratedAt: string | null;
+  snapshotNotice?: string | null;
+  onMarkInProgress: (itemIds: string[]) => Promise<void>;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  const [bulkFeedback, setBulkFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const queueFilter = searchParams.get("queue") ?? ALL_QUEUES;
+  const typeFilter = searchParams.get("type") ?? ALL_TYPES;
   const priorityFilter = searchParams.get("priority") ?? ALL_PRIORITIES;
   const statusFilter = searchParams.get("status") ?? ALL_STATUSES;
   const searchText = searchParams.get("search") ?? "";
   const selectedId = searchParams.get("selected");
-  const panel = (searchParams.get("panel") as PanelName) ?? null;
+  const activeSortBy = normalizeSortValue(searchParams.get("sort_by") ?? sortBy, normalizeSortValue(sortBy, DEFAULT_SORT_BY));
+  const activeSortDirection = normalizeSortDirection(
+    searchParams.get("sort_direction") ?? sortDirection,
+    normalizeSortDirection(sortDirection, DEFAULT_SORT_DIRECTION),
+  );
+  const activePage = Number.parseInt(searchParams.get("page") ?? String(currentPage), 10) || currentPage;
 
-  const queueOptions = useMemo(() => Array.from(new Set(items.map((item) => item.queue))).sort(), [items]);
-
+  const typeOptions = useMemo(() => Array.from(new Set(items.map((item) => item.type))).sort(), [items]);
   const activeView = useMemo(
-    () => getActiveViewLabel({ queueFilter, priorityFilter, statusFilter, searchText }),
-    [priorityFilter, queueFilter, searchText, statusFilter],
+    () => getActiveViewLabel({ typeFilter, priorityFilter, statusFilter, searchText }),
+    [priorityFilter, searchText, statusFilter, typeFilter],
   );
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase();
 
     return items.filter((item) => {
-      const queueMatch = queueFilter === ALL_QUEUES || item.queue === queueFilter;
-      const priorityMatch = priorityFilter === ALL_PRIORITIES || item.priority === (priorityFilter as QueuePriority);
-      const statusMatch = statusFilter === ALL_STATUSES || item.status === (statusFilter as QueueStatus);
+      const typeMatch = typeFilter === ALL_TYPES || item.type === typeFilter;
       const searchMatch =
         normalizedSearch.length === 0 ||
         [
           item.claimId,
-          item.sourceClaimId,
           item.patient ?? "",
+          item.patientId ?? "",
           item.payer,
-          item.queue,
-          item.claimStatus,
-          item.nextAction,
+          item.type,
+          item.status,
+          item.recommendedAction.reason,
+          item.assignee.userName ?? "",
+          item.assignee.teamLabel ?? "",
+          item.reasonCodes.join(" "),
         ]
           .join(" ")
           .toLowerCase()
           .includes(normalizedSearch);
 
-      return queueMatch && priorityMatch && statusMatch && searchMatch;
+      return typeMatch && searchMatch;
     });
-  }, [items, priorityFilter, queueFilter, searchText, statusFilter]);
+  }, [items, searchText, typeFilter]);
 
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString());
-      params.delete("owner");
+      const resetPage = Object.keys(updates).some((key) =>
+        ["type", "priority", "status", "search", "sort_by", "sort_direction"].includes(key),
+      );
 
       Object.entries(updates).forEach(([key, value]) => {
         const shouldDelete =
           value === null ||
           value === "" ||
-          value === ALL_QUEUES ||
+          value === ALL_TYPES ||
           value === ALL_PRIORITIES ||
-          value === ALL_STATUSES;
-
+          value === ALL_STATUSES ||
+          (key === "sort_by" && value === DEFAULT_SORT_BY) ||
+          (key === "sort_direction" && value === DEFAULT_SORT_DIRECTION) ||
+          (key === "page" && value === "1");
         if (shouldDelete) {
           params.delete(key);
         } else {
@@ -792,8 +762,14 @@ export function RevenueWorkbench({
         }
       });
 
-      const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+      if (resetPage && !Object.prototype.hasOwnProperty.call(updates, "page")) {
+        params.delete("page");
+      }
+      if (resetPage && !Object.prototype.hasOwnProperty.call(updates, "selected")) {
+        params.delete("selected");
+      }
 
+      const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
       startTransition(() => {
         router.replace(nextUrl, { scroll: false });
       });
@@ -803,31 +779,53 @@ export function RevenueWorkbench({
 
   useEffect(() => {
     const nextSelectedId = filteredItems[0]?.id ?? null;
-
     if (filteredItems.length === 0) {
       if (selectedId) {
         updateQuery({ selected: null });
       }
       return;
     }
-
     if (!selectedId || !filteredItems.some((item) => item.id === selectedId)) {
       updateQuery({ selected: nextSelectedId });
     }
   }, [filteredItems, selectedId, updateQuery]);
 
   useEffect(() => {
-    if (!bulkNotice) {
+    if (!bulkFeedback) {
       return;
     }
-
-    const timeout = window.setTimeout(() => setBulkNotice(null), 4000);
-
+    const timeout = window.setTimeout(() => setBulkFeedback(null), 4000);
     return () => window.clearTimeout(timeout);
-  }, [bulkNotice]);
+  }, [bulkFeedback]);
 
   const selectedItem = filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null;
   const hiddenSelectedCount = selectedIds.filter((id) => !filteredItems.some((item) => item.id === id)).length;
+
+  async function handleMarkInProgress(itemIds: string[]) {
+    if (itemIds.length === 0 || isSubmitting) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await onMarkInProgress(itemIds);
+      setBulkFeedback({
+        tone: "success",
+        message: `Marked ${itemIds.length} work item${itemIds.length === 1 ? "" : "s"} in progress.`,
+      });
+      setSelectedIds((current) => current.filter((id) => !itemIds.includes(id)));
+    } catch (error) {
+      setBulkFeedback({
+        tone: "error",
+        message:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Unable to update the selected work items right now.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   function toggleSelect(itemId: string) {
     setSelectedIds((current) => (current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]));
@@ -836,83 +834,97 @@ export function RevenueWorkbench({
   function toggleSelectVisible() {
     const visibleIds = filteredItems.map((item) => item.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-
     setSelectedIds((current) =>
-      allVisibleSelected
-        ? current.filter((id) => !visibleIds.includes(id))
-        : Array.from(new Set([...current, ...visibleIds])),
+      allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : Array.from(new Set([...current, ...visibleIds])),
     );
   }
 
   function applySavedView(view: string) {
     const nextState = getSavedViewState(view);
     updateQuery({
-      queue: nextState.queue ?? null,
+      type: nextState.type ?? null,
       priority: nextState.priority ?? null,
       status: nextState.status ?? null,
       search: nextState.search ?? null,
-      panel: "insights",
     });
   }
 
-  function handleMetricAction(metricLabel: string) {
-    const action = getMetricAction(metricLabel);
-    updateQuery({
-      queue: action.queue ?? null,
-      priority: action.priority ?? null,
-      status: action.status ?? null,
-      search: action.search ?? null,
-      panel: action.panel,
-    });
-  }
-
-  function handleBulkAction(actionLabel: string) {
-    setBulkNotice(`${actionLabel} prepared for ${selectedIds.length} selected claim${selectedIds.length === 1 ? "" : "s"}.`);
+  function changePage(nextPage: number) {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === activePage) {
+      return;
+    }
+    updateQuery({ page: String(nextPage) });
   }
 
   return (
     <div className="space-y-6">
       <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
-        <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Live snapshot</p>
+        <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Worklist source</p>
         <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <p className="text-sm text-slate-200">Latest revenue snapshot generated {formatTimestampLabel(snapshotGeneratedAt)}.</p>
-          <p className="text-sm text-slate-400">{items.length} live queue item{items.length === 1 ? "" : "s"} loaded.</p>
+          <p className="text-sm text-slate-200">
+            {snapshotGeneratedAt
+              ? `Latest revenue snapshot generated ${formatTimestampLabel(snapshotGeneratedAt)}.`
+              : "Rendering directly from the backend worklist contract."}
+          </p>
+          <p className="text-sm text-slate-400">
+            Server page {activePage} of {Math.max(totalPages, 1)} · {totalItems} backend work item{totalItems === 1 ? "" : "s"} available.
+          </p>
         </div>
-        {claimsNotice ? (
+        {snapshotNotice ? (
           <p className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-100">
-            Claim labels could not be loaded from the claims API, so the queue is using snapshot-only context. {claimsNotice}
+            {snapshotNotice}
           </p>
         ) : null}
       </div>
 
-      <InsightStrip active={panel === "insights"} metrics={metrics} onMetricAction={handleMetricAction} />
+      <InsightStrip metrics={metrics} />
 
       <FilterBar
-        queueFilter={queueFilter}
+        typeFilter={typeFilter}
         priorityFilter={priorityFilter}
         statusFilter={statusFilter}
         searchText={searchText}
-        queueOptions={queueOptions}
+        sortBy={activeSortBy}
+        sortDirection={activeSortDirection}
+        typeOptions={typeOptions}
         activeView={activeView}
-        onQueueChange={(value) => updateQuery({ queue: value })}
+        onTypeChange={(value) => updateQuery({ type: value })}
         onPriorityChange={(value) => updateQuery({ priority: value })}
         onStatusChange={(value) => updateQuery({ status: value })}
         onSearchChange={(value) => updateQuery({ search: value })}
+        onSortByChange={(value) => updateQuery({ sort_by: value })}
+        onSortDirectionChange={(value) => updateQuery({ sort_direction: value })}
         onApplySavedView={applySavedView}
       />
 
       <BulkActionBar
         selectedCount={selectedIds.length}
         hiddenSelectedCount={hiddenSelectedCount}
-        onRunAction={handleBulkAction}
+        isSubmitting={isSubmitting}
+        onMarkInProgress={() => void handleMarkInProgress(selectedIds)}
         onClearSelection={() => setSelectedIds([])}
       />
 
-      {bulkNotice ? (
-        <div className="rounded-[20px] border border-emerald-400/20 bg-emerald-400/[0.08] px-4 py-3 text-sm text-emerald-100">
-          {bulkNotice}
+      {bulkFeedback ? (
+        <div
+          className={`rounded-[20px] px-4 py-3 text-sm ${
+            bulkFeedback.tone === "success"
+              ? "border border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-100"
+              : "border border-rose-400/20 bg-rose-400/[0.08] text-rose-100"
+          }`}
+        >
+          {bulkFeedback.message}
         </div>
       ) : null}
+
+      <PaginationBar
+        currentPage={activePage}
+        totalPages={Math.max(totalPages, 1)}
+        totalItems={totalItems}
+        pageSize={pageSize}
+        visibleCount={filteredItems.length}
+        onPageChange={changePage}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)_minmax(320px,0.9fr)]">
         <WorkQueueTable
@@ -924,12 +936,7 @@ export function RevenueWorkbench({
           onToggleSelectVisible={toggleSelectVisible}
         />
         <ClaimDrawer item={selectedItem} />
-        <DecisionSupportPanel item={selectedItem} />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <QueueHealthPanel active={panel === "pipeline"} stages={pipelineStages} onOpen={() => updateQuery({ panel: "pipeline" })} />
-        <PolicyPanel active={panel === "policy"} rules={policyRules} onOpen={() => updateQuery({ panel: "policy" })} />
+        <DecisionSupportPanel item={selectedItem} isSubmitting={isSubmitting} onMarkInProgress={handleMarkInProgress} />
       </div>
     </div>
   );

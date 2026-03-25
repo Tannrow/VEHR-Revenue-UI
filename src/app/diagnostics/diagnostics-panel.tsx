@@ -37,12 +37,26 @@ type MCPHealthResponse = {
   };
 };
 
+type ReadyComponentHealth = {
+  name: string;
+  ok: boolean;
+  status: string;
+  missing?: string[];
+};
+
+type ReadyComponentsResponse = {
+  ok: boolean;
+  components: ReadyComponentHealth[];
+};
+
 type DiagnosticsState = {
   healthStatus: HealthStatus;
   authStatus: AuthStatus;
   orgId: string | null;
   mcpHealth: MCPHealthResponse | null;
   mcpError: string | null;
+  aiReadiness: ReadyComponentsResponse | null;
+  aiError: string | null;
 };
 
 const INITIAL_STATE: DiagnosticsState = {
@@ -51,6 +65,21 @@ const INITIAL_STATE: DiagnosticsState = {
   orgId: null,
   mcpHealth: null,
   mcpError: null,
+  aiReadiness: null,
+  aiError: null,
+};
+
+const AI_COMPONENT_ORDER = ["azure_ai", "azure_document_manager"] as const;
+
+const AI_COMPONENT_COPY: Record<string, { title: string; body: string }> = {
+  azure_ai: {
+    title: "Azure OpenAI agent",
+    body: "Structured extraction and ambiguity resolution runtime.",
+  },
+  azure_document_manager: {
+    title: "Document Intelligence agent",
+    body: "OCR and layout extraction runtime for ERA PDFs.",
+  },
 };
 
 function statusBadgeClasses(status: "healthy" | "warning" | "error" | "pending"): string {
@@ -124,6 +153,74 @@ function ToolCard({ tool }: { tool: MCPToolHealth }) {
   );
 }
 
+function getAiComponentTone(component: ReadyComponentHealth): "healthy" | "warning" | "error" {
+  if (component.ok && component.status === "ok") {
+    return "healthy";
+  }
+  if (component.status === "disabled") {
+    return "warning";
+  }
+  return "error";
+}
+
+function getAiComponentLabel(component: ReadyComponentHealth): string {
+  if (component.ok && component.status === "ok") {
+    return "Healthy";
+  }
+  if (component.status === "disabled") {
+    return "Disabled";
+  }
+  if (component.status === "missing_config") {
+    return "Missing config";
+  }
+  return component.ok ? "Ready" : "Attention needed";
+}
+
+function getAiComponentDetail(component: ReadyComponentHealth | null): string {
+  if (!component) {
+    return "The readiness response did not include this service.";
+  }
+  if (component.status === "ok") {
+    return "Configured and ready for the ERA processing pipeline.";
+  }
+  if (component.status === "disabled") {
+    return "Disabled in the current environment because the required runtime config is intentionally absent.";
+  }
+  if (component.missing && component.missing.length > 0) {
+    return `Missing: ${component.missing.join(", ")}`;
+  }
+  return "Attention is needed before the ERA processing pipeline can use this service.";
+}
+
+function AiStatusCard({ componentName, component }: { componentName: string; component: ReadyComponentHealth | null }) {
+  const copy = AI_COMPONENT_COPY[componentName] ?? {
+    title: componentName,
+    body: "ERA pipeline runtime component.",
+  };
+  const tone = component ? getAiComponentTone(component) : "error";
+  const label = component ? getAiComponentLabel(component) : "Unavailable";
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">{copy.title}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">{copy.body}</p>
+          <p className="mt-3 text-sm leading-6 text-zinc-400 break-words">{getAiComponentDetail(component)}</p>
+        </div>
+        <StatusBadge label={label} tone={tone} />
+      </div>
+
+      {component ? (
+        <div className="mt-4 space-y-1 text-xs text-zinc-500">
+          <p>Status: {component.status}</p>
+          {component.missing && component.missing.length > 0 ? <p>Missing entries: {component.missing.length}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DiagnosticsPanel() {
   const [state, setState] = useState<DiagnosticsState>(INITIAL_STATE);
 
@@ -131,10 +228,11 @@ export function DiagnosticsPanel() {
     let cancelled = false;
 
     async function load() {
-      const [healthResponse, authResponse, mcpResponse] = await Promise.all([
+      const [healthResponse, authResponse, mcpResponse, aiResponse] = await Promise.all([
         apiClientFetch("/api/health"),
         apiClientFetch("/api/auth/me"),
         apiClientFetch("/api/mcp-health"),
+        apiClientFetch("/api/readyz/components"),
       ]);
 
       if (cancelled) {
@@ -151,6 +249,10 @@ export function DiagnosticsPanel() {
           ? (mcpResponse.data as MCPHealthResponse)
           : null,
         mcpError: mcpResponse.ok ? null : getErrorMessage(mcpResponse, "Unable to load MCP diagnostics."),
+        aiReadiness: aiResponse.ok && aiResponse.data && typeof aiResponse.data === "object"
+          ? (aiResponse.data as ReadyComponentsResponse)
+          : null,
+        aiError: aiResponse.ok ? null : getErrorMessage(aiResponse, "Unable to load Azure AI readiness diagnostics."),
       });
     }
 
@@ -236,6 +338,38 @@ export function DiagnosticsPanel() {
             <div className="h-40 animate-pulse rounded-xl border border-zinc-800 bg-zinc-950/40" />
           </>
         )}
+      </div>
+
+      {state.aiError ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
+          {state.aiError}
+        </div>
+      ) : null}
+
+      <div className="space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">ERA AI runtime</p>
+          <p className="mt-2 text-sm text-zinc-400">
+            Readiness for the two Azure services that power ERA OCR, layout extraction, and structured interpretation.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {state.aiReadiness ? (
+            AI_COMPONENT_ORDER.map((componentName) => (
+              <AiStatusCard
+                key={componentName}
+                componentName={componentName}
+                component={state.aiReadiness?.components.find((item) => item.name === componentName) ?? null}
+              />
+            ))
+          ) : (
+            <>
+              <div className="h-40 animate-pulse rounded-xl border border-zinc-800 bg-zinc-950/40" />
+              <div className="h-40 animate-pulse rounded-xl border border-zinc-800 bg-zinc-950/40" />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -3,22 +3,50 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import { SectionCard } from "@/components/page-shell";
 import { RevenueWorkbench } from "@/components/revenue-os/workbench";
-import { fetchClaimsIndex } from "@/lib/api/claims";
 import { fetchLatestRevenueSnapshotState, type DashboardState } from "@/lib/api/revenue";
-import {
-  buildInsightMetrics,
-  buildPipelineStages,
-  buildPolicyRules,
-  buildRevenueQueueItems,
-} from "@/lib/revenue-os";
+import { fetchRevenueWorklist, runRevenueWorklistAction } from "@/lib/api/worklist";
+import { buildInsightMetrics, buildRevenueQueueItems } from "@/lib/revenue-os";
+
+const WORKLIST_SORT_VALUES = new Set(["created_at", "updated_at", "aging", "priority", "amount_at_risk"]);
+const WORKLIST_DIRECTION_VALUES = new Set(["asc", "desc"]);
+const DEFAULT_WORKLIST_PAGE_SIZE = 100;
 
 function formatRetryInterval(intervalMs: number): string {
   const seconds = Math.round(intervalMs / 1000);
   return `${seconds} second${seconds === 1 ? "" : "s"}`;
+}
+
+function parsePositiveInteger(value: string | null, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function buildWorklistRequest(searchParamString: string): Record<string, string | number | null> {
+  const params = new URLSearchParams(searchParamString);
+  const sortBy = params.get("sort_by");
+  const sortDirection = params.get("sort_direction");
+  const status = params.get("status");
+  const priority = params.get("priority");
+
+  return {
+    page: parsePositiveInteger(params.get("page"), 1),
+    page_size: DEFAULT_WORKLIST_PAGE_SIZE,
+    sort_by: sortBy && WORKLIST_SORT_VALUES.has(sortBy) ? sortBy : "priority",
+    sort_direction: sortDirection && WORKLIST_DIRECTION_VALUES.has(sortDirection) ? sortDirection : "desc",
+    status: status && status !== "All statuses" ? status : null,
+    priority: priority && priority !== "All priorities" ? priority : null,
+  };
 }
 
 type DashboardStatusTone = "info" | "warning" | "error";
@@ -212,19 +240,88 @@ function renderDashboardState(
   }
 }
 
+function getSnapshotNotice(state: DashboardState, autoRetryCount: number): string | null {
+  switch (state.status) {
+    case "loading":
+      return "Revenue summary cards are still loading. The canonical backend worklist is already available below.";
+    case "pending":
+      return autoRetryCount < state.retryPolicy.maxAttempts
+        ? `Revenue summary cards are still generating. Queue rows stay live from the backend worklist while the snapshot retries every ${formatRetryInterval(
+            state.retryPolicy.intervalMs,
+          )}.`
+        : "Revenue summary cards are still generating. The queue remains live from the backend worklist while automatic snapshot retries stay paused.";
+    case "recoverable":
+      return "Revenue summary cards are temporarily unavailable. The queue below is still the canonical backend worklist.";
+    case "backend_failure":
+      return "Revenue summary cards failed to load. The queue below is still driven by the backend worklist contract.";
+    case "fatal":
+      return "Revenue summary cards returned an unexpected payload. The queue below is still rendered from the backend worklist.";
+    case "unauthorized":
+      return "Refresh your session to recover the summary cards. The queue below remains sourced from the backend while your current access stays valid.";
+    case "ready":
+      return null;
+    default:
+      return null;
+  }
+}
+
+function getWorklistErrorState(error: unknown): {
+  title: string;
+  message: string;
+  detail?: string;
+  showSignIn?: boolean;
+} {
+  const message = error instanceof Error ? error.message : "Unable to load the backend worklist.";
+  const normalized = message.trim() || "Unable to load the backend worklist.";
+  const lower = normalized.toLowerCase();
+
+  if (lower.includes("session") || lower.includes("sign in") || lower.includes("unauthorized") || lower.includes("forbidden")) {
+    return {
+      title: "Session expired",
+      message: "Sign in again to restore access to the canonical backend worklist.",
+      detail: normalized,
+      showSignIn: true,
+    };
+  }
+
+  return {
+    title: "Canonical worklist unavailable",
+    message: "The backend worklist could not be loaded, so the operator console cannot safely render workflow state.",
+    detail: normalized,
+  };
+}
+
 export function DashboardContent() {
+  const searchParams = useSearchParams();
+  const searchParamString = searchParams.toString();
+  const worklistRequest = useMemo(() => buildWorklistRequest(searchParamString), [searchParamString]);
+  const worklistKey = useMemo(() => `revenue-worklist:${JSON.stringify(worklistRequest)}`, [worklistRequest]);
   const [autoRetryState, setAutoRetryState] = useState<{ key: string; count: number }>({
     key: "idle",
     count: 0,
   });
-  const { data, isLoading, mutate } = useSWR("latest-revenue-snapshot", fetchLatestRevenueSnapshotState, {
+
+  const {
+    data: snapshotData,
+    isLoading: snapshotIsLoading,
+    mutate: mutateSnapshot,
+  } = useSWR("latest-revenue-snapshot", fetchLatestRevenueSnapshotState, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const {
+    data: worklistPage,
+    error: worklistError,
+    isLoading: worklistLoading,
+    mutate: mutateWorklist,
+  } = useSWR(worklistKey, () => fetchRevenueWorklist(worklistRequest), {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
 
   const state = useMemo<DashboardState>(
-    () => (isLoading && !data ? { status: "loading" } : (data ?? { status: "loading" })),
-    [data, isLoading],
+    () => (snapshotIsLoading && !snapshotData ? { status: "loading" } : (snapshotData ?? { status: "loading" })),
+    [snapshotData, snapshotIsLoading],
   );
   const autoRetryKey =
     state.status === "pending" || state.status === "recoverable"
@@ -234,11 +331,6 @@ export function DashboardContent() {
   const autoRetryIntervalMs =
     state.status === "pending" || state.status === "recoverable" ? state.retryPolicy.intervalMs : null;
   const autoRetryLimit = state.status === "pending" || state.status === "recoverable" ? state.retryPolicy.maxAttempts : 0;
-
-  const { data: claimsState } = useSWR(state.status === "ready" ? "claims-index" : null, fetchClaimsIndex, {
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
-  });
 
   useEffect(() => {
     if (state.status !== "pending" && state.status !== "recoverable") {
@@ -254,39 +346,82 @@ export function DashboardContent() {
         key: autoRetryKey,
         count: currentState.key === autoRetryKey ? currentState.count + 1 : 1,
       }));
-      void mutate();
+      void mutateSnapshot();
     }, autoRetryIntervalMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [autoRetryCount, autoRetryIntervalMs, autoRetryKey, autoRetryLimit, mutate, state.status]);
+  }, [autoRetryCount, autoRetryIntervalMs, autoRetryKey, autoRetryLimit, mutateSnapshot, state.status]);
 
   const workbenchData = useMemo(() => {
-    if (state.status !== "ready") {
+    if (!worklistPage) {
       return null;
     }
 
-    const claims = claimsState?.claims ?? [];
-    const items = buildRevenueQueueItems(state.snapshot, claims);
-
     return {
-      items,
-      metrics: buildInsightMetrics(state.snapshot, items),
-      pipelineStages: buildPipelineStages(items),
-      policyRules: buildPolicyRules(items),
-      snapshotGeneratedAt: state.snapshot.generated_at,
-      claimsNotice: claimsState?.error ?? null,
+      items: buildRevenueQueueItems(worklistPage),
+      metrics: buildInsightMetrics(state.status === "ready" ? state.snapshot : null, worklistPage),
+      totalItems: worklistPage.total,
+      currentPage: worklistPage.page,
+      pageSize: worklistPage.page_size,
+      totalPages: worklistPage.total_pages,
+      sortBy: worklistPage.sort_by,
+      sortDirection: worklistPage.sort_direction,
+      snapshotGeneratedAt: state.status === "ready" ? state.snapshot.generated_at : null,
+      snapshotNotice: getSnapshotNotice(state, autoRetryCount),
     };
-  }, [claimsState, state]);
+  }, [autoRetryCount, state, worklistPage]);
 
-  if (state.status !== "ready" || !workbenchData) {
-    return renderDashboardState(state, autoRetryCount, () => {
-      setAutoRetryState({
-        key: autoRetryKey,
-        count: 0,
-      });
-      void mutate();
-    });
+  if (worklistLoading && !worklistPage) {
+    return <DashboardSkeleton />;
   }
 
-  return <RevenueWorkbench {...workbenchData} />;
+  if (!worklistPage) {
+    if (!worklistError && state.status !== "loading") {
+      return renderDashboardState(state, autoRetryCount, () => {
+        setAutoRetryState({
+          key: autoRetryKey,
+          count: 0,
+        });
+        void mutateSnapshot();
+      });
+    }
+
+    const worklistProblem = getWorklistErrorState(worklistError);
+    return (
+      <DashboardStatusPanel
+        tone={worklistProblem.showSignIn ? "warning" : "error"}
+        title={worklistProblem.title}
+        message={worklistProblem.message}
+        detail={worklistProblem.detail}
+        guidance="The operator console only renders queue state from the backend worklist contract, so the queue is withheld until that contract is reachable again."
+        actions={
+          <DashboardStatusActions
+            onRetry={() => {
+              setAutoRetryState({
+                key: autoRetryKey,
+                count: 0,
+              });
+              void mutateWorklist();
+              void mutateSnapshot();
+            }}
+            showSignIn={worklistProblem.showSignIn}
+          />
+        }
+      />
+    );
+  }
+
+  if (!workbenchData) {
+    return <DashboardSkeleton />;
+  }
+
+  async function handleMarkInProgress(itemIds: string[]) {
+    await runRevenueWorklistAction({
+      workItemIds: itemIds,
+      action: "mark_in_progress",
+    });
+    await Promise.all([mutateWorklist(), mutateSnapshot()]);
+  }
+
+  return <RevenueWorkbench {...workbenchData} onMarkInProgress={handleMarkInProgress} />;
 }
