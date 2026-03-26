@@ -78,6 +78,19 @@ const worklistActionResponseSchema = z.object({
   action: z.string().min(1),
   updated_work_item_ids: z.array(z.string()),
   updated_count: z.number(),
+  failed_count: z.number().default(0),
+  results: z
+    .array(
+      z.object({
+        work_item_id: z.string().min(1),
+        action: z.string().min(1),
+        status: z.string().min(1),
+        audit_id: z.string().nullable().optional(),
+        error_message: z.string().nullable().optional(),
+        result_payload: z.record(z.string(), z.unknown()).nullable().optional(),
+      }),
+    )
+    .default([]),
 });
 
 export type RevenueWorklistPage = z.infer<typeof revenueWorklistPageSchema>;

@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import type { RevenueWorklistActionResponse } from "@/lib/api/worklist";
 import {
   type InsightMetric,
   type QueueItem,
@@ -577,7 +578,7 @@ function DecisionSupportPanel({
 }: {
   item: QueueItem | null;
   isSubmitting: boolean;
-  onMarkInProgress: (itemIds: string[]) => Promise<void>;
+  onMarkInProgress: (itemIds: string[]) => Promise<RevenueWorklistActionResponse>;
 }) {
   if (!item) {
     return (
@@ -683,7 +684,7 @@ export function RevenueWorkbench({
   sortBy: string;
   sortDirection: string;
   snapshotNotice?: string | null;
-  onMarkInProgress: (itemIds: string[]) => Promise<void>;
+  onMarkInProgress: (itemIds: string[]) => Promise<RevenueWorklistActionResponse>;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -774,17 +775,45 @@ export function RevenueWorkbench({
 
   async function handleMarkInProgress(itemIds: string[]) {
     if (itemIds.length === 0 || isSubmitting) {
-      return;
+      return {
+        action: "mark_in_progress",
+        updated_work_item_ids: [],
+        updated_count: 0,
+        failed_count: 0,
+        results: [],
+      };
     }
 
     try {
       setIsSubmitting(true);
-      await onMarkInProgress(itemIds);
-      setBulkFeedback({
-        tone: "success",
-        message: `Marked ${itemIds.length} work item${itemIds.length === 1 ? "" : "s"} in progress.`,
-      });
-      setSelectedIds((current) => current.filter((id) => !itemIds.includes(id)));
+      const response = await onMarkInProgress(itemIds);
+      const updatedCount = response.updated_count ?? 0;
+      const failedCount = response.failed_count ?? 0;
+      const failedResults = response.results.filter((result) => result.status !== "completed");
+      const firstFailure = failedResults[0]?.error_message?.trim();
+
+      if (updatedCount > 0 && failedCount === 0) {
+        setBulkFeedback({
+          tone: "success",
+          message: `Marked ${updatedCount} work item${updatedCount === 1 ? "" : "s"} in progress.`,
+        });
+      } else if (updatedCount > 0 && failedCount > 0) {
+        setBulkFeedback({
+          tone: "success",
+          message: `${updatedCount} item${updatedCount === 1 ? "" : "s"} updated, ${failedCount} failed.${firstFailure ? ` ${firstFailure}` : ""}`,
+        });
+      } else {
+        setBulkFeedback({
+          tone: "error",
+          message: firstFailure || "No selected work items could be updated.",
+        });
+      }
+
+      const successfulIds = new Set(
+        response.results.filter((result) => result.status === "completed").map((result) => result.work_item_id),
+      );
+      setSelectedIds((current) => current.filter((id) => !successfulIds.has(id)));
+      return response;
     } catch (error) {
       setBulkFeedback({
         tone: "error",
@@ -793,6 +822,7 @@ export function RevenueWorkbench({
             ? error.message
             : "Unable to update the selected work items right now.",
       });
+      throw error;
     } finally {
       setIsSubmitting(false);
     }

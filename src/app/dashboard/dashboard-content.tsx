@@ -427,11 +427,12 @@ export function DashboardContent() {
   }
 
   async function handleMarkInProgress(itemIds: string[]) {
-    await runRevenueWorklistAction({
+    const response = await runRevenueWorklistAction({
       workItemIds: itemIds,
       action: "mark_in_progress",
     });
     await Promise.all([mutateWorklist(), mutateSnapshot()]);
+    return response;
   }
 
   return <RevenueWorkbench {...workbenchData} onMarkInProgress={handleMarkInProgress} />;
