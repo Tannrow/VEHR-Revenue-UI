@@ -5,6 +5,8 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { revenueQueue } from "@/lib/mock/revenue-os";
+
 const primaryNav = [
   { href: "/dashboard", label: "Work Queue", badge: "Today" },
   { href: "/claims", label: "Claims", badge: "Objects" },
@@ -13,24 +15,23 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
-  { href: "/dashboard?priority=critical", label: "Critical Priority", query: "priority=critical" },
-  { href: "/dashboard?status=needs_review", label: "Needs Review", query: "status=needs_review" },
-  { href: "/dashboard?type=DENIAL", label: "Denials", query: "type=DENIAL" },
-] as const;
+  { href: "/dashboard?panel=insights", label: "Insights" },
+  { href: "/dashboard?panel=policy", label: "Policy Engine" },
+];
 
 function SecondaryNavItems({
   pathname,
-  activeQuery,
+  activePanel,
 }: {
   pathname: string;
-  activeQuery: string;
+  activePanel: string | null;
 }) {
   return secondaryNav.map((item) => (
     <Link
       key={item.href}
       href={item.href}
       className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-sm ${
-        pathname === "/dashboard" && activeQuery === item.query
+        pathname === "/dashboard" && activePanel && item.href.includes(activePanel)
           ? "border-white/8 bg-white/[0.06] text-white"
           : "border-transparent text-slate-400 hover:-translate-y-[1px] hover:border-white/6 hover:bg-white/[0.04] hover:text-white"
       }`}
@@ -42,24 +43,8 @@ function SecondaryNavItems({
 
 function SecondaryNav({ pathname }: { pathname: string }) {
   const searchParams = useSearchParams();
-  const activeQuery = useMemo(() => {
-    const priority = searchParams.get("priority");
-    const status = searchParams.get("status");
-    const type = searchParams.get("type");
 
-    if (priority === "critical") {
-      return "priority=critical";
-    }
-    if (status === "needs_review") {
-      return "status=needs_review";
-    }
-    if (type === "DENIAL") {
-      return "type=DENIAL";
-    }
-    return "";
-  }, [searchParams]);
-
-  return <SecondaryNavItems pathname={pathname} activeQuery={activeQuery} />;
+  return <SecondaryNavItems pathname={pathname} activePanel={searchParams.get("panel")} />;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -81,6 +66,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         kind: "Navigation",
       },
       {
+        id: "go-policy-engine",
+        label: "Open Policy Engine",
+        detail: "Inspect routing logic and rule coverage.",
+        href: "/dashboard?panel=policy",
+        kind: "Panel",
+      },
+      {
+        id: "go-insights",
+        label: "Open Insights",
+        detail: "Review operational signals and drill into the queue.",
+        href: "/dashboard?panel=insights",
+        kind: "Panel",
+      },
+      {
         id: "go-era",
         label: "Open ERA Pipeline",
         detail: "Move into remit intake and processing.",
@@ -95,26 +94,33 @@ export function AppShell({ children }: { children: ReactNode }) {
         kind: "Navigation",
       },
       {
-        id: "view-critical-priority",
-        label: "Show Critical Priority",
-        detail: "Filter the live queue to the most urgent claims.",
-        href: "/dashboard?priority=critical",
+        id: "view-auth-salvage",
+        label: "Show Authorization Salvage",
+        detail: "Filter the queue to retro-auth recovery work.",
+        href: "/dashboard?queue=Authorization+salvage",
         kind: "View",
       },
       {
-        id: "view-denied-claims",
-        label: "Show Denied Claims",
-        detail: "Filter the live queue to denied backend work items.",
-        href: "/dashboard?type=DENIAL",
+        id: "view-underpayments",
+        label: "Show Underpayment Recovery",
+        detail: "Review underpaid claims that need reconsideration.",
+        href: "/dashboard?queue=Underpayment+recovery",
         kind: "View",
       },
       {
-        id: "view-needs-review",
-        label: "Show Needs Review",
-        detail: "Filter the live queue to backend review-required work.",
-        href: "/dashboard?status=needs_review",
+        id: "view-appeals",
+        label: "Show Appeals Ready",
+        detail: "Filter the queue to claims already in appeal motion.",
+        href: "/dashboard?status=appeal",
         kind: "View",
       },
+      ...revenueQueue.map((item) => ({
+        id: item.id,
+        label: `Open ${item.claimId}`,
+        detail: `${item.denialCode} · ${item.payer} · ${item.denialReason}`,
+        href: `/dashboard?selected=${item.id}`,
+        kind: "Claim",
+      })),
     ],
     [],
   );
@@ -333,7 +339,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
               <div className="space-y-2">
                 <p className="px-3 text-[11px] uppercase tracking-[0.28em] text-slate-500">Control</p>
-                <Suspense fallback={<SecondaryNavItems pathname={pathname} activeQuery="" />}>
+                <Suspense fallback={<SecondaryNavItems pathname={pathname} activePanel={null} />}>
                   <SecondaryNav pathname={pathname} />
                 </Suspense>
               </div>
@@ -342,8 +348,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="mt-auto space-y-3">
               <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Pinned workflow</p>
-                <p className="mt-3 text-sm font-medium text-white">Live queue views</p>
-                <p className="mt-1 text-sm text-slate-400">Use filters or the command palette to jump into critical priority, needs review, and denial views.</p>
+                <p className="mt-3 text-sm font-medium text-white">Appeal-ready Blue Cross denials</p>
+                <p className="mt-1 text-sm text-slate-400">13 items with evidence complete and SLA under 24 hours.</p>
               </div>
 
               <div className="rounded-[22px] border border-white/8 bg-black/20 p-4 backdrop-blur-sm">
@@ -392,7 +398,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     setCommandQuery(event.target.value);
                     setActiveIndex(0);
                   }}
-                  placeholder="Search views, queues, statuses, or actions"
+                  placeholder="Search claims, denials, payers, or actions like draft appeal"
                   className="w-full bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-500"
                 />
               </div>
