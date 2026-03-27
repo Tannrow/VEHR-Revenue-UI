@@ -13,23 +13,24 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
-  { href: "/dashboard?panel=insights", label: "Insights" },
-  { href: "/dashboard?panel=policy", label: "Policy Engine" },
-];
+  { href: "/dashboard?priority=critical", label: "Critical Priority", query: "priority=critical" },
+  { href: "/dashboard?status=needs_review", label: "Needs Review", query: "status=needs_review" },
+  { href: "/dashboard?type=DENIAL", label: "Denials", query: "type=DENIAL" },
+] as const;
 
 function SecondaryNavItems({
   pathname,
-  activePanel,
+  activeQuery,
 }: {
   pathname: string;
-  activePanel: string | null;
+  activeQuery: string;
 }) {
   return secondaryNav.map((item) => (
     <Link
       key={item.href}
       href={item.href}
       className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-sm ${
-        pathname === "/dashboard" && activePanel && item.href.includes(activePanel)
+        pathname === "/dashboard" && activeQuery === item.query
           ? "border-white/8 bg-white/[0.06] text-white"
           : "border-transparent text-slate-400 hover:-translate-y-[1px] hover:border-white/6 hover:bg-white/[0.04] hover:text-white"
       }`}
@@ -41,8 +42,24 @@ function SecondaryNavItems({
 
 function SecondaryNav({ pathname }: { pathname: string }) {
   const searchParams = useSearchParams();
+  const activeQuery = useMemo(() => {
+    const priority = searchParams.get("priority");
+    const status = searchParams.get("status");
+    const type = searchParams.get("type");
 
-  return <SecondaryNavItems pathname={pathname} activePanel={searchParams.get("panel")} />;
+    if (priority === "critical") {
+      return "priority=critical";
+    }
+    if (status === "needs_review") {
+      return "status=needs_review";
+    }
+    if (type === "DENIAL") {
+      return "type=DENIAL";
+    }
+    return "";
+  }, [searchParams]);
+
+  return <SecondaryNavItems pathname={pathname} activeQuery={activeQuery} />;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -62,20 +79,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         detail: "Jump back to the primary denial triage surface.",
         href: "/dashboard",
         kind: "Navigation",
-      },
-      {
-        id: "go-policy-engine",
-        label: "Open Policy Engine",
-        detail: "Inspect routing logic and rule coverage.",
-        href: "/dashboard?panel=policy",
-        kind: "Panel",
-      },
-      {
-        id: "go-insights",
-        label: "Open Insights",
-        detail: "Review operational signals and drill into the queue.",
-        href: "/dashboard?panel=insights",
-        kind: "Panel",
       },
       {
         id: "go-era",
@@ -101,15 +104,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       {
         id: "view-denied-claims",
         label: "Show Denied Claims",
-        detail: "Filter the live queue to denied backend claims.",
-        href: "/dashboard?queue=Denied+claims&status=blocked",
+        detail: "Filter the live queue to denied backend work items.",
+        href: "/dashboard?type=DENIAL",
         kind: "View",
       },
       {
-        id: "view-open-balances",
-        label: "Show Open Balances",
-        detail: "Review open and partial balances surfaced by the snapshot.",
-        href: "/dashboard?queue=Open+balances",
+        id: "view-needs-review",
+        label: "Show Needs Review",
+        detail: "Filter the live queue to backend review-required work.",
+        href: "/dashboard?status=needs_review",
         kind: "View",
       },
     ],
@@ -330,7 +333,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
               <div className="space-y-2">
                 <p className="px-3 text-[11px] uppercase tracking-[0.28em] text-slate-500">Control</p>
-                <Suspense fallback={<SecondaryNavItems pathname={pathname} activePanel={null} />}>
+                <Suspense fallback={<SecondaryNavItems pathname={pathname} activeQuery="" />}>
                   <SecondaryNav pathname={pathname} />
                 </Suspense>
               </div>
@@ -340,7 +343,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 backdrop-blur-sm">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Pinned workflow</p>
                 <p className="mt-3 text-sm font-medium text-white">Live queue views</p>
-                <p className="mt-1 text-sm text-slate-400">Use filters or the command palette to jump into critical claims, denied work, and open balances.</p>
+                <p className="mt-1 text-sm text-slate-400">Use filters or the command palette to jump into critical priority, needs review, and denial views.</p>
               </div>
 
               <div className="rounded-[22px] border border-white/8 bg-black/20 p-4 backdrop-blur-sm">
