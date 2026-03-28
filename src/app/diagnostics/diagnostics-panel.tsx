@@ -19,7 +19,11 @@ type MCPToolHealth = {
   name: string;
   status: string;
   ok: boolean;
+  configured?: boolean | null;
+  working?: boolean | null;
   detail: string;
+  error_code?: string | null;
+  credential?: string | null;
   checked_at: string;
   latency_ms?: number | null;
   repo?: string | null;
@@ -104,6 +108,30 @@ function StatusBadge({ label, tone }: { label: string; tone: "healthy" | "warnin
   );
 }
 
+function getToolTone(status: string): "healthy" | "warning" | "error" {
+  switch (status) {
+    case "healthy":
+      return "healthy";
+    case "missing_config":
+      return "warning";
+    default:
+      return "error";
+  }
+}
+
+function getToolLabel(status: string): string {
+  switch (status) {
+    case "healthy":
+      return "Healthy";
+    case "missing_config":
+      return "Missing config";
+    case "configured_but_not_working":
+      return "Error";
+    default:
+      return "Attention needed";
+  }
+}
+
 function getErrorMessage(response: Awaited<ReturnType<typeof apiClientFetch>>, fallback: string): string {
   if (response.data && typeof response.data === "object" && "detail" in response.data) {
     const detail = (response.data as { detail?: unknown }).detail;
@@ -127,7 +155,7 @@ function getErrorMessage(response: Awaited<ReturnType<typeof apiClientFetch>>, f
 }
 
 function ToolCard({ tool }: { tool: MCPToolHealth }) {
-  const tone = tool.ok ? "healthy" : tool.status === "missing_config" ? "warning" : "error";
+  const tone = getToolTone(tool.status);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
@@ -137,12 +165,16 @@ function ToolCard({ tool }: { tool: MCPToolHealth }) {
           <p className="mt-2 text-sm leading-6 text-zinc-400 break-words">{tool.detail}</p>
         </div>
         <StatusBadge
-          label={tool.ok ? "Healthy" : tool.status === "missing_config" ? "Missing config" : "Error"}
+          label={getToolLabel(tool.status)}
           tone={tone}
         />
       </div>
 
       <div className="mt-4 space-y-1 text-xs text-zinc-500">
+        {typeof tool.configured === "boolean" ? <p>Configured: {tool.configured ? "yes" : "no"}</p> : null}
+        {typeof tool.working === "boolean" ? <p>Working: {tool.working ? "yes" : "no"}</p> : null}
+        {tool.credential ? <p>Credential: {tool.credential}</p> : null}
+        {tool.error_code ? <p>Error code: {tool.error_code}</p> : null}
         {typeof tool.latency_ms === "number" ? <p>Latency: {tool.latency_ms} ms</p> : null}
         {tool.repo ? <p>Repo: {tool.repo}</p> : null}
         {tool.default_branch ? <p>Branch: {tool.default_branch}</p> : null}
